@@ -1,6 +1,8 @@
 # reelmatrix
 
-## project structure
+## Repository Structure
+
+```text
 reelmatrix/
 ├── README.md
 ├── .env.example
@@ -11,7 +13,7 @@ reelmatrix/
 ├── Makefile
 │
 ├── apps/
-│   ├── api/                          # FastAPI/BFF，统一对外 API
+│   ├── api/                          # FastAPI / BFF layer
 │   │   ├── app/
 │   │   │   ├── main.py
 │   │   │   ├── config.py
@@ -20,7 +22,7 @@ reelmatrix/
 │   │   │   ├── routes/
 │   │   │   │   ├── clients.py
 │   │   │   │   ├── projects.py
-│   │   │   │   ├── events.py        # /api/events 统一事件入口
+│   │   │   │   ├── events.py
 │   │   │   │   ├── approvals.py
 │   │   │   │   ├── content.py
 │   │   │   │   ├── publishing.py
@@ -30,14 +32,14 @@ reelmatrix/
 │   │   │   └── security/
 │   │   └── tests/
 │   │
-│   ├── orchestrator/                # LangGraph 状态机 + 事件路由核心
+│   ├── orchestrator/                # LangGraph state machine + event routing
 │   │   ├── app/
 │   │   │   ├── graph/
 │   │   │   │   ├── state.py
 │   │   │   │   ├── builder.py
 │   │   │   │   ├── routing.py
 │   │   │   │   └── transitions.py
-│   │   │   ├── handlers/            # event -> action handlers
+│   │   │   ├── handlers/
 │   │   │   │   ├── human_handlers.py
 │   │   │   │   ├── schedule_handlers.py
 │   │   │   │   ├── agent_handlers.py
@@ -81,7 +83,7 @@ reelmatrix/
 │       └── public/
 │
 ├── core/
-│   ├── agents/                      # Agent 定义，不直接绑业务路由
+│   ├── agents/
 │   │   ├── base.py
 │   │   ├── research_agent.py
 │   │   ├── content_generation_agent.py
@@ -89,7 +91,7 @@ reelmatrix/
 │   │   ├── optimization_agent.py
 │   │   └── ab_test_agent.py
 │   │
-│   ├── workflows/                   # 确定性流程
+│   ├── workflows/
 │   │   ├── onboarding.py
 │   │   ├── auditing.py
 │   │   ├── research_pipeline.py
@@ -98,7 +100,7 @@ reelmatrix/
 │   │   ├── metrics_ingestion.py
 │   │   └── anomaly_detection.py
 │   │
-│   ├── harness/                     # Skill/Memory/Tool 装配层
+│   ├── harness/
 │   │   ├── context_builder.py
 │   │   ├── skill_loader.py
 │   │   ├── memory_loader.py
@@ -107,11 +109,11 @@ reelmatrix/
 │   │   └── certification_gate.py
 │   │
 │   ├── memory/
-│   │   ├── models.py               # semantic / episodic / procedural
+│   │   ├── models.py
 │   │   ├── stores/
 │   │   │   ├── short_term.py
-│   │   │   ├── warm_memory.py      # Redis
-│   │   │   └── long_term.py        # Postgres / pgvector
+│   │   │   ├── warm_memory.py
+│   │   │   └── long_term.py
 │   │   ├── retrieval.py
 │   │   ├── compression.py
 │   │   └── forgetting.py
@@ -160,11 +162,8 @@ reelmatrix/
 │       ├── idempotency.py
 │       └── time.py
 │
-├── mcp_servers/                     # 每个外部能力一个 server
+├── mcp_servers/
 │   ├── brand-kb-mcp/
-│   │   ├── server.py
-│   │   ├── tools/
-│   │   └── README.md
 │   ├── web-scraper-mcp/
 │   ├── twitter-publisher-mcp/
 │   ├── reddit-mcp-server/
@@ -180,37 +179,18 @@ reelmatrix/
 │
 ├── infra/
 │   ├── docker/
-│   │   ├── api.Dockerfile
-│   │   ├── worker.Dockerfile
-│   │   ├── orchestrator.Dockerfile
-│   │   ├── web.Dockerfile
-│   │   └── mcp.Dockerfile
 │   ├── railway/
 │   ├── flyio/
 │   └── scripts/
-│       ├── bootstrap.sh
-│       ├── run_dev.sh
-│       └── migrate.sh
 │
 ├── configs/
 │   ├── environments/
-│   │   ├── dev.yaml
-│   │   ├── staging.yaml
-│   │   └── prod.yaml
 │   ├── llm/
-│   │   ├── models.yaml
-│   │   └── token_limits.yaml
 │   ├── trust/
-│   │   └── approval_matrix.yaml
 │   └── observability/
-│       └── logging.yaml
 │
 ├── docs/
 │   ├── architecture/
-│   │   ├── system-overview.md
-│   │   ├── state-machine.md
-│   │   ├── workflow-vs-agent-vs-mcp.md
-│   │   └── memory-skill-tool.md
 │   ├── product/
 │   ├── api/
 │   ├── runbooks/
