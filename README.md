@@ -18,11 +18,11 @@ reelmatrix/
 │   ├── social_x/
 │   ├── professional_in/
 │   └── seo_geo/
-├── data/                 # 数据存储与迁移层：存放关系型数据库的迁移脚本、初始数据填充及测试用固件数据
-├── infra/                # 运维与基础设施层：存放 Dockerfile、Docker Compose 及云平台部署流水线脚本 
-├── configs/              # 全局配置中心：统一管理全局环境变量、API 密钥模板及大模型 Temperature 等参数
-├── docs/                 # 项目文档中心：存放架构说明、API 文档与系统维护应急手册
-└── tests/                # 质量保障与自动化测试层：存放单元测试、Agent 协同集成测试以及端到端测试脚本
+├── data/                 # 支撑性基础设施层：数据存储与迁移
+├── infra/                # 支撑性基础设施层：运维与部署
+├── configs/              # 支撑性基础设施层：全局配置管理
+├── docs/                 # 支撑性基础设施层：项目文档
+└── tests/                # 支撑性基础设施层：质量保障与自动化测试
 ```
 
 ## 2. 技术栈总览
@@ -36,7 +36,7 @@ reelmatrix/
 | 前端样式 | TailwindCSS | apps/web/ | 快速构建统一、可复用的 UI 样式 |
 | 后端 API 框架 | FastAPI | apps/api/ | 提供高并发异步 API 服务 |
 | 后端语言 | Python | apps/api/、apps/workers/、core/、mcp_servers/ | 承载后端业务逻辑、AI 调用、任务调度与工具封装 |
-| 异步任务队列 | Celery | apps/workers/ | 处理定时发布、批量发送、爬虫抓取等长周期任务 |
+| 异步任务队列 | Celery | apps/workers/ | 处理定时发布、热点抓取、批量发送、模型推理等长周期异步任务 |
 | 消息队列 / 缓存 | Redis | apps/workers/ | 作为 Celery Broker 或任务状态存储 |
 | AI Agent 框架 | LangChain 或 LlamaIndex | core/agents/ | 构建具备工具调用能力的 AI 智能体 |
 | 工作流编排 | Python 状态机 / Workflow Engine | core/workflows/ | 管理多 Agent、多渠道、多事件的任务流转 |
@@ -58,10 +58,12 @@ reelmatrix/
 ## 3. 分层目录与技术栈说明
 
 整体架构划分为四大核心层：
+
 1. 核心应用入口层
-2. AI引擎与核心业务层
+2. AI 引擎与核心业务层
 3. 外部工具与防腐层
 4. 支撑性基础设施层
+
 每一层都对应明确的目录结构、技术栈选择和工程任务边界，用于保证前端入口、后端服务、AI 核心逻辑、外部平台接入和基础设施之间保持清晰解耦。
 
 ### 1. 核心应用入口层：apps/
@@ -132,7 +134,7 @@ AI 推理和外部平台请求通常耗时较长，不能直接阻塞 API 主进
 | core/agents/ | Python、LangChain 或 LlamaIndex | 构建负责策略规划、内容生成、渠道适配和工具调用的 AI Agent |
 | core/workflows/ | Python、Workflow Engine 或状态机逻辑 | 管理多 Agent、多事件、多渠道之间的任务流转 |
 | core/evaluation/ | Python、规则逻辑、轻量级模型 | 对外发内容进行合规性、品牌敏感词和幻觉校验 |
-| core/memory/ | Python、数据库、向量存储 | 存储用户偏好、品牌风格、历史表现数据和长期上下文 |
+| core/memory/ | Python、数据库或向量存储 | 存储用户偏好、品牌风格、历史表现数据和长期上下文 |
 
 #### 2.1 core/agents/
 
@@ -189,7 +191,7 @@ Agent 是系统中最核心的智能决策单元。通过 LangChain 或 LlamaInd
 
 #### 2.4 core/memory/
 
-**技术栈**：Python、数据库、向量存储。
+**技术栈**：Python、数据库或向量存储。
 
 **主要任务**：
 
@@ -210,8 +212,8 @@ Agent 是系统中最核心的智能决策单元。通过 LangChain 或 LlamaInd
 | 目录 | 技术栈 | 主要任务 |
 | --- | --- | --- |
 | mcp_servers/rag_knowledge/ | Python、Sentence-BERT、Pinecone 或 Milvus | 对品牌资料和产品文档进行向量化、语义检索和上下文召回 |
-| mcp_servers/social_x/ | Python、Model Context Protocol、Twitter 或 Reddit 相关接口 | 封装社交平台的发帖、热点抓取、用户动态获取能力 |
-| mcp_servers/professional_in/ | Python、Model Context Protocol、LinkedIn 相关接口 | 封装职场平台内容分发、线索触达和用户动态获取能力 |
+| mcp_servers/social_x/ | Python、Model Context Protocol、Twitter、Reddit API 或自动化接口 | 封装社交平台的发帖、热点抓取、用户动态获取能力 |
+| mcp_servers/professional_in/ | Python、Model Context Protocol、LinkedIn API 或自动化接口 | 封装职场平台内容分发、线索触达和用户动态获取能力 |
 | mcp_servers/seo_geo/ | Python、内容结构化规则、GEO 优化逻辑 | 优化内容结构，使其更容易被 AI 搜索引擎检索和引用 |
 
 #### 3.1 mcp_servers/rag_knowledge/
@@ -232,7 +234,7 @@ Agent 是系统中最核心的智能决策单元。通过 LangChain 或 LlamaInd
 
 #### 3.2 mcp_servers/social_x/
 
-**技术栈**：Python、Model Context Protocol、Twitter 或 Reddit 相关接口。
+**技术栈**：Python、Model Context Protocol、Twitter、Reddit API 或自动化接口。
 
 **主要任务**：
 
@@ -248,7 +250,7 @@ Agent 是系统中最核心的智能决策单元。通过 LangChain 或 LlamaInd
 
 #### 3.3 mcp_servers/professional_in/
 
-**技术栈**：Python、Model Context Protocol、LinkedIn 相关接口。
+**技术栈**：Python、Model Context Protocol、LinkedIn API 或自动化接口。
 
 **主要任务**：
 
