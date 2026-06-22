@@ -1,5 +1,234 @@
 # reelmatrix 核心技术架构与目录说明
 
+## Phase 1：本地可运行的 Agent 后端 MVP
+
+Phase 1 在既有 monorepo 分层内实现两个角色明确的业务 Agent：Marketing Ideation ChatBot 和 Marketing Planning MasterBot。`core/workflows/` 只负责编排，`core/llm/` 隔离模型提供方，`apps/api/` 只暴露 HTTP 接口。本阶段不包含前端、数据库、认证、MCP、浏览器自动化、外部发布或任务队列。
+
+### 环境要求与安装
+
+- Python 3.13
+- 包管理：`uv`
+- 依赖声明：`pyproject.toml`
+- 版本锁定：`uv.lock`
+- Python 版本约定：`.python-version`
+
+```bash
+uv python install 3.13
+uv sync --locked
+cp .env.example .env
+```
+
+`dev` dependency group 已配置为默认组，因此 `uv sync` 会同时安装 pytest、httpx 等开发依赖，不再使用 `--extra dev`。日常执行命令直接使用 `uv run`，不要求手动激活虚拟环境。
+
+### uv 与环境文件约定
+
+| 文件/目录 | 作用 | 是否提交 Git |
+| --- | --- | --- |
+| `.python-version` | 告诉 uv 使用 Python 3.13 | 是 |
+| `pyproject.toml` | 声明运行依赖、开发依赖和项目配置 | 是 |
+| `uv.lock` | 锁定完整依赖版本，保证环境可复现 | 是 |
+| `uv.toml` | 配置项目级 uv 缓存目录 `.uv-cache/` | 是 |
+| `.uv-cache/` | uv 下载、构建和解析依赖时使用的可重建缓存 | 否 |
+| `.venv/` | `uv sync` 自动创建的本地 Python 与依赖环境 | 否 |
+| `.env.example` | 可提交的应用环境变量模板，不包含真实密钥 | 是 |
+| `.env` | 当前机器的真实运行配置和 API Key | 否 |
+
+本项目通过 `uv.toml` 将缓存放在仓库内的 `.uv-cache/`，避免依赖用户级 `~/.cache/uv`。`.uv-cache/` 只用于复用下载包和构建结果，`.venv/` 才是项目实际运行的 Python 环境；两者都不应提交，也都可以安全重建。
+
+`.venv/` 不应手动维护。环境损坏时可以删除后重新执行 `uv sync --locked`。`.env.example` 与 uv 依赖管理无关；它用于告诉开发者应用需要哪些环境变量。配置模块会在运行时读取复制后的 `.env`。
+
+`.env` 是复制后由当前机器独立维护的本地文件，后续修改 `.env.example` 不会自动同步到它。模板字段变化后，应手动合并新增或重命名的字段，同时保留 `.env` 中的真实密钥。
+
+常用依赖管理命令：
+
+```bash
+uv add <package>          # 添加运行依赖并更新 uv.lock
+uv add --dev <package>    # 添加开发依赖并更新 uv.lock
+uv remove <package>       # 删除依赖并更新 uv.lock
+uv lock --check           # 检查 pyproject.toml 与 uv.lock 是否同步
+uv sync --locked          # 严格按锁文件同步 .venv
+```
+
+### LLM Provider 配置
+
+默认配置是无网络调用、结果确定的 mock provider：
+
+```dotenv
+APP_ENV=development
+LLM_PROVIDER=mock
+LLM_TIMEOUT_SECONDS=60
+```
+
+使用 OpenAI / ChatGPT API：
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=replace-with-your-key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+使用阿里云 Model Studio 新加坡区域的 Qwen OpenAI-compatible API：
+
+```dotenv
+LLM_PROVIDER=dashscope
+DASHSCOPE_API_KEY=replace-with-your-singapore-workspace-key
+DASHSCOPE_WORKSPACE_ID=your-workspace-id
+DASHSCOPE_MODEL=qwen-plus
+```
+
+将 `your-workspace-id` 替换为百炼控制台业务空间详情页中的 Workspace ID。应用会自动生成 `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`，不需要在 `.env` 中重复维护完整 URL。
+
+`DASHSCOPE_BASE_URL` 仍可用于旧域名或特殊 endpoint，但仅在未配置 `DASHSCOPE_WORKSPACE_ID` 时生效。Base URL 到 `/compatible-mode/v1` 为止，不要追加 `/chat/completions`。旧的 `LLM_PROVIDER=qwen` 以及 `QWEN_API_KEY/QWEN_WORKSPACE_ID/QWEN_BASE_URL/QWEN_MODEL` 仍作为兼容别名支持，但新配置应统一使用 `dashscope` 和 `DASHSCOPE_*`。
+
+使用任意 OpenAI-compatible 本地服务（例如兼容 `/v1/chat/completions` 的运行时）：
+
+```dotenv
+LLM_PROVIDER=local
+LOCAL_LLM_BASE_URL=http://localhost:11434/v1
+LOCAL_LLM_API_KEY=
+LOCAL_LLM_MODEL=llama3.1
+```
+
+本地 API Key 可以为空。当前支持 `mock`、`openai`、`dashscope`、`local`，并兼容旧的 `qwen` provider 名称。OpenAI/DashScope 缺少 API Key，DashScope 缺少 Workspace ID/Base URL，local 缺少 URL 或模型，或 provider 名称未知时，应用会在启动时给出明确配置错误。
+
+### 真实调用前的离线验证
+
+测试入口会在 `tests/conftest.py` 中强制设置 `APP_ENV=test` 和 `LLM_PROVIDER=mock`。因此即使 `.env` 已填写真实 API Key，执行 pytest 也不会访问 DashScope/OpenAI，不会消耗模型额度。
+
+```bash
+uv lock --check
+uv run python -m compileall -q apps configs core tests
+uv run pytest
+```
+
+当前基线为 34 个测试，覆盖 schema、两个 Agent、工作流双分支、API 路由、provider factory，以及 OpenAI-compatible 客户端响应校验。
+
+可以在不发起网络请求的情况下检查 DashScope 必填配置并构造客户端：
+
+```bash
+uv run python -c 'from configs.settings import AppSettings; from core.llm.factory import create_llm_client; s = AppSettings(); assert s.dashscope_api_key and s.dashscope_workspace_id; create_llm_client(s.model_copy(update={"llm_provider": "dashscope"})); print("DashScope configuration preflight passed")'
+```
+
+该命令不会输出 API Key，也不会调用模型。真实测试前还需要确认 `.env` 中 `DASHSCOPE_WORKSPACE_ID` 已替换占位符，并将 `LLM_PROVIDER` 设置为 `dashscope`。
+
+### 启动与测试
+
+```bash
+uv run uvicorn apps.api.main:app --reload
+uv run pytest
+```
+
+健康检查：`GET http://localhost:8000/health`。
+
+`GET /health` 不会调用模型。`POST /api/v1/campaign/generate` 才会进入 Agent 工作流；当构思结果可进入规划阶段时，一次 API 请求会依次调用 IdeationBot 和 PlanningBot，因此真实 provider 通常产生两次模型调用。
+
+### 生成 Campaign
+
+```bash
+curl -X POST http://localhost:8000/api/v1/campaign/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_name": "TensorGrowth",
+    "product_description": "An AI marketing workspace that helps founders generate and plan campaigns.",
+    "target_audience": "early-stage startup founders and lean marketing teams",
+    "marketing_goal": "generate qualified waitlist signups",
+    "brand_voice": "sharp, practical, founder-friendly",
+    "constraints": ["small team", "limited budget", "organic-first"],
+    "user_prompt": "ready for planning: create a launch campaign concept for this product"
+  }'
+```
+
+mock 模式下，将 `user_prompt` 设为包含 `needs more ideation` 可稳定触发补充构思分支：
+
+```json
+{
+  "status": "needs_more_ideation",
+  "ideation_result": {
+    "campaign_concept": "Clarify the strongest launch idea for TensorGrowth.",
+    "core_message": "The campaign promise needs more evidence and specificity.",
+    "target_audience_insight": "More detail is needed about early-stage startup founders and lean marketing teams and their buying trigger.",
+    "recommended_angles": [
+      "Lead with the audience's highest-cost current problem",
+      "Demonstrate a concrete before-and-after outcome"
+    ],
+    "risks_or_assumptions": [
+      "The primary pain point has not been validated",
+      "The desired conversion action may be too broad"
+    ],
+    "follow_up_questions": [
+      "What single pain point should this campaign prioritize?",
+      "What proof or customer evidence can support the campaign promise?",
+      "What exact action should the audience take after seeing the campaign?"
+    ],
+    "is_ready_for_planning": false
+  },
+  "campaign_plan": null
+}
+```
+
+将 `user_prompt` 设为包含 `ready for planning` 可稳定生成计划：
+
+```json
+{
+  "status": "plan_generated",
+  "ideation_result": {
+    "campaign_concept": "The Lean Growth Launch for TensorGrowth",
+    "core_message": "Turn a clear product story into measurable marketing momentum toward generate qualified waitlist signups.",
+    "target_audience_insight": "early-stage startup founders and lean marketing teams need credible, practical progress without adding operational overhead.",
+    "recommended_angles": [
+      "Replace fragmented campaign work with one guided workflow",
+      "Show measurable progress for a resource-constrained team",
+      "Use founder-relevant examples instead of generic AI claims"
+    ],
+    "risks_or_assumptions": [
+      "The audience already recognizes campaign planning as a bottleneck",
+      "Organic proof can establish enough trust for the initial conversion"
+    ],
+    "follow_up_questions": [],
+    "is_ready_for_planning": true
+  },
+  "campaign_plan": {
+    "campaign_name": "TensorGrowth Lean Growth Launch",
+    "campaign_objective": "generate qualified waitlist signups",
+    "target_audience": "early-stage startup founders and lean marketing teams",
+    "core_message": "Turn a clear product story into measurable marketing momentum toward generate qualified waitlist signups.",
+    "channels": [
+      {
+        "channel_name": "LinkedIn",
+        "role_in_campaign": "Build category awareness and founder credibility",
+        "content_types": ["Founder posts", "Problem-solution carousels"],
+        "key_messages": ["Turn a clear product story into measurable marketing momentum."],
+        "cadence": "Three posts per week for four weeks",
+        "success_metrics": ["Qualified profile visits", "Waitlist conversions"]
+      }
+    ],
+    "content_pillars": [
+      "The cost of fragmented campaign work",
+      "Practical AI workflows for lean marketing teams"
+    ],
+    "timeline": [
+      {
+        "phase_name": "Foundation",
+        "timing": "Week 1",
+        "objective": "Establish the problem and campaign promise",
+        "key_activities": ["Publish category narrative", "Launch waitlist landing message"]
+      }
+    ],
+    "deliverables": [
+      {
+        "name": "Founder launch narrative",
+        "channel": "LinkedIn",
+        "format": "Text post",
+        "purpose": "Introduce the campaign problem and point of view"
+      }
+    ],
+    "success_metrics": ["Qualified waitlist signups", "Landing-page conversion rate"],
+    "assumptions": ["The product has a functioning waitlist destination"],
+    "execution_notes": ["Keep calls to action consistent across channels"]
+  }
+}
+```
+
 ## 1. 工程目录结构总览
 
 ```text
@@ -10,6 +239,8 @@ reelmatrix/
 │   └── workers/
 ├── core/                 # AI 引擎与核心业务层：AI Brain & Logic
 │   ├── agents/
+│   ├── llm/              # 模型提供方抽象与实现
+│   ├── schemas/          # 严格的业务输入输出契约
 │   ├── workflows/
 │   ├── evaluation/
 │   └── memory/
@@ -132,6 +363,8 @@ AI 推理和外部平台请求通常耗时较长，不能直接阻塞 API 主进
 | 目录 | 技术栈 | 主要任务 |
 | --- | --- | --- |
 | core/agents/ | Python、LangChain 或 LlamaIndex | 构建负责策略规划、内容生成、渠道适配和工具调用的 AI Agent |
+| core/llm/ | Python、OpenAI SDK、Provider Adapter | 隔离 mock、OpenAI 与本地 OpenAI-compatible 模型调用 |
+| core/schemas/ | Python、Pydantic | 定义 Agent、Workflow 与 API 共用的严格数据契约 |
 | core/workflows/ | Python、Workflow Engine 或状态机逻辑 | 管理多 Agent、多事件、多渠道之间的任务流转 |
 | core/evaluation/ | Python、规则逻辑、轻量级模型 | 对外发内容进行合规性、品牌敏感词和幻觉校验 |
 | core/memory/ | Python、数据库或向量存储 | 存储用户偏好、品牌风格、历史表现数据和长期上下文 |

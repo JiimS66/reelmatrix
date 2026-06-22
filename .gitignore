@@ -1,1 +1,28 @@
+# macOS
 .DS_Store
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Python environments and caches
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# Tests, coverage, lint, and type checking
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.pyright/
+.ruff_cache/
