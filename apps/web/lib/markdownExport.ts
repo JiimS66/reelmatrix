@@ -42,6 +42,18 @@ export function formatCampaignPackageMarkdown(plan: CampaignPlan): string {
     ...asBullets(plan.execution_notes),
   ];
 
+  if (plan.claim_checks?.length) {
+    lines.push(
+      "",
+      "## Claim Checks",
+      ...plan.claim_checks.map((claim) => {
+        const status = claim.status === "source_backed" ? "source-backed" : "needs validation";
+        const source = claim.source ? ` Source: ${claim.source}` : "";
+        return `- [${status}] ${claim.claim}${source}`;
+      }),
+    );
+  }
+
   if (plan.market_adaptation) {
     lines.push(
       "",
