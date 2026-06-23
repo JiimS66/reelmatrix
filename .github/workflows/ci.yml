@@ -10,6 +10,7 @@ on:
       - dev
       - phase2
       - phase2.1
+      - phase2.2
 
 jobs:
   backend:
