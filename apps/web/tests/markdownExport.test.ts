@@ -38,6 +38,18 @@ const plan: CampaignPlan = {
   success_metrics: ["Qualified signups"],
   assumptions: ["A waitlist destination exists"],
   execution_notes: ["Keep calls to action consistent"],
+  claim_checks: [
+    {
+      claim: "TestSprite announced $6.7M in seed funding",
+      status: "source_backed",
+      source: "https://www.geekwire.com/",
+    },
+    {
+      claim: "Any added customer claim must be validated before publishing.",
+      status: "needs_validation",
+      source: null,
+    },
+  ],
   market_adaptation: {
     target_market: "United States",
     language_strategy: "Use concise English copy.",
@@ -59,10 +71,13 @@ const plan: CampaignPlan = {
 };
 
 describe("formatCampaignPackageMarkdown", () => {
-  it("includes plan, market adaptation, and draft assets", () => {
+  it("includes plan, claim checks, market adaptation, and draft assets", () => {
     const markdown = formatCampaignPackageMarkdown(plan);
 
     expect(markdown).toContain("# TensorGrowth Cross-Border Launch Sprint");
+    expect(markdown).toContain("## Claim Checks");
+    expect(markdown).toContain("[source-backed] TestSprite announced $6.7M in seed funding");
+    expect(markdown).toContain("[needs validation] Any added customer claim");
     expect(markdown).toContain("## Market Adaptation");
     expect(markdown).toContain("**Target market:** United States");
     expect(markdown).toContain("## Draft Assets");

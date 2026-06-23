@@ -92,6 +92,64 @@ def test_campaign_endpoint_generates_plan(
     }
 
 
+def test_campaign_endpoint_generates_developer_tool_package(
+    campaign_request_data: Dict[str, Any],
+) -> None:
+    campaign_request_data.update(
+        {
+            "product_name": "TestSprite",
+            "product_description": "An agentic testing platform for AI-native teams.",
+            "target_audience": "Engineering leaders and developers using coding agents",
+            "marketing_goal": "Generate API key starts and technical demo calls",
+            "campaign_template": "developer_tool",
+            "selected_channels": ["Blog", "GitHub / CLI", "Email"],
+            "brand_context": {
+                "target_personas": ["AI-native engineering teams"],
+                "proof_points": [
+                    {
+                        "claim": "TestSprite announced $6.7M in seed funding",
+                        "source": "https://www.geekwire.com/",
+                    },
+                    {
+                        "claim": "CLI install volume is growing",
+                        "source": None,
+                    },
+                ],
+                "forbidden_words": ["bug-free"],
+                "competitors": ["Cypress", "Playwright"],
+                "tone_rules": ["Lead with technical proof"],
+                "source_links": ["https://www.testsprite.com/"],
+            },
+        }
+    )
+    response = asyncio.run(
+        request(
+            "POST",
+            "/api/v1/campaign/generate",
+            json=campaign_request_data,
+        )
+    )
+
+    assert response.status_code == 200
+    plan = response.json()["campaign_plan"]
+    assert plan["campaign_name"] == "TestSprite Developer Trust Launch"
+    assert {asset["channel"] for asset in plan["draft_assets"]} == {
+        "Blog",
+        "GitHub / CLI",
+        "Email",
+    }
+    assert any(
+        claim["claim"] == "TestSprite announced $6.7M in seed funding"
+        and claim["status"] == "source_backed"
+        for claim in plan["claim_checks"]
+    )
+    assert any(
+        claim["claim"] == "CLI install volume is growing"
+        and claim["status"] == "needs_validation"
+        for claim in plan["claim_checks"]
+    )
+
+
 def test_campaign_endpoint_accepts_explicit_provider_selection(
     campaign_request_data: Dict[str, Any],
 ) -> None:

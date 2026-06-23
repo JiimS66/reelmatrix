@@ -25,6 +25,20 @@ class ConversationMessage(StrictSchema):
     content: NonEmptyStr
 
 
+class BrandProofPoint(StrictSchema):
+    claim: NonEmptyStr
+    source: Optional[NonEmptyStr] = None
+
+
+class BrandContext(StrictSchema):
+    target_personas: Optional[List[NonEmptyStr]] = None
+    proof_points: Optional[List[BrandProofPoint]] = None
+    forbidden_words: Optional[List[NonEmptyStr]] = None
+    competitors: Optional[List[NonEmptyStr]] = None
+    tone_rules: Optional[List[NonEmptyStr]] = None
+    source_links: Optional[List[NonEmptyStr]] = None
+
+
 class CampaignGenerationRequest(StrictSchema):
     product_name: NonEmptyStr
     product_description: NonEmptyStr
@@ -38,6 +52,8 @@ class CampaignGenerationRequest(StrictSchema):
     output_language: Optional[NonEmptyStr] = None
     selected_channels: Optional[List[NonEmptyStr]] = None
     campaign_duration: Optional[NonEmptyStr] = None
+    campaign_template: Optional[NonEmptyStr] = None
+    brand_context: Optional[BrandContext] = None
 
 
 class IdeationResult(StrictSchema):
@@ -91,6 +107,17 @@ class CampaignAsset(StrictSchema):
     notes: List[NonEmptyStr]
 
 
+class ClaimStatus(str, Enum):
+    SOURCE_BACKED = "source_backed"
+    NEEDS_VALIDATION = "needs_validation"
+
+
+class CampaignClaimCheck(StrictSchema):
+    claim: NonEmptyStr
+    status: ClaimStatus
+    source: Optional[NonEmptyStr] = None
+
+
 class CampaignPlan(StrictSchema):
     campaign_name: NonEmptyStr
     campaign_objective: NonEmptyStr
@@ -105,6 +132,7 @@ class CampaignPlan(StrictSchema):
     execution_notes: List[NonEmptyStr]
     market_adaptation: Optional[MarketAdaptation] = None
     draft_assets: Optional[List[CampaignAsset]] = None
+    claim_checks: Optional[List[CampaignClaimCheck]] = None
 
 
 class CampaignWorkflowStatus(str, Enum):

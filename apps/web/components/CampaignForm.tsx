@@ -2,7 +2,11 @@
 
 import { FormEvent, useState } from "react";
 
-import type { CampaignGenerationRequest } from "@/lib/campaignTypes";
+import type {
+  BrandContext,
+  BrandProofPoint,
+  CampaignGenerationRequest,
+} from "@/lib/campaignTypes";
 
 interface CampaignFormProps {
   onSubmit: (request: CampaignGenerationRequest) => void | Promise<void>;
@@ -22,6 +26,13 @@ interface CampaignFormFields {
   output_language: string;
   campaign_duration: string;
   selected_channels: string[];
+  campaign_template: string;
+  target_personas: string;
+  proof_points: string;
+  forbidden_words: string;
+  competitors: string;
+  tone_rules: string;
+  source_links: string;
 }
 
 const channelOptions = [
@@ -30,6 +41,8 @@ const channelOptions = [
   "Landing Page",
   "X / Twitter",
   "Blog",
+  "GitHub / CLI",
+  "Community",
 ] as const;
 
 const emptyFields: CampaignFormFields = {
@@ -44,6 +57,13 @@ const emptyFields: CampaignFormFields = {
   output_language: "English",
   campaign_duration: "4 weeks",
   selected_channels: ["LinkedIn", "Email", "Landing Page"],
+  campaign_template: "general",
+  target_personas: "",
+  proof_points: "",
+  forbidden_words: "",
+  competitors: "",
+  tone_rules: "",
+  source_links: "",
 };
 
 const demoFields: CampaignFormFields = {
@@ -60,6 +80,43 @@ const demoFields: CampaignFormFields = {
   output_language: "English",
   campaign_duration: "4 weeks",
   selected_channels: ["LinkedIn", "Email", "Landing Page"],
+  campaign_template: "general",
+  target_personas: "",
+  proof_points: "",
+  forbidden_words: "",
+  competitors: "",
+  tone_rules: "",
+  source_links: "",
+};
+
+const testSpriteFields: CampaignFormFields = {
+  product_name: "TestSprite",
+  product_description:
+    "An agentic testing platform for AI-native teams. TestSprite uses live browsers and APIs to verify AI-generated code, returns actionable failure bundles, and works across web app, CLI, IDE, MCP, and CI workflows.",
+  target_audience:
+    "Engineering leaders, AI-native developers, QA engineers, and founders using coding agents such as Codex, Cursor, Claude Code, and similar tools",
+  marketing_goal:
+    "Generate qualified developer signups, API key starts, and technical demo calls from teams adopting AI coding agents",
+  brand_voice: "Technical, direct, evidence-led, developer-trust-first",
+  constraints:
+    "Do not overclaim autonomy\nUse source-backed proof\nShow CLI or live-app workflow\nAvoid generic AI productivity language",
+  user_prompt:
+    "ready for planning: create a developer-tool campaign for TestSprite that explains why AI coding agents need a verifier",
+  target_market: "United States",
+  output_language: "English",
+  campaign_duration: "4 weeks",
+  selected_channels: ["LinkedIn", "X / Twitter", "Blog", "GitHub / CLI", "Email", "Community"],
+  campaign_template: "developer_tool",
+  target_personas:
+    "AI-native engineering teams\nEngineering leaders adopting coding agents\nQA engineers modernizing automated testing\nDeveloper-tool founders",
+  proof_points:
+    "TestSprite announced $6.7M in seed funding | https://www.geekwire.com/2025/seattle-startup-testsprite-raises-6-7m-to-become-testing-backbone-for-ai-generated-code/\nTestSprite says its user base grew from 6,000 to 35,000 in three months | https://www.geekwire.com/2025/seattle-startup-testsprite-raises-6-7m-to-become-testing-backbone-for-ai-generated-code/\nTestSprite CLI is open source and helps AI agents check their own work | https://siliconangle.com/2026/06/11/testsprite-launches-open-source-command-line-tool-help-ai-agents-check-work/\nTestSprite positions itself as agentic testing for AI-native teams | https://www.testsprite.com/",
+  forbidden_words: "magic\nfully autonomous without review\nbug-free\nset and forget",
+  competitors: "Playwright\nCypress\nSelenium\nQA Wolf\nRainforest QA",
+  tone_rules:
+    "Lead with the verification gap\nShow real workflow steps\nMark unsourced numeric claims as needs validation\nPrefer technical proof over hype",
+  source_links:
+    "https://www.testsprite.com/\nhttps://www.geekwire.com/2025/seattle-startup-testsprite-raises-6-7m-to-become-testing-backbone-for-ai-generated-code/\nhttps://siliconangle.com/2026/06/11/testsprite-launches-open-source-command-line-tool-help-ai-agents-check-work/",
 };
 
 const requiredFields: Array<keyof CampaignFormFields> = [
@@ -107,10 +164,7 @@ export function CampaignForm({
       return;
     }
 
-    const constraints = fields.constraints
-      .split(/[\n,]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
+    const constraints = splitLines(fields.constraints);
     setValidationError(null);
     void onSubmit({
       product_name: fields.product_name.trim(),
@@ -125,6 +179,8 @@ export function CampaignForm({
       output_language: fields.output_language.trim(),
       selected_channels: fields.selected_channels,
       campaign_duration: fields.campaign_duration.trim() || null,
+      campaign_template: fields.campaign_template,
+      brand_context: buildBrandContext(fields),
     });
   }
 
@@ -144,7 +200,7 @@ export function CampaignForm({
           </h2>
         </div>
         <span className="rounded-full bg-lime/40 px-3 py-1 text-xs font-semibold text-ink">
-          Phase 2.1
+          Phase 2.3
         </span>
       </div>
 
@@ -170,7 +226,7 @@ export function CampaignForm({
         </Field>
       </div>
 
-      <div className="grid gap-5 sm:grid-cols-3">
+      <div className="grid gap-5 sm:grid-cols-4">
         <Field label="Target Market" required>
           <input
             id="target_market"
@@ -203,6 +259,18 @@ export function CampaignForm({
             disabled={isLoading}
             placeholder="4 weeks"
           />
+        </Field>
+        <Field label="Campaign Template">
+          <select
+            id="campaign_template"
+            className="input"
+            value={fields.campaign_template}
+            onChange={(event) => updateField("campaign_template", event.target.value)}
+            disabled={isLoading}
+          >
+            <option value="general">General launch</option>
+            <option value="developer_tool">Developer tool</option>
+          </select>
         </Field>
       </div>
 
@@ -264,6 +332,80 @@ export function CampaignForm({
         </div>
       </fieldset>
 
+      <section className="rounded-3xl border border-slate-200 bg-white/70 p-5">
+        <div className="mb-5">
+          <p className="eyebrow">Brand context</p>
+          <h3 className="mt-2 text-lg font-semibold text-ink">
+            Add proof and guardrails for developer-trust copy
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Use this for TestSprite-style campaigns where sourced claims, precise personas, and forbidden wording matter.
+          </p>
+        </div>
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Target Personas">
+            <textarea
+              id="target_personas"
+              className="input min-h-24 resize-y"
+              value={fields.target_personas}
+              onChange={(event) => updateField("target_personas", event.target.value)}
+              disabled={isLoading}
+              placeholder="One persona per line"
+            />
+          </Field>
+          <Field label="Proof Points">
+            <textarea
+              id="proof_points"
+              className="input min-h-24 resize-y"
+              value={fields.proof_points}
+              onChange={(event) => updateField("proof_points", event.target.value)}
+              disabled={isLoading}
+              placeholder="Claim | source URL"
+            />
+          </Field>
+          <Field label="Forbidden Words">
+            <textarea
+              id="forbidden_words"
+              className="input min-h-20 resize-y"
+              value={fields.forbidden_words}
+              onChange={(event) => updateField("forbidden_words", event.target.value)}
+              disabled={isLoading}
+              placeholder="One word or phrase per line"
+            />
+          </Field>
+          <Field label="Competitors">
+            <textarea
+              id="competitors"
+              className="input min-h-20 resize-y"
+              value={fields.competitors}
+              onChange={(event) => updateField("competitors", event.target.value)}
+              disabled={isLoading}
+              placeholder="One competitor per line"
+            />
+          </Field>
+          <Field label="Tone Rules">
+            <textarea
+              id="tone_rules"
+              className="input min-h-20 resize-y"
+              value={fields.tone_rules}
+              onChange={(event) => updateField("tone_rules", event.target.value)}
+              disabled={isLoading}
+              placeholder="One tone rule per line"
+            />
+          </Field>
+          <Field label="Source Links">
+            <textarea
+              id="source_links"
+              className="input min-h-20 resize-y"
+              value={fields.source_links}
+              onChange={(event) => updateField("source_links", event.target.value)}
+              disabled={isLoading}
+              placeholder="One source URL per line"
+            />
+          </Field>
+        </div>
+      </section>
+
       <Field label="Constraints">
         <textarea
           id="constraints"
@@ -298,6 +440,17 @@ export function CampaignForm({
         </button>
         <button
           className="button-secondary"
+          type="button"
+          onClick={() => {
+            setFields(testSpriteFields);
+            setValidationError(null);
+          }}
+          disabled={isLoading}
+        >
+          Use TestSprite Demo
+        </button>
+        <button
+          className="button-ghost"
           type="button"
           onClick={() => {
             setFields(demoFields);
@@ -341,4 +494,44 @@ function Field({ label, required = false, children }: FieldProps) {
       {children}
     </div>
   );
+}
+
+function splitLines(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function parseProofPoints(value: string): BrandProofPoint[] {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [claim, ...sourceParts] = line.split("|");
+      return {
+        claim: claim.trim(),
+        source: sourceParts.join("|").trim() || null,
+      };
+    })
+    .filter((item) => item.claim);
+}
+
+function buildBrandContext(fields: CampaignFormFields): BrandContext | null {
+  const context: BrandContext = {
+    target_personas: nullIfEmpty(splitLines(fields.target_personas)),
+    proof_points: nullIfEmpty(parseProofPoints(fields.proof_points)),
+    forbidden_words: nullIfEmpty(splitLines(fields.forbidden_words)),
+    competitors: nullIfEmpty(splitLines(fields.competitors)),
+    tone_rules: nullIfEmpty(splitLines(fields.tone_rules)),
+    source_links: nullIfEmpty(splitLines(fields.source_links)),
+  };
+
+  const hasContext = Object.values(context).some((value) => Array.isArray(value) && value.length > 0);
+  return hasContext ? context : null;
+}
+
+function nullIfEmpty<T>(items: T[]): T[] | null {
+  return items.length > 0 ? items : null;
 }
