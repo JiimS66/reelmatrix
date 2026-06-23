@@ -5,6 +5,20 @@ export interface ConversationMessage {
   content: string;
 }
 
+export interface BrandProofPoint {
+  claim: string;
+  source?: string | null;
+}
+
+export interface BrandContext {
+  target_personas?: string[] | null;
+  proof_points?: BrandProofPoint[] | null;
+  forbidden_words?: string[] | null;
+  competitors?: string[] | null;
+  tone_rules?: string[] | null;
+  source_links?: string[] | null;
+}
+
 export interface CampaignGenerationRequest {
   product_name: string;
   product_description: string;
@@ -18,6 +32,8 @@ export interface CampaignGenerationRequest {
   output_language?: string | null;
   selected_channels?: string[] | null;
   campaign_duration?: string | null;
+  campaign_template?: string | null;
+  brand_context?: BrandContext | null;
 }
 
 export interface IdeationResult {
@@ -71,6 +87,14 @@ export interface CampaignAsset {
   notes: string[];
 }
 
+export type CampaignClaimStatus = "source_backed" | "needs_validation";
+
+export interface CampaignClaimCheck {
+  claim: string;
+  status: CampaignClaimStatus;
+  source?: string | null;
+}
+
 export interface CampaignPlan {
   campaign_name: string;
   campaign_objective: string;
@@ -85,6 +109,7 @@ export interface CampaignPlan {
   execution_notes: string[];
   market_adaptation?: MarketAdaptation | null;
   draft_assets?: CampaignAsset[] | null;
+  claim_checks?: CampaignClaimCheck[] | null;
 }
 
 export type CampaignWorkflowStatus =
