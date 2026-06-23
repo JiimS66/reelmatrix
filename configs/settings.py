@@ -17,6 +17,7 @@ class AppSettings(BaseSettings):
     app_env: Literal["development", "test", "production"] = "development"
     llm_provider: str = "mock"
     llm_timeout_seconds: float = Field(default=60, gt=0)
+    web_origin: str = "http://localhost:3000"
 
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"
