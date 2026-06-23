@@ -33,6 +33,9 @@ describe("CampaignForm", () => {
     expect(screen.getByRole("combobox", { name: "Output Language" })).toHaveValue(
       "English",
     );
+    expect(screen.getByRole("combobox", { name: "Campaign Template" })).toHaveValue(
+      "general",
+    );
     expect(screen.getByRole("textbox", { name: "User Prompt" })).toHaveValue(
       "ready for planning: create a launch campaign concept for this product",
     );
@@ -41,20 +44,51 @@ describe("CampaignForm", () => {
     );
   });
 
-  it("normalizes constraints and selected channels before submitting", async () => {
+  it("fills a TestSprite developer-tool demo with proof points", async () => {
+    const user = userEvent.setup();
+    render(<CampaignForm onSubmit={vi.fn()} isLoading={false} />);
+
+    await user.click(screen.getByRole("button", { name: "Use TestSprite Demo" }));
+
+    expect(screen.getByRole("textbox", { name: "Product Name" })).toHaveValue(
+      "TestSprite",
+    );
+    expect(screen.getByRole("combobox", { name: "Campaign Template" })).toHaveValue(
+      "developer_tool",
+    );
+    expect(screen.getByLabelText("Proof Points")).toHaveValue(
+      expect.stringContaining("$6.7M in seed funding"),
+    );
+    expect(screen.getByLabelText("Forbidden Words")).toHaveValue(
+      expect.stringContaining("bug-free"),
+    );
+  });
+
+  it("normalizes brand context and selected channels before submitting", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn();
     render(<CampaignForm onSubmit={onSubmit} isLoading={false} />);
 
-    await user.click(screen.getByRole("button", { name: "Use Demo Input" }));
+    await user.click(screen.getByRole("button", { name: "Use TestSprite Demo" }));
     await user.click(screen.getByRole("button", { name: "Generate Campaign Package" }));
 
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        constraints: ["Small team", "Limited budget", "Organic-first"],
-        selected_channels: ["LinkedIn", "Email", "Landing Page"],
+        product_name: "TestSprite",
+        campaign_template: "developer_tool",
+        selected_channels: ["LinkedIn", "X / Twitter", "Blog", "GitHub / CLI", "Email", "Community"],
         target_market: "United States",
         output_language: "English",
+        brand_context: expect.objectContaining({
+          target_personas: expect.arrayContaining(["AI-native engineering teams"]),
+          forbidden_words: expect.arrayContaining(["bug-free"]),
+          proof_points: expect.arrayContaining([
+            expect.objectContaining({
+              claim: "TestSprite announced $6.7M in seed funding",
+              source: expect.stringContaining("geekwire.com"),
+            }),
+          ]),
+        }),
       }),
     );
   });
