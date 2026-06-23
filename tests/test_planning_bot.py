@@ -18,9 +18,17 @@ def test_planning_bot_returns_structured_mock_plan(
     llm_client = MockLLMClient()
     ideation = asyncio.run(IdeationBot(llm_client).run(request))
     plan = asyncio.run(PlanningBot(llm_client).run(request, ideation))
-    assert plan.campaign_name == "TensorGrowth Lean Growth Launch"
-    assert len(plan.channels) == 2
+    assert plan.campaign_name == "TensorGrowth Cross-Border Launch Sprint"
+    assert len(plan.channels) == 3
     assert plan.deliverables
+    assert plan.market_adaptation is not None
+    assert plan.market_adaptation.target_market == "United States"
+    assert plan.draft_assets is not None
+    assert {asset.channel for asset in plan.draft_assets} == {
+        "LinkedIn",
+        "Email",
+        "Landing Page",
+    }
 
 
 def test_planning_bot_rejects_unfinished_ideation(
