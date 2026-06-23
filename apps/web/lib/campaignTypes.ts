@@ -14,6 +14,10 @@ export interface CampaignGenerationRequest {
   constraints?: string[] | null;
   user_prompt: string;
   conversation_history?: ConversationMessage[] | null;
+  target_market?: string | null;
+  output_language?: string | null;
+  selected_channels?: string[] | null;
+  campaign_duration?: string | null;
 }
 
 export interface IdeationResult {
@@ -49,6 +53,24 @@ export interface CampaignDeliverable {
   purpose: string;
 }
 
+export interface MarketAdaptation {
+  target_market: string;
+  language_strategy: string;
+  positioning_recommendations: string[];
+  localization_notes: string[];
+  cultural_risks: string[];
+  suggested_phrases: string[];
+}
+
+export interface CampaignAsset {
+  asset_type: string;
+  channel: string;
+  title: string;
+  content: string;
+  call_to_action: string;
+  notes: string[];
+}
+
 export interface CampaignPlan {
   campaign_name: string;
   campaign_objective: string;
@@ -61,6 +83,8 @@ export interface CampaignPlan {
   success_metrics: string[];
   assumptions: string[];
   execution_notes: string[];
+  market_adaptation?: MarketAdaptation | null;
+  draft_assets?: CampaignAsset[] | null;
 }
 
 export type CampaignWorkflowStatus =
