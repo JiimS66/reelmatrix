@@ -22,4 +22,8 @@ def campaign_request_data() -> Dict[str, Any]:
         "user_prompt": (
             "ready for planning: create a launch campaign concept for this product"
         ),
+        "target_market": "United States",
+        "output_language": "English",
+        "selected_channels": ["LinkedIn", "Email", "Landing Page"],
+        "campaign_duration": "4 weeks",
     }
