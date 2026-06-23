@@ -31,6 +31,42 @@ def test_planning_bot_returns_structured_mock_plan(
     }
 
 
+def test_planning_bot_returns_developer_tool_package(
+    campaign_request_data: Dict[str, Any],
+) -> None:
+    campaign_request_data.update(
+        {
+            "product_name": "TestSprite",
+            "campaign_template": "developer_tool",
+            "selected_channels": ["Blog", "GitHub / CLI"],
+            "brand_context": {
+                "target_personas": ["AI-native engineering teams"],
+                "proof_points": [
+                    {
+                        "claim": "TestSprite announced $6.7M in seed funding",
+                        "source": "https://www.geekwire.com/",
+                    }
+                ],
+                "forbidden_words": ["bug-free"],
+                "competitors": ["Cypress"],
+                "tone_rules": ["Use technical proof"],
+                "source_links": ["https://www.testsprite.com/"],
+            },
+        }
+    )
+    request = CampaignGenerationRequest.model_validate(campaign_request_data)
+    llm_client = MockLLMClient()
+    ideation = asyncio.run(IdeationBot(llm_client).run(request))
+    plan = asyncio.run(PlanningBot(llm_client).run(request, ideation))
+
+    assert plan.campaign_name == "TestSprite Developer Trust Launch"
+    assert plan.draft_assets is not None
+    assert {asset.channel for asset in plan.draft_assets} == {"Blog", "GitHub / CLI"}
+    assert plan.claim_checks is not None
+    assert plan.claim_checks[0].status == "source_backed"
+    assert "bug-free" in " ".join(plan.execution_notes)
+
+
 def test_planning_bot_rejects_unfinished_ideation(
     campaign_request_data: Dict[str, Any],
 ) -> None:

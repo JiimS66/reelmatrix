@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { CampaignPlanPanel } from "@/components/CampaignPlanPanel";
-import type { CampaignAsset, CampaignPlan, MarketAdaptation } from "@/lib/campaignTypes";
+import type {
+  CampaignAsset,
+  CampaignClaimCheck,
+  CampaignPlan,
+  MarketAdaptation,
+} from "@/lib/campaignTypes";
 import { formatCampaignPackageMarkdown } from "@/lib/markdownExport";
 
 interface CampaignPackageWorkspaceProps {
@@ -93,12 +98,57 @@ export function CampaignPackageWorkspace({
 
       <CampaignPlanPanel plan={planWithEdits} />
 
+      {plan.claim_checks?.length ? (
+        <ClaimChecksPanel claims={plan.claim_checks} />
+      ) : null}
+
       {plan.market_adaptation ? (
         <MarketAdaptationPanel adaptation={plan.market_adaptation} />
       ) : null}
 
       <EditableAssetsPanel assets={assets} onUpdate={updateAsset} />
     </div>
+  );
+}
+
+function ClaimChecksPanel({ claims }: { claims: CampaignClaimCheck[] }) {
+  return (
+    <section className="panel space-y-5" aria-labelledby="claim-checks-title">
+      <div>
+        <p className="eyebrow">Source discipline</p>
+        <h2 id="claim-checks-title" className="mt-2 text-2xl font-semibold text-ink">
+          Claim checks before publishing
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Developer audiences are sensitive to vague AI claims. Keep sourced proof visible and validate anything that still lacks a source.
+        </p>
+      </div>
+      <div className="space-y-3">
+        {claims.map((claim) => (
+          <article key={`${claim.status}-${claim.claim}`} className="rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <p className="max-w-2xl text-sm font-semibold leading-6 text-ink">
+                {claim.claim}
+              </p>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  claim.status === "source_backed"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                {claim.status === "source_backed" ? "Source-backed" : "Needs validation"}
+              </span>
+            </div>
+            {claim.source ? (
+              <p className="mt-2 break-words text-xs leading-5 text-slate-500">
+                Source: {claim.source}
+              </p>
+            ) : null}
+          </article>
+        ))}
+      </div>
+    </section>
   );
 }
 

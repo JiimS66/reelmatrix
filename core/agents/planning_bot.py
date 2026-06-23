@@ -19,6 +19,14 @@ marketing materials that a small team can edit, copy, and export. Draft assets
 should be channel-specific and execution-ready enough for a human marketer to
 revise, not generic placeholders.
 
+When brand_context is present, use it as the source of truth for proof points,
+competitors, forbidden words, target personas, tone rules, and source links. Do
+not state unsourced performance, funding, customer, or user-count claims as fact.
+Put every proof-oriented statement in claim_checks with status source_backed when
+it has a provided source, otherwise needs_validation. If campaign_template is
+"developer_tool", prioritize developer-trust channels such as launch blog,
+GitHub or CLI quickstart copy, technical social posts, and engineering-lead email.
+
 Do not reopen broad ideation or invent external execution results. Produce only a
 machine-readable plan that downstream systems can execute in later phases.
 """.strip()
