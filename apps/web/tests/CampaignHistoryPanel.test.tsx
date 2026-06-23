@@ -90,7 +90,11 @@ describe("CampaignHistoryPanel", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /TensorGrowth Launch Sprint/ }));
+    await user.click(
+      screen.getByRole("button", {
+        name: /United States \/ English \/ 1 editable asset/,
+      }),
+    );
     await user.click(screen.getByRole("button", { name: "Delete TensorGrowth Launch Sprint" }));
 
     expect(onLoad).toHaveBeenCalledWith(record);
