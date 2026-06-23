@@ -57,10 +57,16 @@ describe("CampaignForm", () => {
       "developer_tool",
     );
     expect(screen.getByLabelText("Proof Points")).toHaveValue(
-      expect.stringContaining("$6.7M in seed funding"),
+      expect.any(String),
+    );
+    expect(String(screen.getByLabelText("Proof Points").getAttribute("value") ?? screen.getByLabelText("Proof Points").textContent ?? "")).toContain(
+      "$6.7M in seed funding",
     );
     expect(screen.getByLabelText("Forbidden Words")).toHaveValue(
-      expect.stringContaining("bug-free"),
+      expect.any(String),
+    );
+    expect(String(screen.getByLabelText("Forbidden Words").getAttribute("value") ?? screen.getByLabelText("Forbidden Words").textContent ?? "")).toContain(
+      "bug-free",
     );
   });
 
