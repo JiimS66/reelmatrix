@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CampaignPackageWorkspace } from "@/components/CampaignPackageWorkspace";
 import type { CampaignPlan } from "@/lib/campaignTypes";
@@ -63,7 +63,8 @@ const plan: CampaignPlan = {
 describe("CampaignPackageWorkspace", () => {
   it("renders market adaptation and editable draft assets", async () => {
     const user = userEvent.setup();
-    render(<CampaignPackageWorkspace plan={plan} />);
+    const onPlanChange = vi.fn();
+    render(<CampaignPackageWorkspace plan={plan} onPlanChange={onPlanChange} />);
 
     expect(screen.getByRole("heading", { name: /Market adaptation for United States/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy Markdown" })).toBeInTheDocument();
@@ -74,5 +75,14 @@ describe("CampaignPackageWorkspace", () => {
     await user.type(draftCopy, "Edited LinkedIn draft.");
 
     expect(draftCopy).toHaveValue("Edited LinkedIn draft.");
+    expect(onPlanChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        draft_assets: [
+          expect.objectContaining({
+            content: "Edited LinkedIn draft.",
+          }),
+        ],
+      }),
+    );
   });
 });

@@ -8,11 +8,15 @@ import { formatCampaignPackageMarkdown } from "@/lib/markdownExport";
 
 interface CampaignPackageWorkspaceProps {
   plan: CampaignPlan;
+  onPlanChange?: (plan: CampaignPlan) => void;
 }
 
 type EditableAssetField = "title" | "content" | "call_to_action";
 
-export function CampaignPackageWorkspace({ plan }: CampaignPackageWorkspaceProps) {
+export function CampaignPackageWorkspace({
+  plan,
+  onPlanChange,
+}: CampaignPackageWorkspaceProps) {
   const [assets, setAssets] = useState<CampaignAsset[]>(plan.draft_assets ?? []);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
@@ -31,11 +35,13 @@ export function CampaignPackageWorkspace({ plan }: CampaignPackageWorkspaceProps
   );
 
   function updateAsset(index: number, field: EditableAssetField, value: string) {
-    setAssets((current) =>
-      current.map((asset, assetIndex) =>
+    setAssets((current) => {
+      const nextAssets = current.map((asset, assetIndex) =>
         assetIndex === index ? { ...asset, [field]: value } : asset,
-      ),
-    );
+      );
+      onPlanChange?.({ ...plan, draft_assets: nextAssets });
+      return nextAssets;
+    });
   }
 
   async function copyMarkdown() {
