@@ -1,5 +1,476 @@
 # reelmatrix 核心技术架构与目录说明
 
+## 本地运行（优先阅读）
+
+项目由 FastAPI 后端和 Next.js 前端组成。以下命令均在仓库内执行，不会修改系统级 Python、Node.js 或 npm 配置。默认使用无网络调用的 `mock` 模型，可直接完成本地开发和测试。
+
+### 1. 环境要求
+
+- Python 3.13 与 [uv](https://docs.astral.sh/uv/)
+- Node.js 24.x
+- npm 11.x
+
+```bash
+python3 --version
+uv --version
+node --version
+npm --version
+```
+
+### 2. 首次安装
+
+在仓库根目录执行：
+
+```bash
+uv python install 3.13
+uv sync --locked
+
+test -f .env || cp .env.example .env
+test -f apps/web/.env.local || cp apps/web/.env.example apps/web/.env.local
+
+cd apps/web
+npm ci --cache .npm-cache --ignore-scripts
+cd ../..
+```
+
+- Python 依赖安装到根目录 `.venv/`，uv 缓存保存在根目录 `.uv-cache/`。
+- 前端依赖安装到 `apps/web/node_modules/`，npm 缓存保存在 `apps/web/.npm-cache/`。
+- 上述目录均为项目本地目录且不提交 Git。
+- `npm ci` 会严格按照 `apps/web/package-lock.json` 重建 `node_modules/`；日常已有完整依赖时不需要重复执行。
+
+### 3. 使用 mock 配置
+
+根目录 `.env` 至少确认以下配置：
+
+```dotenv
+APP_ENV=development
+LLM_PROVIDER=mock
+LLM_TIMEOUT_SECONDS=60
+WEB_ORIGIN=http://localhost:3000
+```
+
+`apps/web/.env.local` 配置浏览器访问的后端地址：
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+真实 API Key 只能放在根目录 `.env`，不要写入 `.env.example`、`apps/web/.env.local` 或任何 `NEXT_PUBLIC_*` 变量。OpenAI、Qwen 和本地模型的详细配置见后文“LLM Provider 配置”。
+
+### 4. 启动项目
+
+终端一，在仓库根目录启动后端：
+
+```bash
+uv run uvicorn apps.api.main:app --reload
+```
+
+终端二，在仓库根目录启动前端：
+
+```bash
+cd apps/web
+npm run dev
+```
+
+启动后访问：
+
+- Web 页面：`http://localhost:3000`
+- FastAPI 健康检查：`http://localhost:8000/health`
+- API 文档：`http://localhost:8000/docs`
+- Campaign API：`http://localhost:8000/api/v1/campaign/generate`
+
+页面会显式展示当前可用的 Local、ChatGPT、Qwen 和 Mock provider。未完成后端配置的 provider 会被禁用；选择 Mock 可在不调用外部网络、不消耗模型额度的情况下验证完整流程。
+
+### 5. 测试与构建
+
+在仓库根目录执行后端验证：
+
+```bash
+uv lock --check
+uv run python -m compileall -q apps configs core tests
+uv run pytest
+```
+
+执行前端验证：
+
+```bash
+cd apps/web
+npm run typecheck
+npm test
+npm run build
+```
+
+当前项目没有配置 Python 或前端 lint 命令；不要将不存在的 `lint` script 作为运行前置条件。前端已知依赖审计问题及处理限制见后文“已知依赖问题”。
+
+## Phase 1：本地可运行的 Agent 后端 MVP
+
+Phase 1 在既有 monorepo 分层内实现两个角色明确的业务 Agent：Marketing Ideation ChatBot 和 Marketing Planning MasterBot。`core/workflows/` 只负责编排，`core/llm/` 隔离模型提供方，`apps/api/` 只暴露 HTTP 接口。本阶段不包含前端、数据库、认证、MCP、浏览器自动化、外部发布或任务队列。
+
+### 环境要求与安装
+
+- Python 3.13
+- 包管理：`uv`
+- 依赖声明：`pyproject.toml`
+- 版本锁定：`uv.lock`
+- Python 版本约定：`.python-version`
+
+```bash
+uv python install 3.13
+uv sync --locked
+cp .env.example .env
+```
+
+`dev` dependency group 已配置为默认组，因此 `uv sync` 会同时安装 pytest、httpx 等开发依赖，不再使用 `--extra dev`。日常执行命令直接使用 `uv run`，不要求手动激活虚拟环境。
+
+### uv 与环境文件约定
+
+| 文件/目录 | 作用 | 是否提交 Git |
+| --- | --- | --- |
+| `.python-version` | 告诉 uv 使用 Python 3.13 | 是 |
+| `pyproject.toml` | 声明运行依赖、开发依赖和项目配置 | 是 |
+| `uv.lock` | 锁定完整依赖版本，保证环境可复现 | 是 |
+| `uv.toml` | 配置项目级 uv 缓存目录 `.uv-cache/` | 是 |
+| `.uv-cache/` | uv 下载、构建和解析依赖时使用的可重建缓存 | 否 |
+| `.venv/` | `uv sync` 自动创建的本地 Python 与依赖环境 | 否 |
+| `.env.example` | 可提交的应用环境变量模板，不包含真实密钥 | 是 |
+| `.env` | 当前机器的真实运行配置和 API Key | 否 |
+
+本项目通过 `uv.toml` 将缓存放在仓库内的 `.uv-cache/`，避免依赖用户级 `~/.cache/uv`。`.uv-cache/` 只用于复用下载包和构建结果，`.venv/` 才是项目实际运行的 Python 环境；两者都不应提交，也都可以安全重建。
+
+`.venv/` 不应手动维护。环境损坏时可以删除后重新执行 `uv sync --locked`。`.env.example` 与 uv 依赖管理无关；它用于告诉开发者应用需要哪些环境变量。配置模块会在运行时读取复制后的 `.env`。
+
+`.env` 是复制后由当前机器独立维护的本地文件，后续修改 `.env.example` 不会自动同步到它。模板字段变化后，应手动合并新增或重命名的字段，同时保留 `.env` 中的真实密钥。
+
+常用依赖管理命令：
+
+```bash
+uv add <package>          # 添加运行依赖并更新 uv.lock
+uv add --dev <package>    # 添加开发依赖并更新 uv.lock
+uv remove <package>       # 删除依赖并更新 uv.lock
+uv lock --check           # 检查 pyproject.toml 与 uv.lock 是否同步
+uv sync --locked          # 严格按锁文件同步 .venv
+```
+
+### LLM Provider 配置
+
+默认配置是无网络调用、结果确定的 mock provider：
+
+```dotenv
+APP_ENV=development
+LLM_PROVIDER=mock
+LLM_TIMEOUT_SECONDS=60
+```
+
+使用 OpenAI / ChatGPT API：
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=replace-with-your-key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+使用阿里云 Model Studio 新加坡区域的 Qwen OpenAI-compatible API：
+
+```dotenv
+LLM_PROVIDER=dashscope
+DASHSCOPE_API_KEY=replace-with-your-singapore-workspace-key
+DASHSCOPE_WORKSPACE_ID=your-workspace-id
+DASHSCOPE_MODEL=qwen-plus
+```
+
+将 `your-workspace-id` 替换为百炼控制台业务空间详情页中的 Workspace ID。应用会自动生成 `https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1`，不需要在 `.env` 中重复维护完整 URL。
+
+`DASHSCOPE_BASE_URL` 仍可用于旧域名或特殊 endpoint，但仅在未配置 `DASHSCOPE_WORKSPACE_ID` 时生效。Base URL 到 `/compatible-mode/v1` 为止，不要追加 `/chat/completions`。旧的 `LLM_PROVIDER=qwen` 以及 `QWEN_API_KEY/QWEN_WORKSPACE_ID/QWEN_BASE_URL/QWEN_MODEL` 仍作为兼容别名支持，但新配置应统一使用 `dashscope` 和 `DASHSCOPE_*`。
+
+使用任意 OpenAI-compatible 本地服务（例如兼容 `/v1/chat/completions` 的运行时）：
+
+```dotenv
+LLM_PROVIDER=local
+LOCAL_LLM_BASE_URL=http://localhost:11434/v1
+LOCAL_LLM_API_KEY=
+LOCAL_LLM_MODEL=llama3.1
+```
+
+本地 API Key 可以为空。当前支持 `mock`、`openai`、`dashscope`、`local`，并兼容旧的 `qwen` provider 名称。OpenAI/DashScope 缺少 API Key，DashScope 缺少 Workspace ID/Base URL，local 缺少 URL 或模型，或 provider 名称未知时，应用会在启动时给出明确配置错误。
+
+### 真实调用前的离线验证
+
+测试入口会在 `tests/conftest.py` 中强制设置 `APP_ENV=test` 和 `LLM_PROVIDER=mock`。因此即使 `.env` 已填写真实 API Key，执行 pytest 也不会访问 DashScope/OpenAI，不会消耗模型额度。
+
+```bash
+uv lock --check
+uv run python -m compileall -q apps configs core tests
+uv run pytest
+```
+
+当前后端测试覆盖 schema、两个 Agent、工作流双分支、API 路由、CORS preflight、provider factory，以及 OpenAI-compatible 客户端响应校验。
+
+可以在不发起网络请求的情况下检查 DashScope 必填配置并构造客户端：
+
+```bash
+uv run python -c 'from configs.settings import AppSettings; from core.llm.factory import create_llm_client; s = AppSettings(); assert s.dashscope_api_key and s.dashscope_workspace_id; create_llm_client(s.model_copy(update={"llm_provider": "dashscope"})); print("DashScope configuration preflight passed")'
+```
+
+该命令不会输出 API Key，也不会调用模型。真实测试前还需要确认 `.env` 中 `DASHSCOPE_WORKSPACE_ID` 已替换占位符，并将 `LLM_PROVIDER` 设置为 `dashscope`。
+
+### 启动与测试
+
+```bash
+uv run uvicorn apps.api.main:app --reload
+uv run pytest
+```
+
+健康检查：`GET http://localhost:8000/health`。
+
+`GET /health` 不会调用模型。`POST /api/v1/campaign/generate` 才会进入 Agent 工作流；当构思结果可进入规划阶段时，一次 API 请求会依次调用 IdeationBot 和 PlanningBot，因此真实 provider 通常产生两次模型调用。
+
+### 生成 Campaign
+
+```bash
+curl -X POST http://localhost:8000/api/v1/campaign/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "product_name": "TensorGrowth",
+    "product_description": "An AI marketing workspace that helps founders generate and plan campaigns.",
+    "target_audience": "early-stage startup founders and lean marketing teams",
+    "marketing_goal": "generate qualified waitlist signups",
+    "brand_voice": "sharp, practical, founder-friendly",
+    "constraints": ["small team", "limited budget", "organic-first"],
+    "user_prompt": "ready for planning: create a launch campaign concept for this product"
+  }'
+```
+
+mock 模式下，将 `user_prompt` 设为包含 `needs more ideation` 可稳定触发补充构思分支：
+
+```json
+{
+  "status": "needs_more_ideation",
+  "ideation_result": {
+    "campaign_concept": "Clarify the strongest launch idea for TensorGrowth.",
+    "core_message": "The campaign promise needs more evidence and specificity.",
+    "target_audience_insight": "More detail is needed about early-stage startup founders and lean marketing teams and their buying trigger.",
+    "recommended_angles": [
+      "Lead with the audience's highest-cost current problem",
+      "Demonstrate a concrete before-and-after outcome"
+    ],
+    "risks_or_assumptions": [
+      "The primary pain point has not been validated",
+      "The desired conversion action may be too broad"
+    ],
+    "follow_up_questions": [
+      "What single pain point should this campaign prioritize?",
+      "What proof or customer evidence can support the campaign promise?",
+      "What exact action should the audience take after seeing the campaign?"
+    ],
+    "is_ready_for_planning": false
+  },
+  "campaign_plan": null
+}
+```
+
+将 `user_prompt` 设为包含 `ready for planning` 可稳定生成计划：
+
+```json
+{
+  "status": "plan_generated",
+  "ideation_result": {
+    "campaign_concept": "The Lean Growth Launch for TensorGrowth",
+    "core_message": "Turn a clear product story into measurable marketing momentum toward generate qualified waitlist signups.",
+    "target_audience_insight": "early-stage startup founders and lean marketing teams need credible, practical progress without adding operational overhead.",
+    "recommended_angles": [
+      "Replace fragmented campaign work with one guided workflow",
+      "Show measurable progress for a resource-constrained team",
+      "Use founder-relevant examples instead of generic AI claims"
+    ],
+    "risks_or_assumptions": [
+      "The audience already recognizes campaign planning as a bottleneck",
+      "Organic proof can establish enough trust for the initial conversion"
+    ],
+    "follow_up_questions": [],
+    "is_ready_for_planning": true
+  },
+  "campaign_plan": {
+    "campaign_name": "TensorGrowth Lean Growth Launch",
+    "campaign_objective": "generate qualified waitlist signups",
+    "target_audience": "early-stage startup founders and lean marketing teams",
+    "core_message": "Turn a clear product story into measurable marketing momentum toward generate qualified waitlist signups.",
+    "channels": [
+      {
+        "channel_name": "LinkedIn",
+        "role_in_campaign": "Build category awareness and founder credibility",
+        "content_types": ["Founder posts", "Problem-solution carousels"],
+        "key_messages": ["Turn a clear product story into measurable marketing momentum."],
+        "cadence": "Three posts per week for four weeks",
+        "success_metrics": ["Qualified profile visits", "Waitlist conversions"]
+      }
+    ],
+    "content_pillars": [
+      "The cost of fragmented campaign work",
+      "Practical AI workflows for lean marketing teams"
+    ],
+    "timeline": [
+      {
+        "phase_name": "Foundation",
+        "timing": "Week 1",
+        "objective": "Establish the problem and campaign promise",
+        "key_activities": ["Publish category narrative", "Launch waitlist landing message"]
+      }
+    ],
+    "deliverables": [
+      {
+        "name": "Founder launch narrative",
+        "channel": "LinkedIn",
+        "format": "Text post",
+        "purpose": "Introduce the campaign problem and point of view"
+      }
+    ],
+    "success_metrics": ["Qualified waitlist signups", "Landing-page conversion rate"],
+    "assumptions": ["The product has a functioning waitlist destination"],
+    "execution_notes": ["Keep calls to action consistent across channels"]
+  }
+}
+```
+
+## Phase 2：Campaign Studio Web 应用
+
+Phase 2 在 `apps/web/` 中增加独立管理的 Next.js 16、React 19、TypeScript 和 TailwindCSS 前端。页面调用 Phase 1 的 `POST /api/v1/campaign/generate`，支持 campaign brief 表单、本地校验、IdeationResult 展示、follow-up 补充上下文，以及 CampaignPlan 的结构化展示。前端依赖由 `apps/web/package.json` 和 `apps/web/package-lock.json` 管理，不加入仓库根目录 npm workspace。
+
+### Phase 2 环境要求
+
+- Node.js 24.x；当前已验证版本为 `24.14.0`
+- npm 11.x；当前已验证版本为 `11.9.0`
+- 依赖声明：`apps/web/package.json`
+- 版本锁定：`apps/web/package-lock.json`
+
+```bash
+node --version
+npm --version
+```
+
+当前 Node.js 和 npm 版本通过 README 约定，`apps/web/package.json` 尚未使用 `engines` 或 `packageManager` 字段强制限制。升级 Node.js、npm、Next.js 或 React 后，必须重新通过前端 typecheck、测试和 production build。
+
+### Phase 2 环境配置
+
+后端继续读取仓库根目录 `.env`。浏览器本地开发至少需要：
+
+```dotenv
+LLM_PROVIDER=mock
+WEB_ORIGIN=http://localhost:3000
+```
+
+前端从 `apps/web/.env.local` 读取公开的 API 地址：
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+```
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+`NEXT_PUBLIC_*` 变量会进入浏览器 bundle，只能放公开配置，不能放 API Key。所有模型密钥仍只保存在根目录 `.env`，由 FastAPI 后端读取。
+
+### 请求级模型选择
+
+Campaign Studio 会从 `GET /api/v1/llm/providers` 读取后端 provider catalog，并按以下类别显示：
+
+- **Local model**：`local`，使用 `LOCAL_LLM_BASE_URL` 和 `LOCAL_LLM_MODEL`。
+- **Remote models**：`dashscope` 显示为 Qwen，`openai` 显示为 ChatGPT。
+- **Development**：`mock`，用于确定性本地演示和测试。
+
+Catalog 只返回 provider ID、显示名、模型名、类别和是否已配置，不返回 API Key、Base URL 或其他秘密。缺少必要后端配置的 provider 会在页面中禁用。
+
+前端提交 campaign 时通过请求 header 传递选择结果：
+
+```http
+X-LLM-Provider: dashscope
+```
+
+不传该 header 时，后端继续使用根目录 `.env` 中的 `LLM_PROVIDER`，因此现有 API 客户端和 request JSON 保持兼容。follow-up 请求固定沿用上一轮 provider，避免多轮上下文中途切换模型。
+
+新增 provider 时，在 `core/llm/` 增加客户端和 factory 分支，并在 `apps/api/services/campaign_generation.py` 注册 catalog metadata。前端根据 catalog 自动分组，不需要在表单或 API client 中增加 provider 专用逻辑。
+
+### 安装前端依赖
+
+```bash
+cd apps/web
+npm ci --cache .npm-cache --ignore-scripts
+```
+
+`npm ci` 会删除已有 `node_modules/`，并严格按 `package-lock.json` 重建依赖。依赖安装到 `apps/web/node_modules/`，下载缓存为 `apps/web/.npm-cache/`；两者都不提交 Git。
+
+`apps/web/.next/` 和 `apps/web/tsconfig.tsbuildinfo` 也是可重建的生成文件，不提交 Git。前端目录中只有依赖声明 `package.json` 和锁文件 `package-lock.json` 需要共同提交。仅在明确新增、删除或升级依赖时使用 `npm install <package>` 或 `npm uninstall <package>`，并同时检查两个依赖文件的变更。
+
+检查当前安装目录是否与依赖声明一致：
+
+```bash
+cd apps/web
+npm ls --depth=0
+```
+
+当前在 macOS ARM64、Node.js 24 和 npm 11 环境中，即使完成干净的 `npm ci`，`npm ls` 仍可能将 `@emnapi/runtime@1.11.1` 标记为 `extraneous`。该包已存在于锁文件中，是 Next.js 使用的 `sharp` WASM 可选依赖链的一部分；只要锁文件检查、typecheck、测试和 build 通过，不需要手动删除。若出现其他 extraneous 包，应先重新执行 `npm ci`，再单独调查来源。
+
+### 本地启动
+
+终端一启动 FastAPI：
+
+```bash
+uv run uvicorn apps.api.main:app --reload
+```
+
+终端二启动 Next.js：
+
+```bash
+cd apps/web
+npm run dev
+```
+
+- 浏览器页面：`http://localhost:3000`
+- 后端健康检查：`http://localhost:8000/health`
+- Campaign API：`http://localhost:8000/api/v1/campaign/generate`
+
+mock provider 下点击 **Use Demo Input** 会填充包含 `ready for planning` 的稳定示例并生成完整计划。输入包含 `needs more ideation` 时，页面会展示 follow-up questions，并在补充回答后把前序用户输入、Agent 摘要和本轮回答放入 `conversation_history` 再次调用同一 workflow。
+
+### Phase 2 测试与构建
+
+后端：
+
+```bash
+uv run pytest
+```
+
+前端：
+
+```bash
+cd apps/web
+npm run typecheck
+npm test
+npm run build
+```
+
+`npm run build` 当前使用 Next.js 的 Webpack production builder，避免 Turbopack 在受限本地环境中创建内部端口。提交代码前应同时通过后端 pytest、前端 14 个 Vitest 测试、TypeScript 检查和 production build。
+
+### 代码质量工具现状
+
+- 后端已配置 pytest，并使用 `python -m compileall` 做基础语法检查。
+- 后端暂未配置 Ruff、Black、Mypy 或 Pyright，因此当前没有正式的 Python lint、format 或 typecheck 命令。
+- 前端已配置 TypeScript `tsc --noEmit`、Vitest 和 Next.js production build。
+- 前端暂未配置 ESLint、Biome 或其他 lint 工具，因此当前没有 `npm run lint` 命令。
+
+在正式引入质量工具前，不应把未配置的 lint 或 typecheck 检查写入 CI 必过项。新增工具时需要同步更新依赖文件、锁文件、本节命令和 CI 配置。
+
+### 已知依赖问题
+
+当前锁文件保留 Next.js `16.2.9`。项目级 `postcss` 是 `8.5.15`，但 Next.js `16.2.9` 内嵌 `postcss` `8.4.31`，因此 `npm audit` 会报告 `GHSA-qx2v-qp2m-jg93`。当前 typecheck、测试和 production build 均通过。
+
+不要使用 `npm audit fix --force`：npm 建议的自动修复会把 Next.js 降级到 `9.3.3`，属于破坏性变更。在获得明确批准前，也不要添加 PostCSS override、降级 Next.js、升级 canary，或绕过当前锁文件。后续仅在稳定版 Next.js 内嵌 `postcss >= 8.5.10` 且通过完整测试/build 时，单独评估升级。
+
+Python 依赖审计目前会报告开发依赖 `pytest 8.4.2` 的 `CVE-2025-71176`，修复版本为 `9.0.3`。当前 `pyproject.toml` 将 pytest 限制在 `>=8.0,<9.0`，因此不能在未验证兼容性的情况下直接升级。该问题只存在于开发/测试依赖，不进入生产运行依赖；后续升级 pytest 主版本时必须先通过完整后端测试。
+
+### Phase 2 Non-goals
+
+本阶段不包含数据库、认证、多租户、campaign 持久化、外部平台发布、MCP、RAG、任务队列或新 Agent。前端只消费 Phase 1 现有 schema 和 workflow，不改变 Agent、Workflow、LLM provider 的主设计。
+
 ## 1. 工程目录结构总览
 
 ```text
@@ -10,6 +481,8 @@ reelmatrix/
 │   └── workers/
 ├── core/                 # AI 引擎与核心业务层：AI Brain & Logic
 │   ├── agents/
+│   ├── llm/              # 模型提供方抽象与实现
+│   ├── schemas/          # 严格的业务输入输出契约
 │   ├── workflows/
 │   ├── evaluation/
 │   └── memory/
@@ -132,6 +605,8 @@ AI 推理和外部平台请求通常耗时较长，不能直接阻塞 API 主进
 | 目录 | 技术栈 | 主要任务 |
 | --- | --- | --- |
 | core/agents/ | Python、LangChain 或 LlamaIndex | 构建负责策略规划、内容生成、渠道适配和工具调用的 AI Agent |
+| core/llm/ | Python、OpenAI SDK、Provider Adapter | 隔离 mock、OpenAI 与本地 OpenAI-compatible 模型调用 |
+| core/schemas/ | Python、Pydantic | 定义 Agent、Workflow 与 API 共用的严格数据契约 |
 | core/workflows/ | Python、Workflow Engine 或状态机逻辑 | 管理多 Agent、多事件、多渠道之间的任务流转 |
 | core/evaluation/ | Python、规则逻辑、轻量级模型 | 对外发内容进行合规性、品牌敏感词和幻觉校验 |
 | core/memory/ | Python、数据库或向量存储 | 存储用户偏好、品牌风格、历史表现数据和长期上下文 |
