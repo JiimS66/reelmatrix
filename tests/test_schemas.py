@@ -20,6 +20,32 @@ def test_campaign_request_accepts_valid_payload(
     assert request.selected_channels == ["LinkedIn", "Email", "Landing Page"]
 
 
+def test_campaign_request_accepts_brand_context(
+    campaign_request_data: Dict[str, Any],
+) -> None:
+    campaign_request_data["campaign_template"] = "developer_tool"
+    campaign_request_data["brand_context"] = {
+        "target_personas": ["AI-native engineering teams"],
+        "proof_points": [
+            {
+                "claim": "TestSprite announced $6.7M in seed funding",
+                "source": "https://www.geekwire.com/",
+            }
+        ],
+        "forbidden_words": ["bug-free"],
+        "competitors": ["Cypress"],
+        "tone_rules": ["Lead with technical proof"],
+        "source_links": ["https://www.testsprite.com/"],
+    }
+
+    request = CampaignGenerationRequest.model_validate(campaign_request_data)
+
+    assert request.campaign_template == "developer_tool"
+    assert request.brand_context is not None
+    assert request.brand_context.proof_points is not None
+    assert request.brand_context.proof_points[0].source == "https://www.geekwire.com/"
+
+
 def test_campaign_request_rejects_unknown_fields(
     campaign_request_data: Dict[str, Any],
 ) -> None:
@@ -41,7 +67,7 @@ def test_campaign_request_rejects_blank_required_text(
         CampaignGenerationRequest.model_validate(campaign_request_data)
 
 
-def test_campaign_plan_accepts_assets_and_market_adaptation() -> None:
+def test_campaign_plan_accepts_assets_market_adaptation_and_claim_checks() -> None:
     plan = CampaignPlan.model_validate(
         {
             "campaign_name": "Cross-Border Launch Sprint",
@@ -78,6 +104,18 @@ def test_campaign_plan_accepts_assets_and_market_adaptation() -> None:
             "success_metrics": ["Qualified signups"],
             "assumptions": ["A waitlist destination exists"],
             "execution_notes": ["Keep CTA consistent"],
+            "claim_checks": [
+                {
+                    "claim": "TestSprite announced $6.7M in seed funding",
+                    "status": "source_backed",
+                    "source": "https://www.geekwire.com/",
+                },
+                {
+                    "claim": "Any added customer claim must be validated before publishing.",
+                    "status": "needs_validation",
+                    "source": None,
+                },
+            ],
             "market_adaptation": {
                 "target_market": "United States",
                 "language_strategy": "Use concise English benefit-led copy.",
@@ -101,3 +139,5 @@ def test_campaign_plan_accepts_assets_and_market_adaptation() -> None:
     assert plan.market_adaptation is not None
     assert plan.draft_assets is not None
     assert plan.draft_assets[0].asset_type == "Social post"
+    assert plan.claim_checks is not None
+    assert plan.claim_checks[0].status == "source_backed"
