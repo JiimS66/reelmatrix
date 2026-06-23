@@ -50,24 +50,17 @@ describe("CampaignForm", () => {
 
     await user.click(screen.getByRole("button", { name: "Use TestSprite Demo" }));
 
+    const proofPoints = screen.getByLabelText("Proof Points") as HTMLTextAreaElement;
+    const forbiddenWords = screen.getByLabelText("Forbidden Words") as HTMLTextAreaElement;
+
     expect(screen.getByRole("textbox", { name: "Product Name" })).toHaveValue(
       "TestSprite",
     );
     expect(screen.getByRole("combobox", { name: "Campaign Template" })).toHaveValue(
       "developer_tool",
     );
-    expect(screen.getByLabelText("Proof Points")).toHaveValue(
-      expect.any(String),
-    );
-    expect(String(screen.getByLabelText("Proof Points").getAttribute("value") ?? screen.getByLabelText("Proof Points").textContent ?? "")).toContain(
-      "$6.7M in seed funding",
-    );
-    expect(screen.getByLabelText("Forbidden Words")).toHaveValue(
-      expect.any(String),
-    );
-    expect(String(screen.getByLabelText("Forbidden Words").getAttribute("value") ?? screen.getByLabelText("Forbidden Words").textContent ?? "")).toContain(
-      "bug-free",
-    );
+    expect(proofPoints.value).toContain("$6.7M in seed funding");
+    expect(forbiddenWords.value).toContain("bug-free");
   });
 
   it("normalizes brand context and selected channels before submitting", async () => {
