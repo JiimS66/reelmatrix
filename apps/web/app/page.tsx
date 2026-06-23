@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { CampaignForm } from "@/components/CampaignForm";
+import { CampaignHistoryPanel } from "@/components/CampaignHistoryPanel";
 import { CampaignPackageWorkspace } from "@/components/CampaignPackageWorkspace";
 import { ErrorState } from "@/components/ErrorState";
 import { FollowUpPanel } from "@/components/FollowUpPanel";
@@ -14,8 +15,16 @@ import {
   generateCampaign,
   getLLMProviders,
 } from "@/lib/api";
+import {
+  createCampaignHistoryRecord,
+  deleteCampaignHistoryRecord,
+  loadCampaignHistory,
+  upsertCampaignHistoryRecord,
+  type CampaignHistoryRecord,
+} from "@/lib/campaignHistory";
 import type {
   CampaignGenerationRequest,
+  CampaignPlan,
   CampaignWorkflowResponse,
   ConversationMessage,
   IdeationResult,
@@ -33,6 +42,12 @@ export default function Home() {
   const [lastProviderId, setLastProviderId] = useState<string | null>(null);
   const [isLoadingProviders, setIsLoadingProviders] = useState(true);
   const [providerError, setProviderError] = useState<string | null>(null);
+  const [historyRecords, setHistoryRecords] = useState<CampaignHistoryRecord[]>([]);
+  const [activeHistoryRecordId, setActiveHistoryRecordId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setHistoryRecords(loadCampaignHistory());
+  }, []);
 
   useEffect(() => {
     let isActive = true;
@@ -83,11 +98,19 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     setResult(null);
+    setActiveHistoryRecordId(null);
     try {
       const response = await generateCampaign(request, providerId);
+      const historyRecord = createCampaignHistoryRecord({
+        request,
+        response,
+        providerId,
+      });
       setLastRequest(request);
       setLastProviderId(providerId);
       setResult(response);
+      setHistoryRecords(upsertCampaignHistoryRecord(historyRecord));
+      setActiveHistoryRecordId(historyRecord.id);
     } catch (caughtError) {
       setError(
         caughtError instanceof CampaignApiError
@@ -118,10 +141,58 @@ export default function Home() {
     );
   }
 
+  function loadHistoryRecord(record: CampaignHistoryRecord) {
+    setResult(record.response);
+    setLastRequest(record.request);
+    setLastProviderId(record.provider_id);
+    setActiveHistoryRecordId(record.id);
+    setError(null);
+    setIsLoading(false);
+  }
+
+  function removeHistoryRecord(recordId: string) {
+    setHistoryRecords(deleteCampaignHistoryRecord(recordId));
+    if (activeHistoryRecordId === recordId) {
+      setActiveHistoryRecordId(null);
+    }
+  }
+
+  function updateActiveCampaignPlan(plan: CampaignPlan) {
+    if (!result || result.status !== "plan_generated") {
+      return;
+    }
+
+    const nextResult: CampaignWorkflowResponse = {
+      ...result,
+      campaign_plan: plan,
+    };
+    setResult(nextResult);
+
+    if (!activeHistoryRecordId) {
+      return;
+    }
+
+    const activeRecord = historyRecords.find(
+      (record) => record.id === activeHistoryRecordId,
+    );
+    if (!activeRecord) {
+      return;
+    }
+
+    const updatedRecord: CampaignHistoryRecord = {
+      ...activeRecord,
+      title: plan.campaign_name.trim() || activeRecord.title,
+      updated_at: new Date().toISOString(),
+      response: nextResult,
+    };
+    setHistoryRecords(upsertCampaignHistoryRecord(updatedRecord));
+  }
+
   function clearWorkspace() {
     setResult(null);
     setLastRequest(null);
     setLastProviderId(null);
+    setActiveHistoryRecordId(null);
     setError(null);
   }
 
@@ -158,6 +229,12 @@ export default function Home() {
               onClear={clearWorkspace}
               isLoading={isLoading || isLoadingProviders || !selectedProviderId}
             />
+            <CampaignHistoryPanel
+              records={historyRecords}
+              activeRecordId={activeHistoryRecordId}
+              onLoad={loadHistoryRecord}
+              onDelete={removeHistoryRecord}
+            />
           </div>
 
           <div className="space-y-6" aria-live="polite">
@@ -173,7 +250,10 @@ export default function Home() {
               />
             ) : null}
             {result?.status === "plan_generated" && result.campaign_plan ? (
-              <CampaignPackageWorkspace plan={result.campaign_plan} />
+              <CampaignPackageWorkspace
+                plan={result.campaign_plan}
+                onPlanChange={updateActiveCampaignPlan}
+              />
             ) : null}
           </div>
         </div>
