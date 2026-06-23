@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { CampaignForm } from "@/components/CampaignForm";
-import { CampaignPlanPanel } from "@/components/CampaignPlanPanel";
+import { CampaignPackageWorkspace } from "@/components/CampaignPackageWorkspace";
 import { ErrorState } from "@/components/ErrorState";
 import { FollowUpPanel } from "@/components/FollowUpPanel";
 import { IdeationResultPanel } from "@/components/IdeationResultPanel";
@@ -129,16 +129,17 @@ export default function Home() {
     <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
         <header className="mb-8 overflow-hidden rounded-[2rem] bg-ink px-6 py-8 text-white shadow-card sm:px-10 sm:py-10">
-          <div className="max-w-3xl">
+          <div className="max-w-4xl">
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-lime">
-              ReelMatrix / Campaign Studio
+              ReelMatrix / AI Campaign Studio
             </p>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-              From campaign spark to an execution-ready plan.
+              Build the first cross-border campaign package before your next standup.
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-white/70">
-              Shape the strategic idea, resolve missing context, and turn the approved
-              direction into a structured multi-channel campaign.
+            <p className="mt-4 max-w-3xl text-base leading-7 text-white/70">
+              Enter your product, market, channels, and goal. Choose local, Qwen,
+              or GPT, then generate an editable campaign plan, localization notes,
+              and first-draft channel materials for a small team to execute.
             </p>
           </div>
         </header>
@@ -172,7 +173,7 @@ export default function Home() {
               />
             ) : null}
             {result?.status === "plan_generated" && result.campaign_plan ? (
-              <CampaignPlanPanel plan={result.campaign_plan} />
+              <CampaignPackageWorkspace plan={result.campaign_plan} />
             ) : null}
           </div>
         </div>
@@ -213,10 +214,12 @@ function EmptyResult() {
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-lime text-xl font-bold text-ink">
         R
       </div>
-      <h2 className="mt-4 text-xl font-semibold text-ink">Your campaign appears here</h2>
+      <h2 className="mt-4 text-xl font-semibold text-ink">
+        Your campaign package appears here
+      </h2>
       <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-        Submit a complete brief or load the demo input to see the ideation and planning
-        workflow in action.
+        Submit a complete brief or load the demo input to see the plan, market
+        adaptation, and editable channel assets.
       </p>
     </section>
   );

@@ -80,8 +80,16 @@ def test_campaign_endpoint_generates_plan(
     )
     assert response.status_code == 200
     body = response.json()
+    plan = body["campaign_plan"]
     assert body["status"] == "plan_generated"
-    assert body["campaign_plan"]["campaign_name"] == "TensorGrowth Lean Growth Launch"
+    assert plan["campaign_name"] == "TensorGrowth Cross-Border Launch Sprint"
+    assert plan["market_adaptation"]["target_market"] == "United States"
+    assert len(plan["draft_assets"]) == 3
+    assert {asset["channel"] for asset in plan["draft_assets"]} == {
+        "LinkedIn",
+        "Email",
+        "Landing Page",
+    }
 
 
 def test_campaign_endpoint_accepts_explicit_provider_selection(

@@ -18,7 +18,19 @@ interface CampaignFormFields {
   brand_voice: string;
   constraints: string;
   user_prompt: string;
+  target_market: string;
+  output_language: string;
+  campaign_duration: string;
+  selected_channels: string[];
 }
+
+const channelOptions = [
+  "LinkedIn",
+  "Email",
+  "Landing Page",
+  "X / Twitter",
+  "Blog",
+] as const;
 
 const emptyFields: CampaignFormFields = {
   product_name: "",
@@ -28,6 +40,10 @@ const emptyFields: CampaignFormFields = {
   brand_voice: "",
   constraints: "",
   user_prompt: "",
+  target_market: "United States",
+  output_language: "English",
+  campaign_duration: "4 weeks",
+  selected_channels: ["LinkedIn", "Email", "Landing Page"],
 };
 
 const demoFields: CampaignFormFields = {
@@ -40,6 +56,10 @@ const demoFields: CampaignFormFields = {
   constraints: "Small team\nLimited budget\nOrganic-first",
   user_prompt:
     "ready for planning: create a launch campaign concept for this product",
+  target_market: "United States",
+  output_language: "English",
+  campaign_duration: "4 weeks",
+  selected_channels: ["LinkedIn", "Email", "Landing Page"],
 };
 
 const requiredFields: Array<keyof CampaignFormFields> = [
@@ -48,6 +68,8 @@ const requiredFields: Array<keyof CampaignFormFields> = [
   "target_audience",
   "marketing_goal",
   "user_prompt",
+  "target_market",
+  "output_language",
 ];
 
 export function CampaignForm({
@@ -62,13 +84,26 @@ export function CampaignForm({
     setFields((current) => ({ ...current, [name]: value }));
   }
 
+  function toggleChannel(channel: string) {
+    setFields((current) => {
+      const selected = current.selected_channels.includes(channel)
+        ? current.selected_channels.filter((item) => item !== channel)
+        : [...current.selected_channels, channel];
+      return { ...current, selected_channels: selected };
+    });
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const hasMissingRequiredField = requiredFields.some(
-      (field) => !fields[field].trim(),
+      (field) => !String(fields[field]).trim(),
     );
     if (hasMissingRequiredField) {
       setValidationError("Complete all required fields before generating.");
+      return;
+    }
+    if (fields.selected_channels.length === 0) {
+      setValidationError("Choose at least one campaign channel.");
       return;
     }
 
@@ -86,6 +121,10 @@ export function CampaignForm({
       constraints: constraints.length > 0 ? constraints : null,
       user_prompt: fields.user_prompt.trim(),
       conversation_history: null,
+      target_market: fields.target_market.trim(),
+      output_language: fields.output_language.trim(),
+      selected_channels: fields.selected_channels,
+      campaign_duration: fields.campaign_duration.trim() || null,
     });
   }
 
@@ -101,11 +140,11 @@ export function CampaignForm({
         <div>
           <p className="eyebrow">Campaign brief</p>
           <h2 className="mt-2 text-2xl font-semibold text-ink">
-            Define the opportunity
+            Define the cross-border opportunity
           </h2>
         </div>
         <span className="rounded-full bg-lime/40 px-3 py-1 text-xs font-semibold text-ink">
-          Phase 2
+          Phase 2.1
         </span>
       </div>
 
@@ -127,6 +166,42 @@ export function CampaignForm({
             onChange={(event) => updateField("brand_voice", event.target.value)}
             disabled={isLoading}
             placeholder="Direct, optimistic, expert"
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-5 sm:grid-cols-3">
+        <Field label="Target Market" required>
+          <input
+            id="target_market"
+            className="input"
+            value={fields.target_market}
+            onChange={(event) => updateField("target_market", event.target.value)}
+            disabled={isLoading}
+            placeholder="United States, Europe, SEA"
+          />
+        </Field>
+        <Field label="Output Language" required>
+          <select
+            id="output_language"
+            className="input"
+            value={fields.output_language}
+            onChange={(event) => updateField("output_language", event.target.value)}
+            disabled={isLoading}
+          >
+            <option>English</option>
+            <option>Chinese</option>
+            <option>Chinese + English</option>
+          </select>
+        </Field>
+        <Field label="Campaign Duration">
+          <input
+            id="campaign_duration"
+            className="input"
+            value={fields.campaign_duration}
+            onChange={(event) => updateField("campaign_duration", event.target.value)}
+            disabled={isLoading}
+            placeholder="4 weeks"
           />
         </Field>
       </div>
@@ -168,6 +243,27 @@ export function CampaignForm({
         </Field>
       </div>
 
+      <fieldset>
+        <legend className="label">Campaign Channels</legend>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {channelOptions.map((channel) => (
+            <label
+              key={channel}
+              className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-ink"
+            >
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-moss"
+                checked={fields.selected_channels.includes(channel)}
+                onChange={() => toggleChannel(channel)}
+                disabled={isLoading}
+              />
+              {channel}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <Field label="Constraints">
         <textarea
           id="constraints"
@@ -198,7 +294,7 @@ export function CampaignForm({
 
       <div className="flex flex-wrap gap-3">
         <button className="button-primary" type="submit" disabled={isLoading}>
-          {isLoading ? "Generating…" : "Generate Campaign"}
+          {isLoading ? "Generating..." : "Generate Campaign Package"}
         </button>
         <button
           className="button-secondary"
