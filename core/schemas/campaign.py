@@ -34,6 +34,10 @@ class CampaignGenerationRequest(StrictSchema):
     constraints: Optional[List[NonEmptyStr]] = None
     user_prompt: NonEmptyStr
     conversation_history: Optional[List[ConversationMessage]] = None
+    target_market: Optional[NonEmptyStr] = None
+    output_language: Optional[NonEmptyStr] = None
+    selected_channels: Optional[List[NonEmptyStr]] = None
+    campaign_duration: Optional[NonEmptyStr] = None
 
 
 class IdeationResult(StrictSchema):
@@ -69,6 +73,24 @@ class CampaignDeliverable(StrictSchema):
     purpose: NonEmptyStr
 
 
+class MarketAdaptation(StrictSchema):
+    target_market: NonEmptyStr
+    language_strategy: NonEmptyStr
+    positioning_recommendations: List[NonEmptyStr] = Field(min_length=1)
+    localization_notes: List[NonEmptyStr] = Field(min_length=1)
+    cultural_risks: List[NonEmptyStr]
+    suggested_phrases: List[NonEmptyStr] = Field(min_length=1)
+
+
+class CampaignAsset(StrictSchema):
+    asset_type: NonEmptyStr
+    channel: NonEmptyStr
+    title: NonEmptyStr
+    content: NonEmptyStr
+    call_to_action: NonEmptyStr
+    notes: List[NonEmptyStr]
+
+
 class CampaignPlan(StrictSchema):
     campaign_name: NonEmptyStr
     campaign_objective: NonEmptyStr
@@ -81,6 +103,8 @@ class CampaignPlan(StrictSchema):
     success_metrics: List[NonEmptyStr] = Field(min_length=1)
     assumptions: List[NonEmptyStr]
     execution_notes: List[NonEmptyStr]
+    market_adaptation: Optional[MarketAdaptation] = None
+    draft_assets: Optional[List[CampaignAsset]] = None
 
 
 class CampaignWorkflowStatus(str, Enum):
