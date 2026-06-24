@@ -21,6 +21,7 @@ class MockLLMClient(BaseLLMClient):
             "CampaignPlan": self._build_campaign_plan,
             "CampaignAsset": self._build_asset,
             "AuditVerdict": self._build_audit_verdict,
+            "VisualAsset": self._build_visual_asset,
         }
         builder = builders.get(response_model.__name__)
         if builder is None:
@@ -644,6 +645,26 @@ class MockLLMClient(BaseLLMClient):
         """Deterministic auditor: approves mock-clean content. A real, different-family
         model supplies the semantic judgment; tests exercise the flagging path."""
         return {"approved": True, "issues": []}
+
+    @staticmethod
+    def _build_visual_asset(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """The Designer's creative spec for one channel (image_ref is filled by the
+        MediaProvider after this returns)."""
+        channel = str(payload.get("channel") or "").strip() or "Web"
+        core = str(payload.get("core_message") or "").strip() or (
+            "the campaign's core promise"
+        )
+        product = str(payload.get("product_name") or "the product")
+        return {
+            "channel": channel,
+            "concept": f"On-brand {channel} hero visual for {product}",
+            "prompt": (
+                f"A clean, technical, evidence-led {channel} hero image expressing: "
+                f"{core}. Minimal composition, brand palette, no stock-photo cliche."
+            ),
+            "alt_text": f"{product} {channel} campaign visual — {core}",
+            "aspect_ratio": "1:1",
+        }
 
     @staticmethod
     def _build_asset(payload: Dict[str, Any]) -> Dict[str, Any]:

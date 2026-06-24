@@ -128,6 +128,18 @@ class AuditVerdict(StrictSchema):
     issues: List[AuditIssue] = Field(default_factory=list)
 
 
+class VisualAsset(StrictSchema):
+    """A Designer's visual for one channel: the creative spec (concept, image-gen
+    prompt, alt text) plus the rendered ``image_ref`` filled by the MediaProvider."""
+
+    channel: NonEmptyStr
+    concept: NonEmptyStr
+    prompt: NonEmptyStr
+    alt_text: NonEmptyStr
+    aspect_ratio: str = "1:1"
+    image_ref: Optional[str] = None
+
+
 class ClaimStatus(str, Enum):
     SOURCE_BACKED = "source_backed"
     NEEDS_VALIDATION = "needs_validation"
