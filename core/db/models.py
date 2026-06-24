@@ -246,3 +246,16 @@ class MetricSnapshot(SQLModel, table=True):
     clicks: int = 0
     signups: int = 0
     captured_at: datetime = Field(default_factory=_now)
+
+
+class EpisodicNote(SQLModel, table=True):
+    """Episodic memory: a campaign-level decision or lead-feedback note that later
+    work reads, so the team's choices accumulate across tasks (and, later, campaigns).
+    Semantic memory = BrandProfile; working memory = the task context."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    kind: str = "feedback"  # feedback | decision | summary
+    text: str
+    created_at: datetime = Field(default_factory=_now)

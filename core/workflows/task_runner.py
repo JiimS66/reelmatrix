@@ -26,6 +26,7 @@ from core.db.models import (
     BrandProfile,
     Campaign,
     ContentAtom,
+    EpisodicNote,
     ExecutionMode,
     Member,
     MemberKind,
@@ -370,7 +371,13 @@ class TaskRunner:
         brand = self._session.exec(
             select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
         ).first()
+        notes = self._session.exec(
+            select(EpisodicNote)
+            .where(EpisodicNote.campaign_id == task.campaign_id)
+            .order_by(EpisodicNote.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
         return {
+            "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
             "core_message": plan.get("core_message", ""),
             "product_name": (campaign.brief or {}).get("product_name", ""),

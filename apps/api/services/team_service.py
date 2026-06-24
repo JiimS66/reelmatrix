@@ -15,6 +15,7 @@ from core.db.models import (
     Campaign,
     Comment,
     ContentAtom,
+    EpisodicNote,
     ExecutionMode,
     Member,
     MemberKind,
@@ -74,6 +75,15 @@ def _record_event(
             actor_id=actor_id,
             type=event_type,
             payload=payload,
+        )
+    )
+
+
+def record_episodic_note(session: Session, task: Task, *, kind: str, text: str) -> None:
+    """Append to the campaign's episodic memory (lead decisions/feedback)."""
+    session.add(
+        EpisodicNote(
+            tenant_id=task.tenant_id, campaign_id=task.campaign_id, kind=kind, text=text
         )
     )
 
@@ -326,6 +336,10 @@ def review_task(
             session, task, TaskEventType.CHANGES_REQUESTED, actor_id=actor.id,
             payload={"note": note},
         )
+        record_episodic_note(
+            session, task, kind="feedback",
+            text=f"Changes requested on '{task.title}': {note or 'see thread'}",
+        )
         session.add(task)
     session.commit()
     return task
@@ -345,6 +359,7 @@ def edit_task(session: Session, actor: Member, task_id: str, *, output: dict) ->
     if task.kind == TaskKind.ASSET:
         task.checks = recompute_asset_checks(session, task)
     _record_event(session, task, TaskEventType.EDITED, actor_id=actor.id)
+    record_episodic_note(session, task, kind="feedback", text=f"Lead edited '{task.title}'.")
     session.add(task)
     session.commit()
     return task

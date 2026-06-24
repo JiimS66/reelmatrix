@@ -59,6 +59,7 @@ class CopywriterAgent(Agent):
             "product_name": context.get("product_name", ""),
             "platform": context.get("platform", {}),
             "brand": context.get("brand", {}),
+            "recent_feedback": context.get("recent_feedback", []),
         }
         asset = await self._llm_client.generate_structured(
             system_prompt=COPYWRITER_SYSTEM_PROMPT,
