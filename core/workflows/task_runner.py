@@ -294,23 +294,17 @@ class TaskRunner:
         task.status = TaskStatus.IN_PROGRESS
 
         role_key = _ROLE_BY_KIND[task.kind]
-        if task.kind == TaskKind.ASSET:
-            context: dict = self._copywriter_context(task, campaign)
-        else:
-            payload = dict(campaign.brief)
-            payload.setdefault("campaign_template", campaign.template)
-            context = {"request": payload}
-            if task.kind == TaskKind.PLANNING:
-                ideation_result = IdeationResult.model_validate(self._ideation_output(task))
-                if not ideation_result.is_ready_for_planning:
-                    task.status = TaskStatus.BLOCKED
-                    _record_event(
-                        self._session, task, TaskEventType.STATUS_CHANGED,
-                        payload={"reason": "ideation_not_ready"},
-                    )
-                    self._session.add(task)
-                    return None
-                context["ideation_result"] = ideation_result.model_dump(mode="json")
+        context = self._build_context(task, campaign)
+        if task.kind == TaskKind.PLANNING:
+            ideation_result = IdeationResult.model_validate(context["ideation_result"])
+            if not ideation_result.is_ready_for_planning:
+                task.status = TaskStatus.BLOCKED
+                _record_event(
+                    self._session, task, TaskEventType.STATUS_CHANGED,
+                    payload={"reason": "ideation_not_ready"},
+                )
+                self._session.add(task)
+                return None
         return await agent_for_role(role_key, client).run(context)
 
     def _persist(self, task: Task, output: dict) -> None:
@@ -353,6 +347,17 @@ class TaskRunner:
             payload={"error": type(exc).__name__},
         )
         self._session.add(task)
+
+    def _build_context(self, task: Task, campaign: Campaign) -> dict:
+        """The blackboard slice an agent reads — only its dependencies, nothing more."""
+        if task.kind == TaskKind.ASSET:
+            return self._copywriter_context(task, campaign)
+        payload = dict(campaign.brief)
+        payload.setdefault("campaign_template", campaign.template)
+        context: dict = {"request": payload}
+        if task.kind == TaskKind.PLANNING:
+            context["ideation_result"] = self._ideation_output(task)
+        return context
 
     def _copywriter_context(self, task: Task, campaign: Campaign) -> dict:
         """The slice a copywriter reads: shared core + platform spec + brand."""
