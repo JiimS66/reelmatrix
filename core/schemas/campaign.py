@@ -107,6 +107,27 @@ class CampaignAsset(StrictSchema):
     notes: List[NonEmptyStr]
 
 
+class AuditDimension(str, Enum):
+    BRAND_TONE = "brand_tone"
+    UNSOURCED_CLAIM = "unsourced_claim"
+    CONSISTENCY = "consistency"
+    CLARITY = "clarity"
+
+
+class AuditIssue(StrictSchema):
+    dimension: AuditDimension
+    detail: NonEmptyStr
+
+
+class AuditVerdict(StrictSchema):
+    """An LLM-as-judge verdict on a rendered post — the semantic layer above the
+    deterministic format/brand/consistency checks. Run by an Auditor on a different
+    model family than the generator, so their errors decorrelate."""
+
+    approved: bool
+    issues: List[AuditIssue] = Field(default_factory=list)
+
+
 class ClaimStatus(str, Enum):
     SOURCE_BACKED = "source_backed"
     NEEDS_VALIDATION = "needs_validation"

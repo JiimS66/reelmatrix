@@ -20,6 +20,7 @@ class MockLLMClient(BaseLLMClient):
             "IdeationResult": self._build_ideation_result,
             "CampaignPlan": self._build_campaign_plan,
             "CampaignAsset": self._build_asset,
+            "AuditVerdict": self._build_audit_verdict,
         }
         builder = builders.get(response_model.__name__)
         if builder is None:
@@ -637,6 +638,12 @@ class MockLLMClient(BaseLLMClient):
         selected = {channel.strip().lower() for channel in selected_channels}
         matched = [asset for asset in assets if asset["channel"].lower() in selected]
         return matched or assets[:3]
+
+    @staticmethod
+    def _build_audit_verdict(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Deterministic auditor: approves mock-clean content. A real, different-family
+        model supplies the semantic judgment; tests exercise the flagging path."""
+        return {"approved": True, "issues": []}
 
     @staticmethod
     def _build_asset(payload: Dict[str, Any]) -> Dict[str, Any]:

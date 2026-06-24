@@ -34,6 +34,17 @@ COPYWRITER = AgentRole(
     ),
 )
 
+AUDITOR = AgentRole(
+    key="auditor",
+    title="Content auditor",
+    job_description=(
+        "Independently judge a rendered post for brand-tone fit, unsourced claims, "
+        "cross-channel consistency, and clarity — the semantic layer above the "
+        "deterministic checks. Runs on a different model family than the generator so "
+        "their errors decorrelate; failures feed the self-correction retry."
+    ),
+)
+
 ROLES: dict[str, AgentRole] = {
-    role.key: role for role in (IDEATION, PLANNING, COPYWRITER)
+    role.key: role for role in (IDEATION, PLANNING, COPYWRITER, AUDITOR)
 }

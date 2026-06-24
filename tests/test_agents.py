@@ -68,3 +68,21 @@ def test_copywriter_agent_renders_one_asset_from_core() -> None:
     assert out["content"]
     assert out["call_to_action"]
     assert "copywriter" in ROLES and ROLES["copywriter"].title == "Copywriter"
+
+
+def test_auditor_agent_returns_a_verdict() -> None:
+    agent = agent_for_role("auditor", MockLLMClient())
+    out = asyncio.run(
+        agent.run(
+            {
+                "channel": "LinkedIn",
+                "core_message": "Give AI-native teams a verification loop they can trust.",
+                "approved_claims": [],
+                "brand": {"forbidden_words": ["magic"]},
+                "post": {"title": "x", "content": "clean copy", "call_to_action": "Start."},
+            }
+        )
+    )
+    assert out["approved"] is True
+    assert out["issues"] == []
+    assert ROLES["auditor"].title == "Content auditor"
