@@ -51,3 +51,20 @@ def test_planning_agent_runs_from_context(
     )
     assert plan["channels"]
     assert plan["campaign_name"]
+
+
+def test_copywriter_agent_renders_one_asset_from_core() -> None:
+    agent = agent_for_role("copywriter", MockLLMClient())
+    out = asyncio.run(
+        agent.run(
+            {
+                "channel": "LinkedIn",
+                "core_message": "Give AI-native teams a verification loop they can trust.",
+                "product_name": "TestSprite",
+            }
+        )
+    )
+    assert out["channel"] == "LinkedIn"
+    assert out["content"]
+    assert out["call_to_action"]
+    assert "copywriter" in ROLES and ROLES["copywriter"].title == "Copywriter"

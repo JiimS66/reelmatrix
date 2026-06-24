@@ -24,4 +24,16 @@ PLANNING = AgentRole(
     ),
 )
 
-ROLES: dict[str, AgentRole] = {role.key: role for role in (IDEATION, PLANNING)}
+COPYWRITER = AgentRole(
+    key="copywriter",
+    title="Copywriter",
+    job_description=(
+        "Render one platform-optimized post from the shared campaign content core, "
+        "the platform's format spec, and the brand — consistent with the other channels "
+        "(same core message and approved claims), never inventing unsourced claims."
+    ),
+)
+
+ROLES: dict[str, AgentRole] = {
+    role.key: role for role in (IDEATION, PLANNING, COPYWRITER)
+}

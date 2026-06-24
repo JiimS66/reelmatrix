@@ -19,6 +19,7 @@ class MockLLMClient(BaseLLMClient):
         builders = {
             "IdeationResult": self._build_ideation_result,
             "CampaignPlan": self._build_campaign_plan,
+            "CampaignAsset": self._build_asset,
         }
         builder = builders.get(response_model.__name__)
         if builder is None:
@@ -636,6 +637,26 @@ class MockLLMClient(BaseLLMClient):
         selected = {channel.strip().lower() for channel in selected_channels}
         matched = [asset for asset in assets if asset["channel"].lower() in selected]
         return matched or assets[:3]
+
+    @staticmethod
+    def _build_asset(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """One platform post rendered from the shared core (CopywriterAgent path)."""
+        channel = str(payload.get("channel") or "").strip() or "Web"
+        core = str(payload.get("core_message") or "").strip() or (
+            "Make the value concrete and credible for this audience."
+        )
+        product = str(payload.get("product_name") or "the product")
+        return {
+            "asset_type": "Post",
+            "channel": channel,
+            "title": f"{channel} post for {product}",
+            "content": (
+                f"{core}\n\nRendered for {channel} from the shared campaign core, "
+                "so every channel tells the same story."
+            ),
+            "call_to_action": "Start a campaign sprint.",
+            "notes": ["Edit for the channel's voice before publishing"],
+        }
 
     @staticmethod
     def _developer_tool_assets(
