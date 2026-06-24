@@ -111,8 +111,9 @@ You are a senior brand designer. From the shared campaign core, the channel, and
 brand, produce ONE visual spec: a creative concept, a precise image-generation prompt
 (composition, subject, mood, on-brand palette — no stock-photo cliche, no text in the
 image unless the channel needs it), and accessible alt text. Stay consistent with the
-campaign's core message and the brand. Return the spec only; the image itself is
-rendered separately.
+campaign's core message and the brand. If revision_notes lists problems with a previous
+draft (e.g. an off-brand palette), fix exactly those. Return the spec only; the image
+itself is rendered separately.
 """.strip()
 
 
@@ -129,6 +130,7 @@ class DesignerAgent(Agent):
             "core_message": context.get("core_message", ""),
             "product_name": context.get("product_name", ""),
             "brand": context.get("brand", {}),
+            "revision_notes": context.get("revision_notes", []),
         }
         spec = await self._llm_client.generate_structured(
             system_prompt=DESIGNER_SYSTEM_PROMPT,

@@ -20,6 +20,7 @@ from core.db.models import (
 )
 from core.db.seed import seed_testsprite
 from core.llm.mock_client import MockLLMClient
+from core.media.base import MediaCritique, MediaUnderstanding, VisionProvider
 from core.schemas.campaign import AuditDimension, AuditIssue, AuditVerdict
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import TaskRunner, fan_out_from_plan, role_for
@@ -423,6 +424,59 @@ def test_runner_renders_per_channel_visuals_when_enabled() -> None:
         assert visual.output["channel"] == visual.params["channel"]
         assert visual.output["image_ref"].startswith("mock://image/")
         assert visual.output["prompt"] and visual.output["alt_text"]
+        # The VisionProvider critiqued it; the mock judges it on-brand.
+        assert visual.checks["brand_fit"] == []
+
+
+class _FlaggingVisionProvider(VisionProvider):
+    """Judges the first visual off-brand, then on-brand — so the critic drives a
+    self-correction pass even though the writer/media are clean."""
+
+    def __init__(self) -> None:
+        self.critiques = 0
+
+    async def understand(self, *, media_ref) -> MediaUnderstanding:
+        return MediaUnderstanding(summary="mock")
+
+    async def critique(self, *, media_ref, campaign_text, brand=None) -> MediaCritique:
+        self.critiques += 1
+        if self.critiques == 1:
+            return MediaCritique(
+                on_brand=False, issues=["Palette reads off-brand; use the brand greens."]
+            )
+        return MediaCritique(on_brand=True, issues=[])
+
+
+def test_visual_critique_drives_a_self_correction_pass() -> None:
+    engine = create_db_engine("sqlite://")
+    init_db(engine)
+    session = Session(engine)
+    tenant = seed_testsprite(session)
+
+    vision = _FlaggingVisionProvider()
+    runner = TaskRunner(
+        session,
+        client_for_provider=lambda provider: MockLLMClient(),
+        vision_for_name=lambda name: vision,
+    )
+    campaign = instantiate_campaign(
+        session, tenant_id=tenant.id, name="Solo visual",
+        brief={**BRIEF, "selected_channels": ["LinkedIn"]}, with_visuals=True,
+    )
+    asyncio.run(runner.run_ready_tasks(campaign.id))
+
+    visual = _task(session, campaign.id, TaskKind.VISUAL)
+    # The VLM-judge flagged the first draft; after a rewrite it approved.
+    assert visual.status == TaskStatus.DONE
+    assert visual.checks["brand_fit"] == []
+    event = session.exec(
+        select(TaskEvent).where(
+            TaskEvent.task_id == visual.id,
+            TaskEvent.type == TaskEventType.SELF_CORRECTED,
+        )
+    ).first()
+    assert event is not None
+    assert event.payload["passes"] == 1 and event.payload.get("kind") == "visual"
 
 
 def test_fan_out_preserves_human_edits_on_replay() -> None:

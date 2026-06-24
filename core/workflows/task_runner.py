@@ -48,9 +48,12 @@ from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
+from core.media.base import VisionProvider
+from core.media.factory import create_vision_provider
 from core.schemas.campaign import IdeationResult
 
 ClientForProvider = Callable[[str], BaseLLMClient]
+VisionForName = Callable[[str], VisionProvider]
 
 _RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET, TaskKind.VISUAL)
 # Fallback agent for each kind when the assigned member declares no explicit role.
@@ -275,12 +278,15 @@ class TaskRunner:
         self,
         session: Session,
         client_for_provider: Optional[ClientForProvider] = None,
+        vision_for_name: Optional[VisionForName] = None,
     ) -> None:
         self._session = session
         self._client_for_provider = client_for_provider or default_client_for_provider
-        # Audit verdicts produced during a gathered render, handed to the serial
-        # _persist (which then merges them into task.checks). Keyed by task id.
-        self._pending_audit: dict[str, list[dict]] = {}
+        self._vision_for_name = vision_for_name or create_vision_provider
+        # Extra check groups produced during a gathered render (the Auditor's "audit"
+        # for posts, the visual critic's "brand_fit" for visuals), handed to the serial
+        # _persist which merges them into task.checks. Keyed by task id.
+        self._pending_checks: dict[str, dict] = {}
 
     async def run_ready_tasks(self, campaign_id: str) -> list[str]:
         """Run every currently-ready AI task. Independent tasks (e.g. the per-channel
@@ -362,6 +368,8 @@ class TaskRunner:
         output = await agent_for_role(role_key, client).run(context)
         if task.kind == TaskKind.ASSET:
             output = await self._self_correct(task, member, client, role_key, context, output)
+        elif task.kind == TaskKind.VISUAL:
+            output = await self._critique_visual(task, member, client, role_key, context, output)
         return output
 
     async def _self_correct(
@@ -399,7 +407,7 @@ class TaskRunner:
             if best_issues == 0:
                 break
         if best_audit is not None:
-            self._pending_audit[task.id] = best_audit
+            self._pending_checks[task.id] = {"audit": best_audit}
         if passes:
             _record_event(
                 self._session, task, TaskEventType.SELF_CORRECTED,
@@ -407,6 +415,60 @@ class TaskRunner:
                 payload={"passes": passes, "remaining_issues": best_issues},
             )
         return best
+
+    async def _critique_visual(
+        self,
+        task: Task,
+        member: Optional[Member],
+        client: BaseLLMClient,
+        role_key: str,
+        context: dict,
+        output: dict,
+    ) -> dict:
+        """Re-render a visual the VisionProvider judges off-brand, feeding the critique
+        back, keeping the cleanest. The visual analogue of post self-correction; the
+        critique (a VLM-as-judge) is surfaced as the visual's brand_fit check."""
+        critique = await self._run_visual_critique(task, output, context)  # None if no ref
+        best, best_critique, best_issues = output, critique, len(critique or [])
+        passes = 0
+        while best_issues > 0 and passes < _MAX_ASSET_REVISIONS:
+            passes += 1
+            notes = [issue["detail"] for issue in (critique or [])]
+            candidate = await agent_for_role(role_key, client).run(
+                {**context, "revision_notes": notes}
+            )
+            _record_usage(self._session, task, member)
+            critique = await self._run_visual_critique(task, candidate, context)
+            issues = len(critique or [])
+            if issues < best_issues:
+                best, best_critique, best_issues = candidate, critique, issues
+            if best_issues == 0:
+                break
+        if best_critique is not None:
+            self._pending_checks[task.id] = {"brand_fit": best_critique}
+        if passes:
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                actor_id=task.assignee_id,
+                payload={"passes": passes, "remaining_issues": best_issues, "kind": "visual"},
+            )
+        return best
+
+    async def _run_visual_critique(
+        self, task: Task, output: dict, context: dict
+    ) -> Optional[list[dict]]:
+        """VLM-as-judge on a rendered visual vs the campaign text + brand. Returns
+        issues as {code, detail} dicts, or None when there is no image to judge."""
+        image_ref = (output or {}).get("image_ref")
+        if not image_ref:
+            return None
+        provider = self._vision_for_name("mock")
+        verdict = await provider.critique(
+            media_ref=image_ref,
+            campaign_text=context.get("core_message", ""),
+            brand=context.get("brand", {}),
+        )
+        return [{"code": "brand_fit", "detail": issue} for issue in verdict.issues]
 
     def _auditor_member(self, tenant_id: str) -> Optional[Member]:
         """The tenant's configured Auditor (an AI member whose role is 'auditor'),
@@ -452,10 +514,10 @@ class TaskRunner:
         task.output = output
         if task.kind == TaskKind.ASSET:
             checks = recompute_asset_checks(self._session, task)
-            audit = self._pending_audit.pop(task.id, None)
-            if audit is not None:
-                checks["audit"] = audit  # the Auditor's verdict, surfaced like a check
+            checks.update(self._pending_checks.pop(task.id, {}))  # + the Auditor's "audit"
             task.checks = checks
+        elif task.kind == TaskKind.VISUAL:
+            task.checks = self._pending_checks.pop(task.id, {})  # the "brand_fit" critique
         task.updated_at = _now()
         _record_usage(self._session, task, member)
         _record_event(
