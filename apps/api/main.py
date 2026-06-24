@@ -27,7 +27,7 @@ def create_app(settings: Optional[AppSettings] = None) -> FastAPI:
         allow_origins=[active_settings.web_origin.rstrip("/")],
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-LLM-Provider"],
+        allow_headers=["Content-Type", "X-LLM-Provider", "X-Member-Id"],
     )
     application.state.campaign_generation_service = campaign_generation_service
     application.include_router(health_router)

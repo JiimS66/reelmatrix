@@ -1,306 +1,410 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { CampaignForm } from "@/components/CampaignForm";
-import { CampaignHistoryPanel } from "@/components/CampaignHistoryPanel";
-import { CampaignPackageWorkspace } from "@/components/CampaignPackageWorkspace";
-import { ErrorState } from "@/components/ErrorState";
-import { FollowUpPanel } from "@/components/FollowUpPanel";
-import { IdeationResultPanel } from "@/components/IdeationResultPanel";
-import { LoadingState } from "@/components/LoadingState";
-import { ModelSelector } from "@/components/ModelSelector";
+import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import {
-  CampaignApiError,
-  generateCampaign,
-  getLLMProviders,
-} from "@/lib/api";
+  AssigneeChip,
+  CheckBadges,
+  KIND_LABEL,
+  StatusBadge,
+  checkCount,
+} from "@/components/workspace/primitives";
 import {
-  createCampaignHistoryRecord,
-  deleteCampaignHistoryRecord,
-  loadCampaignHistory,
-  upsertCampaignHistoryRecord,
-  type CampaignHistoryRecord,
-} from "@/lib/campaignHistory";
-import type {
-  CampaignGenerationRequest,
-  CampaignPlan,
-  CampaignWorkflowResponse,
-  ConversationMessage,
-  IdeationResult,
-  LLMProviderInfo,
-} from "@/lib/campaignTypes";
+  createCampaign,
+  getBoard,
+  getInbox,
+  getTask,
+  listAtoms,
+  listMembers,
+  runCampaign,
+  TeamApiError,
+  TESTSPRITE_BRIEF,
+  type Atom,
+  type Board,
+  type Member,
+  type Task,
+  type TaskDetail,
+} from "@/lib/teamApi";
 
-export default function Home() {
-  const [result, setResult] = useState<CampaignWorkflowResponse | null>(null);
-  const [lastRequest, setLastRequest] =
-    useState<CampaignGenerationRequest | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+type View = "board" | "inbox" | "atoms";
+
+function errMessage(error: unknown): string {
+  if (error instanceof TeamApiError) return error.message;
+  return error instanceof Error ? error.message : "Something went wrong.";
+}
+
+export default function Workspace() {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [currentId, setCurrentId] = useState("");
+  const [view, setView] = useState<View>("board");
+  const [board, setBoard] = useState<Board | null>(null);
+  const [inbox, setInbox] = useState<Task[]>([]);
+  const [atoms, setAtoms] = useState<Atom[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [providers, setProviders] = useState<LLMProviderInfo[]>([]);
-  const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [lastProviderId, setLastProviderId] = useState<string | null>(null);
-  const [isLoadingProviders, setIsLoadingProviders] = useState(true);
-  const [providerError, setProviderError] = useState<string | null>(null);
-  const [historyRecords, setHistoryRecords] = useState<CampaignHistoryRecord[]>([]);
-  const [activeHistoryRecordId, setActiveHistoryRecordId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const current = members.find((m) => m.id === currentId) ?? null;
+  const isLead = current?.role === "lead";
+  const humans = members.filter((m) => m.kind === "human");
 
   useEffect(() => {
-    setHistoryRecords(loadCampaignHistory());
+    listMembers()
+      .then((ms) => {
+        setMembers(ms);
+        const lead = ms.find((m) => m.role === "lead" && m.kind === "human");
+        setCurrentId(lead?.id ?? ms[0]?.id ?? "");
+      })
+      .catch((e) => setError(errMessage(e)));
   }, []);
 
-  useEffect(() => {
-    let isActive = true;
-    getLLMProviders()
-      .then((catalog) => {
-        if (!isActive) {
-          return;
-        }
-        setProviders(catalog.providers);
-        const defaultProvider = catalog.providers.find(
-          (provider) => provider.is_default && provider.configured,
-        );
-        const firstConfiguredProvider = catalog.providers.find(
-          (provider) => provider.configured,
-        );
-        setSelectedProviderId(
-          defaultProvider?.provider_id ?? firstConfiguredProvider?.provider_id ?? "",
-        );
-      })
-      .catch((caughtError: unknown) => {
-        if (!isActive) {
-          return;
-        }
-        setProviderError(
-          caughtError instanceof CampaignApiError
-            ? caughtError.message
-            : "Unable to load model providers.",
-        );
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsLoadingProviders(false);
-        }
-      });
-    return () => {
-      isActive = false;
-    };
-  }, []);
-
-  async function submitRequest(
-    request: CampaignGenerationRequest,
-    providerId: string = selectedProviderId,
-  ) {
-    if (!providerId) {
-      setError("Choose a configured model provider before generating.");
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    setResult(null);
-    setActiveHistoryRecordId(null);
+  const refreshBoard = useCallback(async () => {
+    if (!board || !currentId) return;
     try {
-      const response = await generateCampaign(request, providerId);
-      const historyRecord = createCampaignHistoryRecord({
-        request,
-        response,
-        providerId,
+      setBoard(await getBoard(currentId, board.campaign.id));
+    } catch (e) {
+      setError(errMessage(e));
+    }
+  }, [board, currentId]);
+
+  const refreshDetail = useCallback(async () => {
+    if (!selectedId || !currentId) return;
+    try {
+      setDetail(await getTask(currentId, selectedId));
+    } catch (e) {
+      setError(errMessage(e));
+    }
+  }, [selectedId, currentId]);
+
+  useEffect(() => {
+    if (selectedId) refreshDetail();
+    else setDetail(null);
+  }, [selectedId, refreshDetail]);
+
+  useEffect(() => {
+    if (!currentId) return;
+    if (view === "inbox") {
+      getInbox(currentId).then(setInbox).catch((e) => setError(errMessage(e)));
+    }
+    if (view === "atoms") {
+      listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
+    }
+  }, [view, currentId]);
+
+  async function onChanged() {
+    await refreshBoard();
+    await refreshDetail();
+    if (view === "inbox" && currentId) {
+      try {
+        setInbox(await getInbox(currentId));
+      } catch (e) {
+        setError(errMessage(e));
+      }
+    }
+  }
+
+  async function createAndRun() {
+    if (!currentId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createCampaign(currentId, {
+        name: "TestSprite launch",
+        brief: TESTSPRITE_BRIEF,
+        template: "general",
       });
-      setLastRequest(request);
-      setLastProviderId(providerId);
-      setResult(response);
-      setHistoryRecords(upsertCampaignHistoryRecord(historyRecord));
-      setActiveHistoryRecordId(historyRecord.id);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof CampaignApiError
-          ? caughtError.message
-          : "An unexpected error interrupted campaign generation.",
-      );
+      const ran = await runCampaign(currentId, created.campaign.id);
+      setBoard(ran);
+      setView("board");
+      setSelectedId(null);
+    } catch (e) {
+      setError(errMessage(e));
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
   }
 
-  async function submitFollowUp(answer: string) {
-    if (!lastRequest || !result || !lastProviderId) {
-      return;
-    }
-    const conversationHistory = buildConversationHistory(
-      lastRequest,
-      result.ideation_result,
-      answer,
-    );
-    await submitRequest(
-      {
-        ...lastRequest,
-        user_prompt: answer,
-        conversation_history: conversationHistory,
-      },
-      lastProviderId,
-    );
-  }
-
-  function loadHistoryRecord(record: CampaignHistoryRecord) {
-    setResult(record.response);
-    setLastRequest(record.request);
-    setLastProviderId(record.provider_id);
-    setActiveHistoryRecordId(record.id);
-    setError(null);
-    setIsLoading(false);
-  }
-
-  function removeHistoryRecord(recordId: string) {
-    setHistoryRecords(deleteCampaignHistoryRecord(recordId));
-    if (activeHistoryRecordId === recordId) {
-      setActiveHistoryRecordId(null);
+  async function runAgain() {
+    if (!board || !currentId) return;
+    setBusy(true);
+    try {
+      setBoard(await runCampaign(currentId, board.campaign.id));
+      await refreshDetail();
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
-  function updateActiveCampaignPlan(plan: CampaignPlan) {
-    if (!result || result.status !== "plan_generated") {
-      return;
-    }
-
-    const nextResult: CampaignWorkflowResponse = {
-      ...result,
-      campaign_plan: plan,
-    };
-    setResult(nextResult);
-
-    if (!activeHistoryRecordId) {
-      return;
-    }
-
-    const activeRecord = historyRecords.find(
-      (record) => record.id === activeHistoryRecordId,
-    );
-    if (!activeRecord) {
-      return;
-    }
-
-    const updatedRecord: CampaignHistoryRecord = {
-      ...activeRecord,
-      title: plan.campaign_name.trim() || activeRecord.title,
-      updated_at: new Date().toISOString(),
-      response: nextResult,
-    };
-    setHistoryRecords(upsertCampaignHistoryRecord(updatedRecord));
+  function pickMember(id: string) {
+    setCurrentId(id);
+    setSelectedId(null);
+    setBoard((b) => b); // keep board; permissions re-evaluated server-side
   }
 
-  function clearWorkspace() {
-    setResult(null);
-    setLastRequest(null);
-    setLastProviderId(null);
-    setActiveHistoryRecordId(null);
-    setError(null);
-  }
+  const tasks = view === "inbox" ? inbox : board?.tasks ?? [];
 
   return (
-    <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-8 overflow-hidden rounded-[2rem] bg-ink px-6 py-8 text-white shadow-card sm:px-10 sm:py-10">
-          <div className="max-w-4xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-lime">
-              ReelMatrix / AI Campaign Studio
-            </p>
-            <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-              Build the first cross-border campaign package before your next standup.
-            </h1>
-            <p className="mt-4 max-w-3xl text-base leading-7 text-white/70">
-              Enter your product, market, channels, and goal. Choose local, Qwen,
-              or GPT, then generate an editable campaign plan, localization notes,
-              and first-draft channel materials for a small team to execute.
-            </p>
+    <div className="min-h-screen gridbg">
+      {/* Top bar */}
+      <div className="bg-black text-white">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-2.5">
+          <div className="flex items-baseline gap-2">
+            <span className="font-semibold tracking-tight">ReelMatrix</span>
+            <span className="font-mono text-[11px] text-white/55">
+              / marketing team os
+            </span>
           </div>
-        </header>
-
-        <div className="grid items-start gap-8 xl:grid-cols-[minmax(0,0.86fr)_minmax(0,1.14fr)]">
-          <div className="xl:sticky xl:top-6">
-            <ModelSelector
-              providers={providers}
-              selectedProviderId={selectedProviderId}
-              onChange={setSelectedProviderId}
-              isLoading={isLoadingProviders}
-              error={providerError}
-            />
-            <CampaignForm
-              onSubmit={submitRequest}
-              onClear={clearWorkspace}
-              isLoading={isLoading || isLoadingProviders || !selectedProviderId}
-            />
-            <CampaignHistoryPanel
-              records={historyRecords}
-              activeRecordId={activeHistoryRecordId}
-              onLoad={loadHistoryRecord}
-              onDelete={removeHistoryRecord}
-            />
-          </div>
-
-          <div className="space-y-6" aria-live="polite">
-            {!result && !error && !isLoading ? <EmptyResult /> : null}
-            {isLoading ? <LoadingState /> : null}
-            {error ? <ErrorState message={error} /> : null}
-            {result ? <IdeationResultPanel result={result.ideation_result} /> : null}
-            {result?.status === "needs_more_ideation" ? (
-              <FollowUpPanel
-                questions={result.ideation_result.follow_up_questions}
-                onSubmit={submitFollowUp}
-                isLoading={isLoading}
-              />
-            ) : null}
-            {result?.status === "plan_generated" && result.campaign_plan ? (
-              <CampaignPackageWorkspace
-                plan={result.campaign_plan}
-                onPlanChange={updateActiveCampaignPlan}
-              />
-            ) : null}
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11px] text-white/55">acting as</span>
+            {humans.map((m) => (
+              <button
+                key={m.id}
+                onClick={() => pickMember(m.id)}
+                className={`rounded-full px-2.5 py-1 font-mono text-[11px] transition ${
+                  m.id === currentId
+                    ? "bg-forest text-white"
+                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                }`}
+              >
+                {m.display_name}
+              </button>
+            ))}
           </div>
         </div>
       </div>
-    </main>
+
+      <main className="mx-auto max-w-6xl px-5 py-7">
+        <header className="mb-6">
+          <p className="tlabel">Human + AI marketing team</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">
+            {current ? `${current.display_name}'s workspace` : "Workspace"}
+          </h1>
+        </header>
+
+        {/* Tabs */}
+        <nav className="mb-5 flex gap-1.5">
+          {(["board", "inbox", "atoms"] as View[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => {
+                setView(v);
+                setSelectedId(null);
+              }}
+              className={`rounded-lg px-3 py-1.5 font-mono text-[12px] transition ${
+                view === v
+                  ? "bg-ink text-white"
+                  : "border border-ink/10 bg-white text-ink/70 hover:text-ink"
+              }`}
+            >
+              {v === "board" ? "board" : v === "inbox" ? "my inbox" : "atom library"}
+            </button>
+          ))}
+        </nav>
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        )}
+
+        {view === "atoms" ? (
+          <AtomLibrary atoms={atoms} />
+        ) : (
+          <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+            {/* Left: list */}
+            <div className="space-y-4">
+              {view === "board" && (
+                <BoardHeader
+                  board={board}
+                  isLead={!!isLead}
+                  busy={busy}
+                  onCreate={createAndRun}
+                  onRun={runAgain}
+                />
+              )}
+
+              {tasks.length > 0 ? (
+                <ul className="space-y-2.5">
+                  {tasks.map((task) => (
+                    <li key={task.id}>
+                      <TaskRow
+                        task={task}
+                        members={board?.members ?? members}
+                        selected={task.id === selectedId}
+                        onClick={() => setSelectedId(task.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                view === "inbox" && (
+                  <p className="surface p-6 text-sm text-ink/60">
+                    Nothing assigned to you right now.
+                  </p>
+                )
+              )}
+            </div>
+
+            {/* Right: detail */}
+            <div className="lg:sticky lg:top-6">
+              {detail ? (
+                <div className="surface p-5">
+                  <TaskDetailPanel
+                    detail={detail}
+                    members={board?.members ?? members}
+                    currentMemberId={currentId}
+                    onChanged={onChanged}
+                    onError={(m) => setError(m)}
+                  />
+                </div>
+              ) : (
+                <div className="surface border-dashed p-6 text-sm text-ink/55">
+                  Select a task to view, edit, review, reassign, or comment.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
 
-function buildConversationHistory(
-  request: CampaignGenerationRequest,
-  ideation: IdeationResult,
-  answer: string,
-): ConversationMessage[] {
-  const history = [...(request.conversation_history ?? [])];
-  const latestMessage = history.at(-1);
-  if (
-    !latestMessage ||
-    latestMessage.role !== "user" ||
-    latestMessage.content !== request.user_prompt
-  ) {
-    history.push({ role: "user", content: request.user_prompt });
+function BoardHeader({
+  board,
+  isLead,
+  busy,
+  onCreate,
+  onRun,
+}: {
+  board: Board | null;
+  isLead: boolean;
+  busy: boolean;
+  onCreate: () => void;
+  onRun: () => void;
+}) {
+  if (!board) {
+    return (
+      <div className="surface p-6">
+        <p className="tlabel">Start</p>
+        <h2 className="mt-1 text-lg font-semibold text-ink">
+          Spin up a campaign
+        </h2>
+        <p className="mt-1 max-w-md text-sm text-ink/60">
+          {isLead
+            ? "Create the TestSprite launch and let the AI team draft the whole package. You can edit, reassign, or review any step after."
+            : "Only the lead can create a campaign. Switch to the lead to start one, then it lands in your inbox."}
+        </p>
+        {isLead && (
+          <button className="btn-dark mt-4" disabled={busy} onClick={onCreate}>
+            {busy ? "Drafting…" : "New TestSprite campaign →"}
+          </button>
+        )}
+      </div>
+    );
   }
-  history.push({
-    role: "assistant",
-    content: [
-      `Campaign concept: ${ideation.campaign_concept}`,
-      `Core message: ${ideation.core_message}`,
-      `Follow-up questions: ${ideation.follow_up_questions.join(" | ")}`,
-    ].join("\n"),
-  });
-  history.push({ role: "user", content: answer });
-  return history;
+  return (
+    <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
+      <div>
+        <p className="tlabel">Campaign</p>
+        <h2 className="mt-0.5 font-semibold text-ink">{board.campaign.name}</h2>
+      </div>
+      {isLead && (
+        <button className="btn-line" disabled={busy} onClick={onRun}>
+          {busy ? "Running…" : "Run AI ↻"}
+        </button>
+      )}
+    </div>
+  );
 }
 
-function EmptyResult() {
+function TaskRow({
+  task,
+  members,
+  selected,
+  onClick,
+}: {
+  task: Task;
+  members: Member[];
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const issues = checkCount(task);
   return (
-    <section className="panel border-dashed bg-white/55 text-center">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-lime text-xl font-bold text-ink">
-        R
+    <button
+      onClick={onClick}
+      className={`w-full rounded-2xl border bg-white p-4 text-left transition ${
+        selected
+          ? "border-forest ring-2 ring-forest/15"
+          : "border-ink/10 hover:border-ink/25"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
+        <StatusBadge status={task.status} />
       </div>
-      <h2 className="mt-4 text-xl font-semibold text-ink">
-        Your campaign package appears here
-      </h2>
-      <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600">
-        Submit a complete brief or load the demo input to see the plan, market
-        adaptation, and editable channel assets.
+      <p className="mt-1.5 font-semibold text-ink">{task.title}</p>
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <AssigneeChip members={members} id={task.assignee_id} />
+        {issues > 0 && (
+          <span className="font-mono text-[11px] text-amber-700">
+            {issues} check issue{issues === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+      <div className="mt-2">
+        <CheckBadges task={task} />
+      </div>
+    </button>
+  );
+}
+
+function AtomLibrary({ atoms }: { atoms: Atom[] }) {
+  if (atoms.length === 0) {
+    return (
+      <p className="surface p-6 text-sm text-ink/60">
+        No atoms yet. Approve assets and reusable hooks, headlines, and CTAs land
+        here for the next campaign.
       </p>
-    </section>
+    );
+  }
+  const byKind = atoms.reduce<Record<string, Atom[]>>((acc, atom) => {
+    (acc[atom.kind] ||= []).push(atom);
+    return acc;
+  }, {});
+  return (
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {Object.entries(byKind).map(([kind, items]) => (
+        <div key={kind} className="surface p-4">
+          <p className="tlabel">{kind}</p>
+          <ul className="mt-2 space-y-2">
+            {items.map((atom) => (
+              <li
+                key={atom.id}
+                className="rounded-lg border border-ink/10 bg-canvas p-2.5 text-sm text-ink"
+              >
+                {atom.text}
+                {atom.tags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {atom.tags.map((tag) => (
+                      <span key={tag} className="font-mono text-[10px] text-forest">
+                        #{tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }

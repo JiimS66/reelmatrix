@@ -61,3 +61,42 @@ textarea {
     @apply rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50;
   }
 }
+
+/* TestSprite-flavored workspace toolkit: warm off-white, black, forest green,
+   monospace technical labels, thin borders, subtle grid texture. */
+@layer components {
+  .gridbg {
+    background-image:
+      linear-gradient(rgba(63, 110, 31, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(63, 110, 31, 0.05) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  .tlabel {
+    @apply font-mono text-[11px] uppercase tracking-[0.14em] text-forest;
+  }
+
+  .surface {
+    @apply rounded-2xl border border-ink/10 bg-white shadow-soft;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-ink/10 bg-canvas px-2.5 py-1 font-mono text-[11px] text-ink;
+  }
+
+  .btn-dark {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-semibold text-white transition hover:bg-forest disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-line {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-ink/15 bg-white px-4 py-2 text-sm font-semibold text-ink transition hover:border-ink/40 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .btn-green {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-forest px-4 py-2 text-sm font-semibold text-white transition hover:bg-forest/85 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .field {
+    @apply w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-forest focus:ring-4 focus:ring-forest/10;
+  }
+}
