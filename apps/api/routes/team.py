@@ -20,7 +20,10 @@ from apps.api.schemas.team import (
     EditRequest,
     EventRead,
     MemberRead,
+    MetricsRequest,
     MilestoneRead,
+    PerformanceData,
+    PerformanceRow,
     ReviewRequest,
     ScheduleRead,
     SubmitRequest,
@@ -137,6 +140,37 @@ def get_schedule(
     )
 
 
+def _performance_response(
+    session: Session, actor: Member, campaign_id: str, *, note: str
+) -> PerformanceData:
+    campaign, rows, totals = team_service.campaign_performance(
+        session, actor, campaign_id
+    )
+    return PerformanceData(
+        campaign_id=campaign.id,
+        rows=[PerformanceRow(**row) for row in rows],
+        totals=totals,
+        note=note,
+    )
+
+
+@router.get("/campaigns/{campaign_id}/performance", response_model=PerformanceData)
+def get_performance(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            "Mock data. Connect owned-destination analytics + signup attribution "
+            "(UTMs) for real conversions; platform APIs where available."
+        ),
+    )
+
+
 @router.get("/todo", response_model=list[TodoItem])
 def get_todo(
     actor: Member = Depends(get_current_member),
@@ -236,3 +270,23 @@ def add_comment(
 ) -> CommentRead:
     comment = team_service.add_comment(session, actor, task_id, body=payload.body)
     return CommentRead.model_validate(comment)
+
+
+@router.post("/tasks/{task_id}/metrics", response_model=PerformanceData)
+def record_metrics(
+    task_id: str,
+    payload: MetricsRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    snapshot = team_service.record_metrics(
+        session,
+        actor,
+        task_id,
+        impressions=payload.impressions,
+        clicks=payload.clicks,
+        signups=payload.signups,
+    )
+    return _performance_response(
+        session, actor, snapshot.campaign_id, note="Manual metrics recorded."
+    )

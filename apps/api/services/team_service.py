@@ -19,6 +19,7 @@ from core.db.models import (
     Member,
     MemberKind,
     MemberRole,
+    MetricSnapshot,
     Milestone,
     Task,
     TaskEvent,
@@ -26,6 +27,7 @@ from core.db.models import (
     TaskKind,
     TaskStatus,
 )
+from core.content.tracking import mock_metrics, utm_url
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import complete_task, recompute_asset_checks
 
@@ -384,3 +386,77 @@ def list_atoms(
     if tag:
         atoms = [atom for atom in atoms if tag in (atom.tags or [])]
     return atoms
+
+
+def campaign_performance(
+    session: Session, actor: Member, campaign_id: str
+) -> tuple[Campaign, list[dict], dict]:
+    """Per-asset performance (UTM link + metrics) and campaign totals.
+
+    Uses the latest stored MetricSnapshot for an asset, else deterministic mock
+    metrics so the view is demoable before a real source is connected.
+    """
+    campaign = _get_campaign(session, actor, campaign_id)
+    assets = list(
+        session.exec(
+            select(Task)
+            .where(Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET)
+            .order_by(Task.sequence)
+        ).all()
+    )
+    rows: list[dict] = []
+    totals = {"impressions": 0, "clicks": 0, "signups": 0}
+    for task in assets:
+        snapshot = session.exec(
+            select(MetricSnapshot)
+            .where(MetricSnapshot.task_id == task.id)
+            .order_by(MetricSnapshot.captured_at.desc())  # type: ignore[attr-defined]
+        ).first()
+        if snapshot is not None:
+            metrics = {
+                "impressions": snapshot.impressions,
+                "clicks": snapshot.clicks,
+                "signups": snapshot.signups,
+                "source": snapshot.source,
+            }
+        else:
+            metrics = mock_metrics(task)
+        rows.append(
+            {
+                "task_id": task.id,
+                "title": task.title,
+                "channel": (task.params or {}).get("channel", ""),
+                "utm_url": utm_url(campaign, task),
+                **metrics,
+            }
+        )
+        for key in totals:
+            totals[key] += metrics[key]
+    return campaign, rows, totals
+
+
+def record_metrics(
+    session: Session,
+    actor: Member,
+    task_id: str,
+    *,
+    impressions: int,
+    clicks: int,
+    signups: int,
+) -> MetricSnapshot:
+    """Manually record a performance snapshot for an asset (lead only)."""
+    _require_lead(actor)
+    task = _get_task(session, actor, task_id)
+    snapshot = MetricSnapshot(
+        tenant_id=task.tenant_id,
+        campaign_id=task.campaign_id,
+        task_id=task.id,
+        source="manual",
+        impressions=impressions,
+        clicks=clicks,
+        signups=signups,
+    )
+    session.add(snapshot)
+    session.commit()
+    session.refresh(snapshot)
+    return snapshot

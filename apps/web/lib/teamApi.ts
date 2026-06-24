@@ -110,6 +110,24 @@ export interface Atom {
   created_at: string;
 }
 
+export interface PerformanceRow {
+  task_id: string;
+  title: string;
+  channel: string;
+  utm_url: string;
+  impressions: number;
+  clicks: number;
+  signups: number;
+  source: string;
+}
+
+export interface PerformanceData {
+  campaign_id: string;
+  rows: PerformanceRow[];
+  totals: Record<string, number>;
+  note: string;
+}
+
 export class TeamApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message);
@@ -172,6 +190,23 @@ export const getSchedule = (memberId: string, campaignId: string) =>
 
 export const getTodo = (memberId: string) =>
   request<TodoItem[]>("/api/v1/team/todo", { memberId });
+
+export const getPerformance = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(
+    `/api/v1/team/campaigns/${campaignId}/performance`,
+    { memberId },
+  );
+
+export const recordMetrics = (
+  memberId: string,
+  taskId: string,
+  body: { impressions: number; clicks: number; signups: number },
+) =>
+  request<PerformanceData>(`/api/v1/team/tasks/${taskId}/metrics`, {
+    method: "POST",
+    memberId,
+    body,
+  });
 
 export const getBoard = (memberId: string, campaignId: string) =>
   request<Board>(`/api/v1/team/campaigns/${campaignId}/board`, { memberId });

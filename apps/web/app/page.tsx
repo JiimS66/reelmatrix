@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
+import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TodoView } from "@/components/workspace/TodoView";
 import {
@@ -20,6 +21,7 @@ import {
   createCampaign,
   getBoard,
   getInbox,
+  getPerformance,
   getSchedule,
   getTask,
   getTodo,
@@ -33,19 +35,21 @@ import {
   type Atom,
   type Board,
   type Member,
+  type PerformanceData,
   type ScheduleData,
   type Task,
   type TaskDetail,
   type TodoItem,
 } from "@/lib/teamApi";
 
-type View = "home" | "board" | "calendar" | "todo" | "atoms";
+type View = "home" | "board" | "calendar" | "todo" | "performance" | "atoms";
 
 const VIEW_LABEL: Record<View, string> = {
   home: "Home",
   board: "Board",
   calendar: "Calendar",
   todo: "To-do",
+  performance: "Performance",
   atoms: "Atom library",
 };
 
@@ -63,6 +67,7 @@ export default function Workspace() {
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [todo, setTodo] = useState<TodoItem[]>([]);
+  const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +129,11 @@ export default function Workspace() {
     }
     if (view === "todo") {
       getTodo(currentId).then(setTodo).catch((e) => setError(errMessage(e)));
+    }
+    if (view === "performance" && board) {
+      getPerformance(currentId, board.campaign.id)
+        .then(setPerformance)
+        .catch((e) => setError(errMessage(e)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, currentId, board?.campaign.id]);
@@ -286,7 +296,8 @@ export default function Workspace() {
 
         {/* Tabs */}
         <nav className="mb-5 flex flex-wrap gap-1.5">
-          {(["home", "board", "calendar", "todo", "atoms"] as View[]).map((v) => (
+          {(["home", "board", "calendar", "todo", "performance", "atoms"] as View[]).map(
+            (v) => (
             <button
               key={v}
               onClick={() => {
@@ -324,6 +335,16 @@ export default function Workspace() {
 
         {view === "atoms" ? (
           <AtomLibrary atoms={atoms} />
+        ) : view === "performance" ? (
+          performance ? (
+            <PerformanceView data={performance} />
+          ) : (
+            <p className="surface p-6 text-sm text-ink/60">
+              {board
+                ? "Loading performance…"
+                : "Create a campaign to see performance."}
+            </p>
+          )
         ) : view === "calendar" ? (
           schedule ? (
             <div className="space-y-5">

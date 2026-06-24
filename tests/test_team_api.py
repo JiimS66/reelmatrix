@@ -225,6 +225,33 @@ def test_members_bootstrap_lists_the_team() -> None:
     assert any(m["role"] == "lead" for m in listed)
 
 
+def test_campaign_performance_returns_per_asset_metrics() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    cid, _board = _run_campaign(app, lead)
+    perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
+    assert len(perf["rows"]) >= 1
+    row = perf["rows"][0]
+    assert "utm_source=" in row["utm_url"]
+    assert row["impressions"] >= row["clicks"] >= row["signups"] >= 0
+    assert perf["totals"]["signups"] == sum(r["signups"] for r in perf["rows"])
+
+
+def test_record_metrics_overrides_the_mock() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+    updated = _req(
+        app, "POST", f"/api/v1/team/tasks/{asset['id']}/metrics", lead,
+        json={"impressions": 9999, "clicks": 321, "signups": 42},
+    ).json()
+    row = next(r for r in updated["rows"] if r["task_id"] == asset["id"])
+    assert row["impressions"] == 9999
+    assert row["signups"] == 42
+    assert row["source"] == "manual"
+
+
 def test_permissions_and_auth() -> None:
     app, members = _build()
     sam = members["Sam (Writer)"]

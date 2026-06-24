@@ -168,3 +168,27 @@ class CommentRequest(BaseModel):
         if not cleaned:
             raise ValueError("comment body cannot be empty")
         return cleaned
+
+
+class MetricsRequest(BaseModel):
+    impressions: int = 0
+    clicks: int = 0
+    signups: int = 0
+
+
+class PerformanceRow(BaseModel):
+    task_id: str
+    title: str
+    channel: str
+    utm_url: str
+    impressions: int
+    clicks: int
+    signups: int
+    source: str
+
+
+class PerformanceData(BaseModel):
+    campaign_id: str
+    rows: list[PerformanceRow]
+    totals: dict[str, int]
+    note: str

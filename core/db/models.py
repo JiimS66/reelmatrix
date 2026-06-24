@@ -219,3 +219,17 @@ class Milestone(SQLModel, table=True):
     offset_days: int  # relative to the event date
     objective: str = ""
     created_at: datetime = Field(default_factory=_now)
+
+
+class MetricSnapshot(SQLModel, table=True):
+    """A point-in-time performance reading for a published asset task."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    task_id: str = Field(index=True, foreign_key="task.id")
+    source: str = "manual"  # manual | website | esp | github | ...
+    impressions: int = 0
+    clicks: int = 0
+    signups: int = 0
+    captured_at: datetime = Field(default_factory=_now)
