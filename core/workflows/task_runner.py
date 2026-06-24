@@ -36,6 +36,7 @@ from core.db.models import (
     UsageEvent,
 )
 from core.content.brand import forbidden_word_issues
+from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
@@ -103,6 +104,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
         select(BrandProfile).where(BrandProfile.tenant_id == planning_task.tenant_id)
     ).first()
     forbidden = brand.forbidden_words if brand is not None else []
+    approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
     downstream = session.exec(
         select(Task).where(
             Task.tenant_id == planning_task.tenant_id,
@@ -134,6 +136,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
             task.checks = {
                 "format": format_checks(asset, (task.params or {}).get("channel", "")),
                 "brand": forbidden_word_issues(asset, forbidden),
+                "consistency": unsourced_stat_issues(asset, approved_text),
             }
             task.updated_at = _now()
             if task.execution_mode == ExecutionMode.AI_AUTO:
