@@ -119,6 +119,12 @@ def create_campaign(
     )
 
 
+def get_campaign_for_lead(session: Session, actor: Member, campaign_id: str) -> Campaign:
+    """A lead-only, tenant-scoped campaign lookup (e.g. for refreshing trends)."""
+    _require_lead(actor)
+    return _get_campaign(session, actor, campaign_id)
+
+
 def get_schedule(
     session: Session, actor: Member, campaign_id: str
 ) -> tuple[Campaign, list[Milestone], list[Task], list[str]]:

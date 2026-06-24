@@ -34,12 +34,14 @@ from apps.api.schemas.team import (
     TaskDetailRead,
     TaskRead,
     TodoItem,
+    TrendRefresh,
     UpdateOrgMemberRequest,
 )
 from apps.api.services import team_service
 from core.agents.roles import ROLES
 from core.db.engine import get_session
 from core.db.models import Member, TaskKind
+from core.trends.refresh import refresh_campaign_trends
 from core.workflows.task_runner import TaskRunner
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
@@ -234,6 +236,17 @@ def get_performance(
             "(UTMs) for real conversions; platform APIs where available."
         ),
     )
+
+
+@router.post("/campaigns/{campaign_id}/trends", response_model=TrendRefresh)
+async def refresh_trends(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TrendRefresh:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    angles = await refresh_campaign_trends(session, campaign)
+    return TrendRefresh(campaign_id=campaign.id, timely_angles=angles)
 
 
 @router.get("/todo", response_model=list[TodoItem])

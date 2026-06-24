@@ -113,6 +113,11 @@ class TodoItem(BaseModel):
     task: TaskRead
 
 
+class TrendRefresh(BaseModel):
+    campaign_id: str
+    timely_angles: list[str]
+
+
 class TaskDetailRead(BaseModel):
     task: TaskRead
     ai_draft: Optional[dict]

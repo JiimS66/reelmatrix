@@ -188,6 +188,27 @@ def test_schedule_backplans_calendar_and_timely_angles() -> None:
     assert any(t["due_date"] for t in sched["tasks"])
 
 
+def test_refresh_trends_updates_timely_angles() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)  # produce a plan
+
+    res = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/trends", lead)
+    assert res.status_code == 200
+    angles = res.json()["timely_angles"]
+    assert angles and all(isinstance(a, str) for a in angles)
+
+    # The refreshed angles show up in the schedule the calendar reads.
+    sched = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/schedule", lead).json()
+    assert sched["timely_angles"] == angles
+
+    # Lead-only.
+    sam = members["Sam (Writer)"]
+    assert _req(app, "POST", f"/api/v1/team/campaigns/{cid}/trends", sam).status_code == 403
+
+
 def test_todo_lists_scheduled_not_done_tasks() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]
