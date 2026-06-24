@@ -29,12 +29,13 @@ def test_seed_creates_expected_team() -> None:
         humans = [m for m in members if m.kind == MemberKind.HUMAN]
         ai_agents = [m for m in members if m.kind == MemberKind.AI]
 
-        assert len(members) == 6
+        assert len(members) == 7
         assert len(humans) == 2
-        assert len(ai_agents) == 4  # ideation, planning, copywriter, auditor
+        assert len(ai_agents) == 5  # ideation, planning, copywriter, auditor, designer
         assert any(m.role == MemberRole.LEAD for m in humans)
         assert all(m.agent_config and m.agent_config["agent_kind"] for m in ai_agents)
         assert any(m.agent_config.get("role") == "auditor" for m in ai_agents)
+        assert any(m.agent_config.get("role") == "designer" for m in ai_agents)
 
 
 def test_seed_wires_the_org_config() -> None:
@@ -81,5 +82,5 @@ def test_seed_is_idempotent() -> None:
 
         assert len(session.exec(select(Tenant)).all()) == 1
         assert len(session.exec(select(User)).all()) == 2
-        assert len(session.exec(select(Member)).all()) == 6
+        assert len(session.exec(select(Member)).all()) == 7
         assert len(session.exec(select(BrandProfile)).all()) == 1

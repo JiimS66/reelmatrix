@@ -45,6 +45,16 @@ AUDITOR = AgentRole(
     ),
 )
 
+DESIGNER = AgentRole(
+    key="designer",
+    title="Designer",
+    job_description=(
+        "Turn the shared campaign core into a per-channel visual: a creative concept, "
+        "an image-generation prompt, and alt text, then render the image through the "
+        "brand-aware MediaProvider."
+    ),
+)
+
 ROLES: dict[str, AgentRole] = {
-    role.key: role for role in (IDEATION, PLANNING, COPYWRITER, AUDITOR)
+    role.key: role for role in (IDEATION, PLANNING, COPYWRITER, AUDITOR, DESIGNER)
 }

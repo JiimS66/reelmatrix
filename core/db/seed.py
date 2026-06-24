@@ -106,6 +106,14 @@ AI_AGENTS = [
         "handles_kinds": [],
         "reports_to": "Adam (Lead)",
     },
+    {
+        "display_name": "Designer",
+        "agent_kind": "visual",
+        "agent_role": "designer",
+        "job_description": "Renders each channel's visual from the shared core (image model).",
+        "handles_kinds": [TaskKind.VISUAL],
+        "reports_to": "Adam (Lead)",
+    },
 ]
 
 

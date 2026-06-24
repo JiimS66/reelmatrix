@@ -40,6 +40,7 @@ class TaskKind(str, Enum):
     IDEATION = "ideation"
     PLANNING = "planning"
     ASSET = "asset"
+    VISUAL = "visual"
     CLAIM_CHECK = "claim_check"
 
 

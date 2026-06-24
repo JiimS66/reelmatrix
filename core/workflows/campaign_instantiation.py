@@ -71,6 +71,7 @@ def instantiate_campaign(
     event_name: Optional[str] = None,
     event_date: Optional[str] = None,
     asset_mode: ExecutionMode = ExecutionMode.AI_AUTO,
+    with_visuals: bool = False,
 ) -> Campaign:
     """Create a campaign plus its fixed task graph, returning the campaign.
 
@@ -130,6 +131,24 @@ def instantiate_campaign(
             )
         )
         sequence += 1
+
+    # Optional per-channel visuals, rendered by the Designer from the same core.
+    if with_visuals:
+        for channel in channels:
+            session.add(
+                Task(
+                    tenant_id=tenant_id,
+                    campaign_id=campaign.id,
+                    kind=TaskKind.VISUAL,
+                    title=f"{channel} visual",
+                    execution_mode=ExecutionMode.AI_AUTO,
+                    depends_on=[planning.id],
+                    assignee_id=routes.get(TaskKind.VISUAL.value),
+                    params={"channel": channel},
+                    sequence=sequence,
+                )
+            )
+            sequence += 1
 
     # Fact-checking is a human-only task; route_assignees guarantees a lead fallback.
     session.add(

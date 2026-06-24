@@ -99,6 +99,7 @@ def create_campaign(
     event_name: Optional[str] = None,
     event_date: Optional[str] = None,
     review_assets: bool = False,
+    with_visuals: bool = False,
 ) -> Campaign:
     _require_lead(actor)
     asset_mode = (
@@ -114,6 +115,7 @@ def create_campaign(
         event_name=event_name,
         event_date=event_date,
         asset_mode=asset_mode,
+        with_visuals=with_visuals,
     )
 
 

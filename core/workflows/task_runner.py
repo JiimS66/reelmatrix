@@ -52,12 +52,13 @@ from core.schemas.campaign import IdeationResult
 
 ClientForProvider = Callable[[str], BaseLLMClient]
 
-_RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET)
+_RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET, TaskKind.VISUAL)
 # Fallback agent for each kind when the assigned member declares no explicit role.
 _ROLE_BY_KIND = {
     TaskKind.IDEATION: "ideation",
     TaskKind.PLANNING: "planning",
     TaskKind.ASSET: "copywriter",
+    TaskKind.VISUAL: "designer",
 }
 
 
@@ -484,6 +485,8 @@ class TaskRunner:
         """The blackboard slice an agent reads — only its dependencies, nothing more."""
         if task.kind == TaskKind.ASSET:
             return self._copywriter_context(task, campaign)
+        if task.kind == TaskKind.VISUAL:
+            return self._designer_context(task, campaign)
         payload = dict(campaign.brief)
         payload.setdefault("campaign_template", campaign.template)
         context: dict = {"request": payload}
@@ -522,6 +525,27 @@ class TaskRunner:
                 "voice": brand.voice,
                 "tone_rules": brand.tone_rules,
                 "forbidden_words": brand.forbidden_words,
+            }
+            if brand is not None
+            else {},
+        }
+
+    def _designer_context(self, task: Task, campaign: Campaign) -> dict:
+        """The slice a Designer reads: shared core + channel + brand identity."""
+        planning = (
+            self._session.get(Task, task.depends_on[0]) if task.depends_on else None
+        )
+        plan = (planning.output if planning is not None else None) or {}
+        brand = self._session.exec(
+            select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+        ).first()
+        return {
+            "channel": (task.params or {}).get("channel", ""),
+            "core_message": plan.get("core_message", ""),
+            "product_name": (campaign.brief or {}).get("product_name", ""),
+            "brand": {
+                "voice": brand.voice,
+                "tone_rules": brand.tone_rules,
             }
             if brand is not None
             else {},

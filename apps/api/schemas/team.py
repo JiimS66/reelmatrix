@@ -128,6 +128,7 @@ class CreateCampaignRequest(BaseModel):
     event_name: Optional[str] = None
     event_date: Optional[str] = None
     review_assets: bool = False
+    with_visuals: bool = False
 
     @field_validator("event_date")
     @classmethod

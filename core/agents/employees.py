@@ -10,13 +10,15 @@ import json
 from core.agents.base import Agent
 from core.agents.ideation_bot import IdeationBot
 from core.agents.planning_bot import PlanningBot
-from core.agents.roles import AUDITOR, COPYWRITER, IDEATION, PLANNING
+from core.agents.roles import AUDITOR, COPYWRITER, DESIGNER, IDEATION, PLANNING
 from core.llm.base import BaseLLMClient
+from core.media.factory import create_media_provider
 from core.schemas.campaign import (
     AuditVerdict,
     CampaignAsset,
     CampaignGenerationRequest,
     IdeationResult,
+    VisualAsset,
 )
 
 
@@ -104,11 +106,50 @@ class AuditorAgent(Agent):
         return verdict.model_dump(mode="json")
 
 
+DESIGNER_SYSTEM_PROMPT = """
+You are a senior brand designer. From the shared campaign core, the channel, and the
+brand, produce ONE visual spec: a creative concept, a precise image-generation prompt
+(composition, subject, mood, on-brand palette — no stock-photo cliche, no text in the
+image unless the channel needs it), and accessible alt text. Stay consistent with the
+campaign's core message and the brand. Return the spec only; the image itself is
+rendered separately.
+""".strip()
+
+
+class DesignerAgent(Agent):
+    """Produces a per-channel visual: an LLM crafts the creative spec, then the
+    brand-aware MediaProvider renders the image and fills ``image_ref``."""
+
+    role = DESIGNER
+
+    async def run(self, context: dict) -> dict:
+        payload = {
+            "task": "visual_design",
+            "channel": context.get("channel", ""),
+            "core_message": context.get("core_message", ""),
+            "product_name": context.get("product_name", ""),
+            "brand": context.get("brand", {}),
+        }
+        spec = await self._llm_client.generate_structured(
+            system_prompt=DESIGNER_SYSTEM_PROMPT,
+            user_prompt=json.dumps(payload, ensure_ascii=False),
+            response_model=VisualAsset,
+        )
+        provider = create_media_provider(context.get("media_provider", "mock"))
+        image = await provider.generate_image(
+            prompt=spec.prompt,
+            brand=context.get("brand", {}),
+            aspect_ratio=spec.aspect_ratio,
+        )
+        return {**spec.model_dump(mode="json"), "image_ref": image.image_ref}
+
+
 _REGISTRY: dict[str, type[Agent]] = {
     IdeationAgent.role.key: IdeationAgent,
     PlanningAgent.role.key: PlanningAgent,
     CopywriterAgent.role.key: CopywriterAgent,
     AuditorAgent.role.key: AuditorAgent,
+    DesignerAgent.role.key: DesignerAgent,
 }
 
 

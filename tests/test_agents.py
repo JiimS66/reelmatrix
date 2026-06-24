@@ -86,3 +86,22 @@ def test_auditor_agent_returns_a_verdict() -> None:
     assert out["approved"] is True
     assert out["issues"] == []
     assert ROLES["auditor"].title == "Content auditor"
+
+
+def test_designer_agent_renders_a_visual_with_an_image_ref() -> None:
+    agent = agent_for_role("designer", MockLLMClient())
+    out = asyncio.run(
+        agent.run(
+            {
+                "channel": "LinkedIn",
+                "core_message": "Give AI-native teams a verification loop they can trust.",
+                "product_name": "TestSprite",
+                "brand": {"voice": "technical"},
+            }
+        )
+    )
+    assert out["channel"] == "LinkedIn"
+    assert out["concept"] and out["prompt"] and out["alt_text"]
+    # The MediaProvider rendered the image and filled the ref.
+    assert out["image_ref"].startswith("mock://image/")
+    assert ROLES["designer"].title == "Designer"

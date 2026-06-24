@@ -398,6 +398,33 @@ def test_auditor_flag_drives_a_self_correction_pass() -> None:
     assert audit_usage and all(u.provider == "audit" for u in audit_usage)
 
 
+def test_runner_renders_per_channel_visuals_when_enabled() -> None:
+    engine = create_db_engine("sqlite://")
+    init_db(engine)
+    session = Session(engine)
+    tenant = seed_testsprite(session)
+    campaign = instantiate_campaign(
+        session, tenant_id=tenant.id, name="Visual launch", brief=BRIEF, with_visuals=True
+    )
+    asyncio.run(_runner(session).run_ready_tasks(campaign.id))
+
+    designer = next(
+        m
+        for m in session.exec(select(Member)).all()
+        if (m.agent_config or {}).get("role") == "designer"
+    )
+    visuals = session.exec(
+        select(Task).where(Task.campaign_id == campaign.id, Task.kind == TaskKind.VISUAL)
+    ).all()
+    assert len(visuals) == 2  # one per channel (LinkedIn, Email)
+    for visual in visuals:
+        assert visual.status == TaskStatus.DONE
+        assert visual.assignee_id == designer.id  # routed by handles_kinds
+        assert visual.output["channel"] == visual.params["channel"]
+        assert visual.output["image_ref"].startswith("mock://image/")
+        assert visual.output["prompt"] and visual.output["alt_text"]
+
+
 def test_fan_out_preserves_human_edits_on_replay() -> None:
     session, campaign_id = _setup()
     for kind in (TaskKind.IDEATION, TaskKind.PLANNING):
