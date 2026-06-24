@@ -16,7 +16,9 @@ import {
 import {
   AssigneeChip,
   KIND_LABEL,
+  MODE_LABEL,
   StatusBadge,
+  cap,
   memberName,
 } from "./primitives";
 
@@ -124,7 +126,7 @@ export function TaskDetailPanel({
         <h2 className="text-lg font-semibold text-ink">{task.title}</h2>
         <div className="flex flex-wrap items-center gap-2">
           <AssigneeChip members={members} id={task.assignee_id} />
-          <span className="chip">{task.execution_mode}</span>
+          <span className="chip">{MODE_LABEL[task.execution_mode] ?? task.execution_mode}</span>
         </div>
       </header>
 
@@ -168,7 +170,7 @@ export function TaskDetailPanel({
           <div className="space-y-1.5">
             {Object.entries(task.checks).map(([name, issues]) => (
               <div key={name} className="text-sm">
-                <span className="font-mono text-[12px] text-ink/60">{name}: </span>
+                <span className="font-mono text-[12px] text-ink/60">{cap(name)}: </span>
                 {issues.length === 0 ? (
                   <span className="text-emerald-700">clean</span>
                 ) : (
@@ -253,7 +255,7 @@ export function TaskDetailPanel({
               <option value="">Keep mode</option>
               {MODES.map((mo) => (
                 <option key={mo} value={mo}>
-                  {mo}
+                  {MODE_LABEL[mo] ?? mo}
                 </option>
               ))}
             </select>

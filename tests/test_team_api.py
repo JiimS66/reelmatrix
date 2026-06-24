@@ -162,6 +162,15 @@ def test_human_member_completes_a_reassigned_task() -> None:
     assert submitted.status_code == 200 and submitted.json()["status"] == "done"
 
 
+def test_lists_tenant_campaigns_newest_first() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    _create(app, lead)
+    _create(app, lead)
+    campaigns = _req(app, "GET", "/api/v1/team/campaigns", lead).json()
+    assert len(campaigns) == 2
+
+
 def test_members_bootstrap_lists_the_team() -> None:
     app, _members = _build()
     listed = _req(app, "GET", "/api/v1/team/members").json()

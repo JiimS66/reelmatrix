@@ -102,6 +102,17 @@ def list_all_members(session: Session) -> list[Member]:
     return list(session.exec(select(Member)).all())
 
 
+def list_campaigns(session: Session, actor: Member) -> list[Campaign]:
+    """The actor's tenant campaigns, newest first."""
+    return list(
+        session.exec(
+            select(Campaign)
+            .where(Campaign.tenant_id == actor.tenant_id)
+            .order_by(Campaign.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
+    )
+
+
 def get_board(
     session: Session, actor: Member, campaign_id: str
 ) -> tuple[Campaign, list[Task], list[Member]]:

@@ -64,6 +64,17 @@ def create_campaign(
     return _board_response(session, actor, campaign.id)
 
 
+@router.get("/campaigns", response_model=list[CampaignRead])
+def list_campaigns(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[CampaignRead]:
+    return [
+        CampaignRead.model_validate(c)
+        for c in team_service.list_campaigns(session, actor)
+    ]
+
+
 @router.get("/campaigns/{campaign_id}/board", response_model=BoardRead)
 def get_board(
     campaign_id: str,

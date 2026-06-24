@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import {
+  ATOM_KIND_LABEL,
   AssigneeChip,
   CheckBadges,
   KIND_LABEL,
   StatusBadge,
+  cap,
   checkCount,
 } from "@/components/workspace/primitives";
 import {
@@ -16,6 +18,7 @@ import {
   getInbox,
   getTask,
   listAtoms,
+  listCampaigns,
   listMembers,
   runCampaign,
   TeamApiError,
@@ -83,6 +86,17 @@ export default function Workspace() {
     else setDetail(null);
   }, [selectedId, refreshDetail]);
 
+  // Load the latest campaign so the board is populated on open.
+  useEffect(() => {
+    if (!currentId) return;
+    listCampaigns(currentId)
+      .then((cs) => (cs.length > 0 ? getBoard(currentId, cs[0].id) : null))
+      .then((b) => {
+        if (b) setBoard(b);
+      })
+      .catch((e) => setError(errMessage(e)));
+  }, [currentId]);
+
   useEffect(() => {
     if (!currentId) return;
     if (view === "inbox") {
@@ -142,7 +156,6 @@ export default function Workspace() {
   function pickMember(id: string) {
     setCurrentId(id);
     setSelectedId(null);
-    setBoard((b) => b); // keep board; permissions re-evaluated server-side
   }
 
   const tasks = view === "inbox" ? inbox : board?.tasks ?? [];
@@ -155,7 +168,7 @@ export default function Workspace() {
           <div className="flex items-baseline gap-2">
             <span className="font-semibold tracking-tight">ReelMatrix</span>
             <span className="font-mono text-[11px] text-white/55">
-              / marketing team os
+              / Marketing Team OS
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -200,7 +213,7 @@ export default function Workspace() {
                   : "border border-ink/10 bg-white text-ink/70 hover:text-ink"
               }`}
             >
-              {v === "board" ? "board" : v === "inbox" ? "my inbox" : "atom library"}
+              {v === "board" ? "Board" : v === "inbox" ? "My inbox" : "Atom library"}
             </button>
           ))}
         </nav>
@@ -383,7 +396,7 @@ function AtomLibrary({ atoms }: { atoms: Atom[] }) {
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {Object.entries(byKind).map(([kind, items]) => (
         <div key={kind} className="surface p-4">
-          <p className="tlabel">{kind}</p>
+          <p className="tlabel">{ATOM_KIND_LABEL[kind] ?? cap(kind)}</p>
           <ul className="mt-2 space-y-2">
             {items.map((atom) => (
               <li

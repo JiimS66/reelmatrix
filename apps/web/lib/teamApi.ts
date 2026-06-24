@@ -126,6 +126,9 @@ async function request<T>(
 
 export const listMembers = () => request<Member[]>("/api/v1/team/members");
 
+export const listCampaigns = (memberId: string) =>
+  request<Campaign[]>("/api/v1/team/campaigns", { memberId });
+
 export const createCampaign = (
   memberId: string,
   body: { name: string; brief: Record<string, unknown>; template?: string },

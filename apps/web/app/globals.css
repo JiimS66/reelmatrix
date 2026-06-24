@@ -73,7 +73,7 @@ textarea {
   }
 
   .tlabel {
-    @apply font-mono text-[11px] uppercase tracking-[0.14em] text-forest;
+    @apply font-mono text-[11px] tracking-[0.04em] text-forest;
   }
 
   .surface {

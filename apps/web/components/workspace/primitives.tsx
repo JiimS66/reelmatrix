@@ -1,11 +1,28 @@
 import type { Member, Task, TaskStatus } from "@/lib/teamApi";
 
 export const KIND_LABEL: Record<string, string> = {
-  ideation: "ideation",
-  planning: "planning",
-  asset: "asset",
-  claim_check: "claim check",
+  ideation: "Ideation",
+  planning: "Planning",
+  asset: "Asset",
+  claim_check: "Claim check",
 };
+
+export const MODE_LABEL: Record<string, string> = {
+  ai_auto: "AI auto",
+  ai_draft_human_review: "AI draft → human review",
+  human_only: "Human only",
+};
+
+export const ATOM_KIND_LABEL: Record<string, string> = {
+  headline: "Headline",
+  hook: "Hook",
+  cta: "CTA",
+  proof: "Proof",
+  one_liner: "One-liner",
+};
+
+export const cap = (value: string): string =>
+  value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 
 export function memberName(members: Member[], id: string | null): string {
   if (!id) return "Unassigned";
@@ -29,11 +46,11 @@ const STATUS_STYLE: Record<TaskStatus, string> = {
 };
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
-  todo: "todo",
-  in_progress: "in progress",
-  needs_review: "needs review",
-  done: "done",
-  blocked: "blocked",
+  todo: "To do",
+  in_progress: "In progress",
+  needs_review: "Needs review",
+  done: "Done",
+  blocked: "Blocked",
 };
 
 export function StatusBadge({ status }: { status: TaskStatus }) {
@@ -56,7 +73,7 @@ export function AssigneeChip({
   const kind = memberKind(members, id);
   const dot =
     kind === "ai" ? "bg-forest" : kind === "human" ? "bg-ink" : "bg-ink/30";
-  const role = kind === "ai" ? "AI" : kind === "human" ? "human" : "—";
+  const role = kind === "ai" ? "AI" : kind === "human" ? "Human" : "—";
   return (
     <span className="chip">
       <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
@@ -89,7 +106,7 @@ export function CheckBadges({ task }: { task: Task }) {
                 : "border-amber-300 bg-amber-50 text-amber-800"
             }`}
           >
-            {ok ? "✓" : n} {name}
+            {ok ? "✓" : n} {cap(name)}
           </span>
         );
       })}
