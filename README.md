@@ -1,4 +1,19 @@
-# reelmatrix 核心技术架构与目录说明
+# ReelMatrix — 人机协同的营销团队 OS（Digital Marketing Team OS）
+
+## 产品概览（当前形态）
+
+ReelMatrix 已从“填写 brief → 一键生成营销方案”的单次工具，演进为一个**人机混合的营销团队操作系统**（数字营销 ERP）：一场 campaign 是一张**可拆分、可指派**的任务图，由 AI 与人类**同一套接口**的成员在一位人类 market lead 的统筹下协作完成。同一套系统按租户的人:AI 比例不同地配置——无团队的创始人偏 AI，有团队的公司偏协作。
+
+核心能力（均已落地，`mock` provider 下可零外部调用跑通）：
+
+- **数字员工 + 多 Agent 流水线**：每个 AI 工人是统一 `Agent`（`core/agents/`）——Ideation 策略、Planning 规划、Copywriter 文案、**Auditor 审计**、**Designer 视觉**。编排采用 orchestrator-worker + 共享黑板：**先串行决策 → 锁定共享内容核 → 并行渲染各渠道 → 复核（一致性检查 + 人审）**。
+- **质量护栏（taste 与 truth 分离）**：每条内容带 `format / brand / consistency` **确定性检查**，之上叠加**跨模型 LLM-as-judge Auditor**（用与生成器不同的模型家族审，解耦错误）；任一失败都喂回**自诊断重试**（agent 自我修正重渲染，保留最干净稿）。事实/数字一律走 `claim_check` 真值轨。
+- **三层记忆（按租户隔离）**：语义=持久 `BrandProfile`，情景=campaign 内的 lead 反馈/决策（`EpisodicNote`），工作=任务上下文切片；自上而下注入 agent 的上下文。
+- **可配置组织（数字员工）**：组织写在成员自身上（`job_description / reports_to / handles_kinds`）；任务按 `handles_kinds` 路由，换谁负责某类任务即改路由、无需改代码。Team 标签页可查看组织架构、招聘/重配置 AI 员工。
+- **内置视觉生成（为换模型而设计）**：`core/media/` 的 `MediaProvider` / `VisionProvider` 抽象 + 工厂，业务代码只依赖接口；Designer 角色据共享核产出每渠道视觉（创意/prompt/alt + 渲染图）。换真实图像模型只改配置。
+- **有状态 + 多租户 + 协作工作台**：SQLModel 持久化（`core/db/`，行级 `tenant_id`），团队 API（`/api/v1/team`），以及重建的工作台 UI（主页 / 日历 / 看板 / 绩效 / 素材库 / 团队，主页含待办与日程）；AI 是一等成员（assignee），人类可在任意阶段编辑、接管、或插入审核门。从第一天起埋点 `UsageEvent` 计费。
+
+> 详细路线图与决策见 `DESIGN.md`；旧的单次生成接口（`/api/v1/campaign/generate`）与下文 “Phase 1 / Phase 2” 仍保留并可用，但已被上述团队 OS 取代——阅读时请以本节为准。
 
 ## 本地运行（优先阅读）
 
