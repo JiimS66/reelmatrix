@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { HomeView } from "@/components/workspace/HomeView";
+import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TodoView } from "@/components/workspace/TodoView";
 import {
@@ -325,11 +326,14 @@ export default function Workspace() {
           <AtomLibrary atoms={atoms} />
         ) : view === "calendar" ? (
           schedule ? (
-            <CalendarView
-              schedule={schedule}
-              members={board?.members ?? members}
-              onSelectTask={openTaskOnBoard}
-            />
+            <div className="space-y-5">
+              <MonthCalendar schedule={schedule} onSelectTask={openTaskOnBoard} />
+              <CalendarView
+                schedule={schedule}
+                members={board?.members ?? members}
+                onSelectTask={openTaskOnBoard}
+              />
+            </div>
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
               {board
