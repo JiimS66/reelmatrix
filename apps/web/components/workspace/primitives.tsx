@@ -78,6 +78,19 @@ export function StatusBadge({ status }: { status: TaskStatus }) {
   );
 }
 
+// Colored left-border accent so done vs incomplete reads at a glance.
+const STATUS_ACCENT: Record<TaskStatus, string> = {
+  done: "border-l-emerald-400",
+  needs_review: "border-l-amber-400",
+  in_progress: "border-l-amber-300",
+  blocked: "border-l-red-400",
+  todo: "border-l-slate-300",
+};
+
+export function statusAccent(status: TaskStatus): string {
+  return STATUS_ACCENT[status];
+}
+
 export function AssigneeChip({
   members,
   id,

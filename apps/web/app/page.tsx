@@ -15,6 +15,7 @@ import {
   StatusBadge,
   cap,
   checkCount,
+  statusAccent,
 } from "@/components/workspace/primitives";
 import {
   createCampaign,
@@ -486,11 +487,9 @@ function TaskRow({
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-2xl border bg-white p-4 text-left transition ${
-        selected
-          ? "border-forest ring-2 ring-forest/15"
-          : "border-ink/10 hover:border-ink/25"
-      }`}
+      className={`w-full rounded-2xl border-y border-r border-l-4 border-y-ink/10 border-r-ink/10 bg-white p-4 text-left transition ${statusAccent(
+        task.status,
+      )} ${selected ? "ring-2 ring-forest/30" : "hover:border-y-ink/25 hover:border-r-ink/25"}`}
     >
       <div className="flex items-center justify-between gap-3">
         <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
