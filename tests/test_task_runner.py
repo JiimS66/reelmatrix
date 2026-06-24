@@ -63,6 +63,12 @@ def test_runner_drafts_ideation_then_waits_for_review() -> None:
     session, campaign_id = _setup()
     lead = session.exec(select(Member).where(Member.role == MemberRole.LEAD)).first()
 
+    # Opt the ideation step into a review gate (default is now ai_auto).
+    ideation_task = _task(session, campaign_id, TaskKind.IDEATION)
+    ideation_task.execution_mode = ExecutionMode.AI_DRAFT_HUMAN_REVIEW
+    session.add(ideation_task)
+    session.commit()
+
     ran = asyncio.run(_runner(session).run_ready_tasks(campaign_id))
 
     ideation = _task(session, campaign_id, TaskKind.IDEATION)
@@ -78,20 +84,14 @@ def test_runner_drafts_ideation_then_waits_for_review() -> None:
     assert len(session.exec(select(UsageEvent)).all()) == 1
 
 
-def test_runner_full_pipeline_when_ai_auto() -> None:
+def test_runner_auto_completes_the_pipeline_by_default() -> None:
     session, campaign_id = _setup()
-    lead = session.exec(select(Member).where(Member.role == MemberRole.LEAD)).first()
-
-    for kind in (TaskKind.IDEATION, TaskKind.PLANNING):
-        task = _task(session, campaign_id, kind)
-        task.execution_mode = ExecutionMode.AI_AUTO
-        session.add(task)
-    session.commit()
 
     ran = asyncio.run(_runner(session).run_ready_tasks(campaign_id))
 
     ideation = _task(session, campaign_id, TaskKind.IDEATION)
     planning = _task(session, campaign_id, TaskKind.PLANNING)
+    # Default is ai_auto: ideation and planning both run to done in one pass.
     assert len(ran) == 2
     assert ideation.status == TaskStatus.DONE
     assert planning.status == TaskStatus.DONE
@@ -101,13 +101,11 @@ def test_runner_full_pipeline_when_ai_auto() -> None:
             Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET
         )
     ).all()
-    # Planning fanned out into the asset tasks, awaiting human review.
+    # Planning fanned out into the asset tasks, which auto-complete with checks.
     for asset in assets:
+        assert asset.status == TaskStatus.DONE
         assert asset.output is not None
         assert asset.output["channel"] == asset.params["channel"]
-        assert asset.status == TaskStatus.NEEDS_REVIEW
-        assert asset.assignee_id == lead.id
-        # Each fanned-out asset carries platform format + brand + consistency checks.
         assert "format" in asset.checks
         assert "brand" in asset.checks
         assert "consistency" in asset.checks

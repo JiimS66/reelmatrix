@@ -81,6 +81,7 @@ def instantiate_campaign(
         campaign_id=campaign.id,
         kind=TaskKind.IDEATION,
         title="Ideation",
+        execution_mode=ExecutionMode.AI_AUTO,
         assignee_id=assignees["ideation"],
         sequence=1,
     )
@@ -91,6 +92,7 @@ def instantiate_campaign(
         campaign_id=campaign.id,
         kind=TaskKind.PLANNING,
         title="Campaign plan",
+        execution_mode=ExecutionMode.AI_AUTO,
         depends_on=[ideation.id],
         assignee_id=assignees["planning"],
         sequence=2,
@@ -106,6 +108,7 @@ def instantiate_campaign(
                 campaign_id=campaign.id,
                 kind=TaskKind.ASSET,
                 title=f"{channel} asset",
+                execution_mode=ExecutionMode.AI_AUTO,
                 depends_on=[planning.id],
                 assignee_id=assignees["asset"],
                 params={"channel": channel},

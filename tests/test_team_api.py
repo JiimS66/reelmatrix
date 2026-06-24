@@ -59,101 +59,115 @@ def _task(board: dict, kind: str) -> dict:
     return next(t for t in board["tasks"] if t["kind"] == kind)
 
 
-def _drive_to_plan(app, lead) -> dict:
-    board = _req(app, "POST", "/api/v1/team/campaigns", lead,
-                 json={"name": "Launch", "brief": BRIEF}).json()
-    cid = board["campaign"]["id"]
-    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)
-    ideation = _task(_req(app, "GET", f"/api/v1/team/campaigns/{cid}/board", lead).json(), "ideation")
-    _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead, json={"action": "approve"})
-    board = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/board", lead).json()
-    planning = _task(board, "planning")
-    return _req(app, "POST", f"/api/v1/team/tasks/{planning['id']}/review", lead,
-                json={"action": "approve"}).json()
+def _create(app, lead) -> dict:
+    return _req(app, "POST", "/api/v1/team/campaigns", lead,
+                json={"name": "Launch", "brief": BRIEF}).json()
 
 
-def test_lead_drives_campaign_from_brief_to_fanned_out_plan() -> None:
+def _run_campaign(app, lead) -> tuple[str, dict]:
+    """Create then run a campaign; with the ai_auto default this yields a full draft."""
+    created = _create(app, lead)
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    return cid, board
+
+
+def test_run_auto_completes_the_ai_pipeline() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
 
-    created = _req(app, "POST", "/api/v1/team/campaigns", lead,
-                   json={"name": "Launch", "brief": BRIEF})
-    assert created.status_code == 200
-    board = created.json()
-    cid = board["campaign"]["id"]
-    # ideation + planning + 3 channel assets + claim check.
-    assert len(board["tasks"]) == 6
-    assert all(t["status"] == "todo" for t in board["tasks"])
+    created = _create(app, lead)
+    # ideation + planning + 3 channel assets + claim check, all unstarted.
+    assert len(created["tasks"]) == 6
+    assert all(t["status"] == "todo" for t in created["tasks"])
 
-    # Run advances only ideation (default mode waits for human review).
+    cid = created["campaign"]["id"]
     board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
-    ideation = _task(board, "ideation")
-    assert ideation["status"] == "needs_review"
-    assert ideation["assignee_id"] == lead
 
-    # Approving ideation unblocks planning, which drafts and waits for review.
-    board = _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead,
-                 json={"action": "approve"}).json()
+    # AI runs the whole pipeline; only the human-owned claim check is left.
     assert _task(board, "ideation")["status"] == "done"
-    assert _task(board, "planning")["status"] == "needs_review"
-
-    # Approving planning fans out into asset + claim-check tasks.
-    planning = _task(board, "planning")
-    board = _req(app, "POST", f"/api/v1/team/tasks/{planning['id']}/review", lead,
-                 json={"action": "approve"}).json()
+    assert _task(board, "planning")["status"] == "done"
     assets = [t for t in board["tasks"] if t["kind"] == "asset"]
-    assert assets and all(a["status"] == "needs_review" and a["output"] for a in assets)
+    assert assets and all(a["status"] == "done" and a["output"] for a in assets)
+    assert all("format" in a["checks"] for a in assets)
     claim = _task(board, "claim_check")
+    assert claim["status"] == "todo"
     assert claim["output"] and "claim_checks" in claim["output"]
 
 
-def test_lead_can_edit_and_approve_an_asset() -> None:
+def test_human_can_insert_a_review_gate() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
+    created = _create(app, lead)
+    cid = created["campaign"]["id"]
+    ideation = _task(created, "ideation")
 
-    edited = {**asset["output"], "title": "Lead-edited headline"}
-    board = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
-                 json={"action": "approve", "output": edited}).json()
-    reviewed = next(t for t in board["tasks"] if t["id"] == asset["id"])
-    assert reviewed["status"] == "done"
-    assert reviewed["output"]["title"] == "Lead-edited headline"
+    # Opt this stage into a review gate before running.
+    _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/assign", lead,
+         json={"execution_mode": "ai_draft_human_review"})
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    assert _task(board, "ideation")["status"] == "needs_review"
+    assert _task(board, "planning")["status"] == "todo"
+
+    # Approving resumes the auto pipeline.
+    board = _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead,
+                 json={"action": "approve"}).json()
+    assert _task(board, "ideation")["status"] == "done"
+    assert _task(board, "planning")["status"] == "done"
+
+
+def test_human_edits_an_auto_completed_asset() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # already done
+
+    edited = {**asset["output"], "content": "This release is bug-free and basically magic."}
+    response = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
+                    json={"output": edited})
+    assert response.status_code == 200
+    body = response.json()
+    assert "bug-free" in body["output"]["content"]
+    assert any(i["code"] == "forbidden_word" for i in body["checks"]["brand"])
+
+
+def test_run_harvests_atoms_from_auto_completed_assets() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    _run_campaign(app, lead)
+
+    atoms = _req(app, "GET", "/api/v1/team/atoms", lead).json()
+    kinds = {a["kind"] for a in atoms}
+    assert "headline" in kinds and "cta" in kinds
+    ctas = _req(app, "GET", "/api/v1/team/atoms?kind=cta", lead).json()
+    assert ctas and all(a["kind"] == "cta" for a in ctas)
 
 
 def test_human_member_completes_a_reassigned_task() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
     sam = members["Sam (Writer)"]
-    board = _drive_to_plan(app, lead)
-    claim = _task(board, "claim_check")
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")  # human-owned, still todo
 
-    # Lead hands the claim check to the human writer.
     assigned = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
                     json={"member_id": sam})
-    assert assigned.status_code == 200
-    assert assigned.json()["assignee_id"] == sam
+    assert assigned.status_code == 200 and assigned.json()["assignee_id"] == sam
 
-    # It shows up in Sam's inbox.
     inbox = _req(app, "GET", "/api/v1/team/inbox", sam).json()
     assert any(t["id"] == claim["id"] for t in inbox)
 
-    # Sam submits; a human_only task completes directly.
     submitted = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", sam,
                      json={"output": {"claim_checks": []}})
-    assert submitted.status_code == 200
-    assert submitted.json()["status"] == "done"
+    assert submitted.status_code == 200 and submitted.json()["status"] == "done"
 
 
 def test_permissions_and_auth() -> None:
     app, members = _build()
     sam = members["Sam (Writer)"]
 
-    # Missing header is rejected.
     assert _req(app, "GET", "/api/v1/team/inbox").status_code == 422
-    # Unknown member id is unauthorized.
     assert _req(app, "GET", "/api/v1/team/inbox", "no-such-member").status_code == 401
-    # A non-lead member cannot create a campaign.
     forbidden = _req(app, "POST", "/api/v1/team/campaigns", sam,
                      json={"name": "x", "brief": BRIEF})
     assert forbidden.status_code == 403
@@ -163,7 +177,7 @@ def test_assign_rejects_ai_agent_on_human_only_task() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
     ai_agent = members["Ideation bot"]
-    board = _drive_to_plan(app, lead)
+    _cid, board = _run_campaign(app, lead)
     claim = _task(board, "claim_check")  # human_only
 
     rejected = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
@@ -174,58 +188,22 @@ def test_assign_rejects_ai_agent_on_human_only_task() -> None:
 def test_submit_rejects_task_not_in_submittable_state() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # needs_review
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")
 
-    rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/submit", lead, json={})
+    # First submit completes it; a second submit is rejected (not submittable).
+    assert _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", lead,
+                json={}).status_code == 200
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", lead, json={})
     assert rejected.status_code == 409
-
-
-def test_approving_an_asset_harvests_reusable_atoms() -> None:
-    app, members = _build()
-    lead = members["Mia (Lead)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
-
-    # Nothing in the library until an asset is approved.
-    assert _req(app, "GET", "/api/v1/team/atoms", lead).json() == []
-
-    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
-         json={"action": "approve"})
-
-    atoms = _req(app, "GET", "/api/v1/team/atoms", lead).json()
-    kinds = {a["kind"] for a in atoms}
-    assert "headline" in kinds and "cta" in kinds
-    # Retrieval by kind works.
-    ctas = _req(app, "GET", "/api/v1/team/atoms?kind=cta", lead).json()
-    assert ctas and all(a["kind"] == "cta" for a in ctas)
-
-
-def test_lead_can_edit_a_done_asset_and_checks_recompute() -> None:
-    app, members = _build()
-    lead = members["Mia (Lead)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
-    # Approve it to DONE.
-    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
-         json={"action": "approve"})
-
-    # A human can still modify a finished task; brand checks recompute.
-    edited = {**asset["output"], "content": "This release is bug-free and basically magic."}
-    response = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
-                    json={"output": edited})
-    assert response.status_code == 200
-    body = response.json()
-    assert "bug-free" in body["output"]["content"]
-    assert any(i["code"] == "forbidden_word" for i in body["checks"]["brand"])
 
 
 def test_non_lead_non_assignee_cannot_edit() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
     sam = members["Sam (Writer)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # assigned to lead
+    _cid, board = _run_campaign(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # assigned to the AI agent
 
     rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", sam,
                     json={"output": {"x": 1}})
@@ -235,8 +213,8 @@ def test_non_lead_non_assignee_cannot_edit() -> None:
 def test_task_detail_exposes_available_actions() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]
-    board = _drive_to_plan(app, lead)
-    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # needs_review
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")  # todo, assigned to the lead
 
-    detail = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}", lead).json()
-    assert {"edit", "assign", "review", "comment"} <= set(detail["available_actions"])
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{claim['id']}", lead).json()
+    assert {"edit", "assign", "submit", "comment"} <= set(detail["available_actions"])
