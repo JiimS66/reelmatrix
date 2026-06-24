@@ -133,6 +133,7 @@ class CampaignPlan(StrictSchema):
     market_adaptation: Optional[MarketAdaptation] = None
     draft_assets: Optional[List[CampaignAsset]] = None
     claim_checks: Optional[List[CampaignClaimCheck]] = None
+    timely_angles: Optional[List[NonEmptyStr]] = None
 
 
 class CampaignWorkflowStatus(str, Enum):

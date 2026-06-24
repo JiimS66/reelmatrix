@@ -19,6 +19,7 @@ from core.db.models import (
     Member,
     MemberKind,
     MemberRole,
+    Milestone,
     Task,
     TaskEvent,
     TaskEventType,
@@ -75,7 +76,14 @@ def _record_event(
 
 
 def create_campaign(
-    session: Session, actor: Member, *, name: str, brief: dict, template: str
+    session: Session,
+    actor: Member,
+    *,
+    name: str,
+    brief: dict,
+    template: str,
+    event_name: Optional[str] = None,
+    event_date: Optional[str] = None,
 ) -> Campaign:
     _require_lead(actor)
     return instantiate_campaign(
@@ -85,7 +93,58 @@ def create_campaign(
         brief=brief,
         template=template,
         created_by=actor.id,
+        event_name=event_name,
+        event_date=event_date,
     )
+
+
+def get_schedule(
+    session: Session, actor: Member, campaign_id: str
+) -> tuple[Campaign, list[Milestone], list[Task], list[str]]:
+    campaign = _get_campaign(session, actor, campaign_id)
+    milestones = list(
+        session.exec(
+            select(Milestone)
+            .where(Milestone.campaign_id == campaign.id)
+            .order_by(Milestone.date)
+        ).all()
+    )
+    tasks = list(
+        session.exec(
+            select(Task)
+            .where(Task.campaign_id == campaign.id)
+            .order_by(Task.sequence)
+        ).all()
+    )
+    planning = next((t for t in tasks if t.kind == TaskKind.PLANNING), None)
+    angles: list[str] = []
+    if planning is not None and planning.output:
+        angles = planning.output.get("timely_angles") or []
+    return campaign, milestones, tasks, angles
+
+
+def get_todo(session: Session, actor: Member) -> list[tuple[str, Task]]:
+    """Scheduled, not-done tasks by due date. The lead sees the team's; a member
+    sees their own."""
+    query = select(Task).where(
+        Task.tenant_id == actor.tenant_id,
+        Task.due_date.is_not(None),  # type: ignore[union-attr]
+        Task.status != TaskStatus.DONE,
+    )
+    if not (actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD):
+        query = query.where(Task.assignee_id == actor.id)
+    tasks = sorted(session.exec(query).all(), key=lambda t: t.due_date or "")
+
+    campaign_ids = list({t.campaign_id for t in tasks})
+    names: dict[str, str] = {}
+    if campaign_ids:
+        names = {
+            c.id: c.name
+            for c in session.exec(
+                select(Campaign).where(Campaign.id.in_(campaign_ids))  # type: ignore[attr-defined]
+            ).all()
+        }
+    return [(names.get(t.campaign_id, ""), t) for t in tasks]
 
 
 def list_tenant_members(session: Session, tenant_id: str) -> list[Member]:

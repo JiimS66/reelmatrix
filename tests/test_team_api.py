@@ -162,6 +162,53 @@ def test_human_member_completes_a_reassigned_task() -> None:
     assert submitted.status_code == 200 and submitted.json()["status"] == "done"
 
 
+EVENT = {"event_name": "v2 release", "event_date": "2026-07-31"}
+
+
+def _create_with_event(app, lead) -> dict:
+    return _req(app, "POST", "/api/v1/team/campaigns", lead,
+                json={"name": "Launch", "brief": BRIEF, **EVENT}).json()
+
+
+def test_schedule_backplans_calendar_and_timely_angles() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    assert board["campaign"]["event_date"] == "2026-07-31"
+
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)  # plan -> timely angles
+    sched = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/schedule", lead).json()
+
+    phases = {m["phase"]: m["date"] for m in sched["milestones"]}
+    assert len(sched["milestones"]) == 5
+    assert phases["launch"] == "2026-07-31"
+    assert phases["warmup"] == "2026-07-10"
+    assert sched["timely_angles"]  # AI suggested timely hooks
+    assert any(t["due_date"] for t in sched["tasks"])
+
+
+def test_todo_lists_scheduled_not_done_tasks() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)
+
+    todo = _req(app, "GET", "/api/v1/team/todo", lead).json()
+    # After the AI auto-runs, the human claim check is the open dated task.
+    assert any(item["task"]["kind"] == "claim_check" for item in todo)
+    assert all(item["task"]["due_date"] for item in todo)
+
+
+def test_create_rejects_a_bad_event_date() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    bad = _req(app, "POST", "/api/v1/team/campaigns", lead,
+               json={"name": "x", "brief": BRIEF, "event_date": "July 31"})
+    assert bad.status_code == 422
+
+
 def test_lists_tenant_campaigns_newest_first() -> None:
     app, members = _build()
     lead = members["Mia (Lead)"]

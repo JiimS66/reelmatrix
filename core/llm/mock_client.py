@@ -190,6 +190,18 @@ class MockLLMClient(BaseLLMClient):
                 is_developer_tool,
             ),
             "claim_checks": MockLLMClient._build_claim_checks(brand_context),
+            "timely_angles": (
+                [
+                    "Ride the surge in AI coding agents shipping unverified code",
+                    "Tie the launch to open-source CLI momentum on GitHub",
+                    "Make 'verification' the season's developer-trust theme",
+                ]
+                if is_developer_tool
+                else [
+                    "Lead with the shift to lean, AI-assisted marketing teams",
+                    "Tie the launch to the quarter's cross-border go-to-market push",
+                ]
+            ),
         }
 
     @staticmethod

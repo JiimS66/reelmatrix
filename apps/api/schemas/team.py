@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from core.db.models import (
     ExecutionMode,
@@ -37,6 +37,8 @@ class TaskRead(BaseModel):
     params: dict
     output: Optional[dict]
     checks: dict
+    due_date: Optional[str]
+    phase: Optional[str]
     updated_at: datetime
 
 
@@ -77,12 +79,37 @@ class CampaignRead(BaseModel):
     name: str
     template: str
     status: str
+    event_name: Optional[str]
+    event_date: Optional[str]
+
+
+class MilestoneRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    phase: str
+    name: str
+    date: str
+    offset_days: int
+    objective: str
 
 
 class BoardRead(BaseModel):
     campaign: CampaignRead
     tasks: list[TaskRead]
     members: list[MemberRead]
+
+
+class ScheduleRead(BaseModel):
+    campaign: CampaignRead
+    milestones: list[MilestoneRead]
+    tasks: list[TaskRead]
+    timely_angles: list[str]
+
+
+class TodoItem(BaseModel):
+    campaign_name: str
+    task: TaskRead
 
 
 class TaskDetailRead(BaseModel):
@@ -97,6 +124,19 @@ class CreateCampaignRequest(BaseModel):
     name: str
     brief: dict
     template: str = "general"
+    event_name: Optional[str] = None
+    event_date: Optional[str] = None
+
+    @field_validator("event_date")
+    @classmethod
+    def _valid_event_date(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("event_date must be an ISO date (YYYY-MM-DD)") from exc
+        return value
 
 
 class AssignRequest(BaseModel):

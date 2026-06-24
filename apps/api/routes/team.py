@@ -20,10 +20,13 @@ from apps.api.schemas.team import (
     EditRequest,
     EventRead,
     MemberRead,
+    MilestoneRead,
     ReviewRequest,
+    ScheduleRead,
     SubmitRequest,
     TaskDetailRead,
     TaskRead,
+    TodoItem,
 )
 from apps.api.services import team_service
 from core.db.engine import get_session
@@ -59,7 +62,13 @@ def create_campaign(
     session: Session = Depends(get_session),
 ) -> BoardRead:
     campaign = team_service.create_campaign(
-        session, actor, name=payload.name, brief=payload.brief, template=payload.template
+        session,
+        actor,
+        name=payload.name,
+        brief=payload.brief,
+        template=payload.template,
+        event_name=payload.event_name,
+        event_date=payload.event_date,
     )
     return _board_response(session, actor, campaign.id)
 
@@ -109,6 +118,34 @@ def get_inbox(
     session: Session = Depends(get_session),
 ) -> list[TaskRead]:
     return [TaskRead.model_validate(task) for task in team_service.get_inbox(session, actor)]
+
+
+@router.get("/campaigns/{campaign_id}/schedule", response_model=ScheduleRead)
+def get_schedule(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ScheduleRead:
+    campaign, milestones, tasks, angles = team_service.get_schedule(
+        session, actor, campaign_id
+    )
+    return ScheduleRead(
+        campaign=CampaignRead.model_validate(campaign),
+        milestones=[MilestoneRead.model_validate(m) for m in milestones],
+        tasks=[TaskRead.model_validate(t) for t in tasks],
+        timely_angles=angles,
+    )
+
+
+@router.get("/todo", response_model=list[TodoItem])
+def get_todo(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TodoItem]:
+    return [
+        TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
+        for name, task in team_service.get_todo(session, actor)
+    ]
 
 
 @router.get("/atoms", response_model=list[AtomRead])
