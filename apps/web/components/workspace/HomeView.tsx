@@ -1,20 +1,37 @@
 "use client";
 
-import type { Board, Member, Task } from "@/lib/teamApi";
+import type { Board, Member, ScheduleData, Task } from "@/lib/teamApi";
 
+import { CalendarView } from "./CalendarView";
 import {
   AssigneeChip,
-  CheckBadges,
   KIND_LABEL,
   StatusBadge,
   checkCount,
   dueInfo,
-  memberKind,
 } from "./primitives";
+
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${iso}T00:00:00`);
+  const days = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  return Number.isNaN(days) ? null : days;
+}
+
+function fmtDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
 
 interface HomeViewProps {
   role: "lead" | "member";
   board: Board | null;
+  schedule: ScheduleData | null;
   inbox: Task[];
   members: Member[];
   currentMemberId: string;
@@ -29,6 +46,7 @@ interface HomeViewProps {
 export function HomeView({
   role,
   board,
+  schedule,
   inbox,
   members,
   currentMemberId,
@@ -39,19 +57,14 @@ export function HomeView({
   onBulkApprove,
   onStart,
 }: HomeViewProps) {
-  if (role === "member") {
-    return (
-      <MemberHome
-        inbox={inbox}
-        members={members}
-        selectedId={selectedId}
-        busy={busy}
-        onSelect={onSelect}
-      />
-    );
-  }
-
   if (!board) {
+    if (role !== "lead") {
+      return (
+        <p className="surface p-6 text-sm text-ink/60">
+          No campaign yet. When the lead starts one, your tasks land here.
+        </p>
+      );
+    }
     return (
       <div className="surface p-6">
         <p className="tlabel">Start</p>
@@ -68,34 +81,64 @@ export function HomeView({
   }
 
   const tasks = board.tasks;
-  const reviews = tasks.filter((t) => t.status === "needs_review");
-  const cleanReviews = reviews.filter((t) => checkCount(t) === 0);
-  const mine = tasks.filter(
-    (t) =>
-      t.assignee_id === currentMemberId &&
-      (t.status === "todo" || t.status === "in_progress"),
-  );
-  const spotCheck = tasks.filter(
-    (t) =>
-      t.status === "done" &&
-      t.kind === "asset" &&
-      memberKind(members, t.assignee_id) === "ai",
-  );
-  const flagged = tasks.filter(
-    (t) => t.status === "blocked" || (t.status !== "done" && checkCount(t) > 0),
-  );
+  const isLead = role === "lead";
 
-  const empty =
-    reviews.length === 0 &&
-    mine.length === 0 &&
-    spotCheck.length === 0 &&
-    flagged.length === 0;
+  const reviews = isLead ? tasks.filter((t) => t.status === "needs_review") : [];
+  const cleanReviews = reviews.filter((t) => checkCount(t) === 0);
+
+  const actionable = (isLead
+    ? tasks.filter((t) => t.assignee_id === currentMemberId)
+    : inbox
+  ).filter((t) => t.status === "todo" || t.status === "in_progress");
+
+  const overdue = actionable.filter((t) => (daysUntil(t.due_date) ?? 9999) < 0);
+  const thisWeek = actionable.filter((t) => {
+    const d = daysUntil(t.due_date);
+    return d !== null && d >= 0 && d <= 7;
+  });
+  const later = actionable.filter((t) => (daysUntil(t.due_date) ?? -1) > 7);
+  const nodate = actionable.filter((t) => daysUntil(t.due_date) === null);
+
+  const eventDays = daysUntil(schedule?.campaign.event_date ?? null);
+  const nextMilestone =
+    schedule?.milestones.find((m) => (daysUntil(m.date) ?? -1) >= 0) ?? null;
+  const done = tasks.filter((t) => t.status === "done").length;
+  const queueCount =
+    reviews.length + overdue.length + thisWeek.length + later.length + nodate.length;
 
   return (
-    <div className="space-y-6">
-      {reviews.length > 0 && (
+    <div className="space-y-5">
+      {/* Status strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Stat
+          label="Event"
+          value={
+            eventDays === null
+              ? "—"
+              : eventDays < 0
+                ? "Launched"
+                : `In ${eventDays}d`
+          }
+          sub={schedule?.campaign.event_date ? fmtDate(schedule.campaign.event_date) : ""}
+          accent
+        />
+        <Stat
+          label="Phase"
+          value={nextMilestone ? nextMilestone.name : "Post-launch"}
+          sub={nextMilestone ? fmtDate(nextMilestone.date) : "wrap-up"}
+        />
+        <Stat
+          label="Needs you"
+          value={String(queueCount)}
+          sub={overdue.length > 0 ? `${overdue.length} overdue` : "on track"}
+        />
+        <Stat label="Progress" value={`${done}/${tasks.length}`} sub="tasks done" />
+      </div>
+
+      {/* Agenda */}
+      {isLead && reviews.length > 0 && (
         <Section
-          title={`Reviews waiting · ${reviews.length}`}
+          title={`To review · ${reviews.length}`}
           action={
             cleanReviews.length > 0 ? (
               <button
@@ -108,139 +151,164 @@ export function HomeView({
             ) : null
           }
         >
-          {reviews.map((task) => (
-            <QueueRow
-              key={task.id}
-              task={task}
+          {reviews.map((t) => (
+            <AgendaRow
+              key={t.id}
+              task={t}
               members={members}
-              selected={task.id === selectedId}
+              selected={t.id === selectedId}
               busy={busy}
-              onSelect={() => onSelect(task.id)}
-              onApprove={() => onApprove(task.id)}
+              onSelect={() => onSelect(t.id)}
+              onApprove={() => onApprove(t.id)}
             />
           ))}
         </Section>
       )}
 
-      {mine.length > 0 && (
-        <Section title={`Your tasks · ${mine.length}`}>
-          {mine.map((task) => (
-            <QueueRow
-              key={task.id}
-              task={task}
-              members={members}
-              selected={task.id === selectedId}
-              busy={busy}
-              onSelect={() => onSelect(task.id)}
-            />
-          ))}
-        </Section>
+      {overdue.length > 0 && (
+        <Bucket
+          title="Overdue"
+          danger
+          tasks={overdue}
+          members={members}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={onSelect}
+        />
+      )}
+      {thisWeek.length > 0 && (
+        <Bucket
+          title="This week"
+          tasks={thisWeek}
+          members={members}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={onSelect}
+        />
+      )}
+      {later.length > 0 && (
+        <Bucket
+          title="Upcoming"
+          tasks={later}
+          members={members}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={onSelect}
+        />
+      )}
+      {nodate.length > 0 && (
+        <Bucket
+          title="No due date"
+          tasks={nodate}
+          members={members}
+          selectedId={selectedId}
+          busy={busy}
+          onSelect={onSelect}
+        />
+      )}
+      {queueCount === 0 && (
+        <p className="surface p-4 text-sm text-ink/60">
+          You&apos;re all caught up — nothing needs you right now.
+        </p>
       )}
 
-      {spotCheck.length > 0 && (
-        <Section title={`AI drafted — give it a look · ${spotCheck.length}`}>
-          {spotCheck.map((task) => (
-            <QueueRow
-              key={task.id}
-              task={task}
-              members={members}
-              selected={task.id === selectedId}
-              busy={busy}
-              onSelect={() => onSelect(task.id)}
-            />
-          ))}
-        </Section>
-      )}
-
-      {flagged.length > 0 && (
-        <Section title={`Needs attention · ${flagged.length}`}>
-          {flagged.map((task) => (
-            <QueueRow
-              key={task.id}
-              task={task}
-              members={members}
-              selected={task.id === selectedId}
-              busy={busy}
-              onSelect={() => onSelect(task.id)}
-            />
-          ))}
-        </Section>
-      )}
-
-      {empty && (
-        <div className="surface p-6">
-          <p className="tlabel">All clear</p>
-          <p className="mt-1 text-sm text-ink/60">
-            Nothing is waiting on you. Open the Board to spot-check the AI&apos;s
-            work, or the Calendar to see what&apos;s coming up.
-          </p>
-        </div>
-      )}
+      {/* Calendar */}
+      <div>
+        <p className="tlabel mb-2">Schedule</p>
+        {schedule ? (
+          <CalendarView
+            schedule={schedule}
+            members={members}
+            onSelectTask={onSelect}
+          />
+        ) : (
+          <p className="surface p-4 text-sm text-ink/55">Loading schedule…</p>
+        )}
+      </div>
     </div>
   );
 }
 
-function MemberHome({
-  inbox,
-  members,
-  selectedId,
-  busy,
-  onSelect,
+function Stat({
+  label,
+  value,
+  sub,
+  accent,
 }: {
-  inbox: Task[];
-  members: Member[];
-  selectedId: string | null;
-  busy: boolean;
-  onSelect: (id: string) => void;
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: boolean;
 }) {
-  const sorted = [...inbox].sort((a, b) =>
-    (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999"),
-  );
-  if (sorted.length === 0) {
-    return (
-      <p className="surface p-6 text-sm text-ink/60">
-        Nothing assigned to you right now. When the lead assigns you a task it
-        lands here.
-      </p>
-    );
-  }
   return (
-    <Section title={`My tasks · ${sorted.length}`}>
-      {sorted.map((task) => (
-        <QueueRow
-          key={task.id}
-          task={task}
-          members={members}
-          selected={task.id === selectedId}
-          busy={busy}
-          onSelect={() => onSelect(task.id)}
-        />
-      ))}
-    </Section>
+    <div className="surface p-3">
+      <p className="tlabel">{label}</p>
+      <p
+        className={`mt-0.5 text-lg font-semibold ${accent ? "text-forest" : "text-ink"}`}
+      >
+        {value}
+      </p>
+      {sub ? <p className="font-mono text-[11px] text-ink/50">{sub}</p> : null}
+    </div>
   );
 }
 
 function Section({
   title,
   action,
+  danger,
   children,
 }: {
   title: string;
   action?: React.ReactNode;
+  danger?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <section>
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="tlabel">{title}</p>
+      <div className="mb-2.5 flex items-center justify-between gap-3">
+        <p className={`tlabel ${danger ? "!text-red-600" : ""}`}>{title}</p>
         {action}
       </div>
-      <div className="space-y-2.5">{children}</div>
+      <div className="space-y-2">{children}</div>
     </section>
   );
 }
 
-function QueueRow({
+function Bucket({
+  title,
+  danger,
+  tasks,
+  members,
+  selectedId,
+  busy,
+  onSelect,
+}: {
+  title: string;
+  danger?: boolean;
+  tasks: Task[];
+  members: Member[];
+  selectedId: string | null;
+  busy: boolean;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <Section title={`${title} · ${tasks.length}`} danger={danger}>
+      {tasks.map((t) => (
+        <AgendaRow
+          key={t.id}
+          task={t}
+          members={members}
+          selected={t.id === selectedId}
+          busy={busy}
+          onSelect={() => onSelect(t.id)}
+        />
+      ))}
+    </Section>
+  );
+}
+
+function AgendaRow({
   task,
   members,
   selected,
@@ -255,21 +323,21 @@ function QueueRow({
   onSelect: () => void;
   onApprove?: () => void;
 }) {
-  const clean = checkCount(task) === 0;
   const due = dueInfo(task.due_date);
+  const clean = checkCount(task) === 0;
   return (
     <div
-      className={`rounded-2xl border bg-white p-4 transition ${
+      className={`rounded-xl border bg-white p-3 transition ${
         selected ? "border-forest ring-2 ring-forest/15" : "border-ink/10"
       }`}
     >
       <button onClick={onSelect} className="block w-full text-left">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2">
           <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
           <StatusBadge status={task.status} />
         </div>
-        <p className="mt-1.5 font-semibold text-ink">{task.title}</p>
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <p className="mt-1 font-semibold text-ink">{task.title}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <AssigneeChip members={members} id={task.assignee_id} />
           {due && (
             <span
@@ -281,12 +349,9 @@ function QueueRow({
             </span>
           )}
         </div>
-        <div className="mt-2">
-          <CheckBadges task={task} />
-        </div>
       </button>
       {onApprove && (
-        <div className="mt-3 flex gap-2">
+        <div className="mt-2.5 flex gap-2">
           <button className="btn-green" disabled={busy} onClick={onApprove}>
             {clean ? "Approve" : "Approve anyway"}
           </button>

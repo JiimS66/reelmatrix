@@ -124,13 +124,20 @@ export default function Workspace() {
     if (view === "todo") {
       getTodo(currentId).then(setTodo).catch((e) => setError(errMessage(e)));
     }
-    if (view === "calendar" && board) {
-      getSchedule(currentId, board.campaign.id)
-        .then(setSchedule)
-        .catch((e) => setError(errMessage(e)));
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, currentId, board?.campaign.id]);
+
+  // The schedule powers both Home (status strip + calendar) and the Calendar tab.
+  useEffect(() => {
+    if (!currentId || !board) {
+      setSchedule(null);
+      return;
+    }
+    getSchedule(currentId, board.campaign.id)
+      .then(setSchedule)
+      .catch((e) => setError(errMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentId, board?.campaign.id]);
 
   function openTaskOnBoard(id: string) {
     setSelectedId(id);
@@ -145,6 +152,13 @@ export default function Workspace() {
         setInbox(await getInbox(currentId));
       } catch (e) {
         setError(errMessage(e));
+      }
+      if (board) {
+        try {
+          setSchedule(await getSchedule(currentId, board.campaign.id));
+        } catch (e) {
+          setError(errMessage(e));
+        }
       }
     }
   }
@@ -337,6 +351,7 @@ export default function Workspace() {
                 <HomeView
                   role={isLead ? "lead" : "member"}
                   board={board}
+                  schedule={schedule}
                   inbox={inbox}
                   members={board?.members ?? members}
                   currentMemberId={currentId}
