@@ -179,3 +179,23 @@ def test_submit_rejects_task_not_in_submittable_state() -> None:
 
     rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/submit", lead, json={})
     assert rejected.status_code == 409
+
+
+def test_approving_an_asset_harvests_reusable_atoms() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
+
+    # Nothing in the library until an asset is approved.
+    assert _req(app, "GET", "/api/v1/team/atoms", lead).json() == []
+
+    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
+         json={"action": "approve"})
+
+    atoms = _req(app, "GET", "/api/v1/team/atoms", lead).json()
+    kinds = {a["kind"] for a in atoms}
+    assert "headline" in kinds and "cta" in kinds
+    # Retrieval by kind works.
+    ctas = _req(app, "GET", "/api/v1/team/atoms?kind=cta", lead).json()
+    assert ctas and all(a["kind"] == "cta" for a in ctas)

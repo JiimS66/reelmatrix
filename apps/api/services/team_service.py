@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from core.db.models import (
     Campaign,
     Comment,
+    ContentAtom,
     ExecutionMode,
     Member,
     MemberKind,
@@ -252,3 +253,20 @@ def add_comment(session: Session, actor: Member, task_id: str, *, body: str) -> 
     _record_event(session, task, TaskEventType.COMMENTED, actor_id=actor.id)
     session.commit()
     return comment
+
+
+def list_atoms(
+    session: Session,
+    actor: Member,
+    *,
+    kind: Optional[str] = None,
+    tag: Optional[str] = None,
+) -> list[ContentAtom]:
+    """Reusable content atoms for the actor's tenant, filtered by kind/tag."""
+    query = select(ContentAtom).where(ContentAtom.tenant_id == actor.tenant_id)
+    if kind:
+        query = query.where(ContentAtom.kind == kind)
+    atoms = list(session.exec(query.order_by(ContentAtom.created_at)).all())
+    if tag:
+        atoms = [atom for atom in atoms if tag in (atom.tags or [])]
+    return atoms

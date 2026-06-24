@@ -59,6 +59,17 @@ class EventRead(BaseModel):
     created_at: datetime
 
 
+class AtomRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    kind: str
+    text: str
+    tags: list[str]
+    source_campaign_id: Optional[str]
+    created_at: datetime
+
+
 class CampaignRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -4,11 +4,14 @@ Auth is a development stub: the acting member is taken from the ``X-Member-Id``
 header. Replace with real authentication before any non-local use.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlmodel import Session
 
 from apps.api.schemas.team import (
     AssignRequest,
+    AtomRead,
     BoardRead,
     CampaignRead,
     CommentRead,
@@ -86,6 +89,17 @@ def get_inbox(
     session: Session = Depends(get_session),
 ) -> list[TaskRead]:
     return [TaskRead.model_validate(task) for task in team_service.get_inbox(session, actor)]
+
+
+@router.get("/atoms", response_model=list[AtomRead])
+def list_atoms(
+    kind: Optional[str] = None,
+    tag: Optional[str] = None,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[AtomRead]:
+    atoms = team_service.list_atoms(session, actor, kind=kind, tag=tag)
+    return [AtomRead.model_validate(atom) for atom in atoms]
 
 
 @router.get("/tasks/{task_id}", response_model=TaskDetailRead)

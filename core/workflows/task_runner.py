@@ -24,6 +24,7 @@ from core.agents.planning_bot import PlanningBot
 from core.db.models import (
     BrandProfile,
     Campaign,
+    ContentAtom,
     ExecutionMode,
     Member,
     MemberKind,
@@ -35,6 +36,7 @@ from core.db.models import (
     TaskStatus,
     UsageEvent,
 )
+from core.content.atoms import atoms_from_asset
 from core.content.brand import forbidden_word_issues
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks
@@ -141,6 +143,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
             task.updated_at = _now()
             if task.execution_mode == ExecutionMode.AI_AUTO:
                 task.status = TaskStatus.DONE
+                harvest_atoms(session, task)
             else:
                 task.status = TaskStatus.NEEDS_REVIEW
                 task.assignee_id = lead_id or task.assignee_id
@@ -159,8 +162,39 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
             session.add(task)
 
 
+def harvest_atoms(session: Session, task: Task) -> None:
+    """Harvest reusable atoms from an approved asset into the tenant library.
+
+    Idempotent: identical (kind, text) atoms in the tenant are not duplicated.
+    """
+    if task.kind != TaskKind.ASSET or not task.output:
+        return
+    existing = {
+        (atom.kind, atom.text)
+        for atom in session.exec(
+            select(ContentAtom).where(ContentAtom.tenant_id == task.tenant_id)
+        ).all()
+    }
+    channel = (task.params or {}).get("channel")
+    tags = [channel] if channel else []
+    for kind, text in atoms_from_asset(task.output):
+        if (kind, text) in existing:
+            continue
+        existing.add((kind, text))
+        session.add(
+            ContentAtom(
+                tenant_id=task.tenant_id,
+                kind=kind,
+                text=text,
+                tags=tags,
+                source_campaign_id=task.campaign_id,
+                source_task_id=task.id,
+            )
+        )
+
+
 def complete_task(session: Session, task: Task, *, actor_id: Optional[str] = None) -> None:
-    """Mark a task done, audit it, and fan out if it is the planning task.
+    """Mark a task done, audit it, and run kind-specific follow-ups.
 
     Idempotent and does not commit; the caller owns the transaction.
     """
@@ -171,6 +205,8 @@ def complete_task(session: Session, task: Task, *, actor_id: Optional[str] = Non
     _record_event(session, task, TaskEventType.APPROVED, actor_id=actor_id)
     if task.kind == TaskKind.PLANNING:
         fan_out_from_plan(session, task)
+    elif task.kind == TaskKind.ASSET:
+        harvest_atoms(session, task)
     session.add(task)
 
 

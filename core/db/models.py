@@ -185,3 +185,19 @@ class BrandProfile(SQLModel, table=True):
     approved_phrases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     proof_points: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
+
+
+class ContentAtom(SQLModel, table=True):
+    """A reusable named content block harvested from an approved asset.
+
+    Persisted per tenant so atoms can be reused across campaigns (events).
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    kind: str  # headline | hook | cta | proof | one_liner
+    text: str
+    tags: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    source_campaign_id: Optional[str] = Field(default=None, foreign_key="campaign.id")
+    source_task_id: Optional[str] = Field(default=None, foreign_key="task.id")
+    created_at: datetime = Field(default_factory=_now)
