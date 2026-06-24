@@ -46,7 +46,7 @@ BRAND = {
 }
 
 HUMANS = [
-    {"email": "mia@testsprite.com", "display_name": "Mia (Lead)", "role": MemberRole.LEAD},
+    {"email": "adam@testsprite.com", "display_name": "Adam (Lead)", "role": MemberRole.LEAD},
     {"email": "sam@testsprite.com", "display_name": "Sam (Writer)", "role": MemberRole.MEMBER},
 ]
 

@@ -68,7 +68,7 @@ def test_instantiate_creates_expected_task_graph() -> None:
 
         claim_check = by_kind[TaskKind.CLAIM_CHECK][0]
         assert claim_check.execution_mode == ExecutionMode.HUMAN_ONLY
-        lead = members["Mia (Lead)"]
+        lead = members["Adam (Lead)"]
         assert lead.kind == MemberKind.HUMAN and lead.role == MemberRole.LEAD
         assert claim_check.assignee_id == lead.id
 

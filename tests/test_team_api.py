@@ -74,7 +74,7 @@ def _run_campaign(app, lead) -> tuple[str, dict]:
 
 def test_run_auto_completes_the_ai_pipeline() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
 
     created = _create(app, lead)
     # ideation + planning + 3 channel assets + claim check, all unstarted.
@@ -97,7 +97,7 @@ def test_run_auto_completes_the_ai_pipeline() -> None:
 
 def test_human_can_insert_a_review_gate() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     created = _create(app, lead)
     cid = created["campaign"]["id"]
     ideation = _task(created, "ideation")
@@ -118,7 +118,7 @@ def test_human_can_insert_a_review_gate() -> None:
 
 def test_human_edits_an_auto_completed_asset() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     _cid, board = _run_campaign(app, lead)
     asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # already done
 
@@ -133,7 +133,7 @@ def test_human_edits_an_auto_completed_asset() -> None:
 
 def test_run_harvests_atoms_from_auto_completed_assets() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     _run_campaign(app, lead)
 
     atoms = _req(app, "GET", "/api/v1/team/atoms", lead).json()
@@ -145,7 +145,7 @@ def test_run_harvests_atoms_from_auto_completed_assets() -> None:
 
 def test_human_member_completes_a_reassigned_task() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     sam = members["Sam (Writer)"]
     _cid, board = _run_campaign(app, lead)
     claim = _task(board, "claim_check")  # human-owned, still todo
@@ -172,7 +172,7 @@ def _create_with_event(app, lead) -> dict:
 
 def test_schedule_backplans_calendar_and_timely_angles() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     board = _create_with_event(app, lead)
     cid = board["campaign"]["id"]
     assert board["campaign"]["event_date"] == "2026-07-31"
@@ -190,7 +190,7 @@ def test_schedule_backplans_calendar_and_timely_angles() -> None:
 
 def test_todo_lists_scheduled_not_done_tasks() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     board = _create_with_event(app, lead)
     cid = board["campaign"]["id"]
     _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)
@@ -203,7 +203,7 @@ def test_todo_lists_scheduled_not_done_tasks() -> None:
 
 def test_create_rejects_a_bad_event_date() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     bad = _req(app, "POST", "/api/v1/team/campaigns", lead,
                json={"name": "x", "brief": BRIEF, "event_date": "July 31"})
     assert bad.status_code == 422
@@ -211,7 +211,7 @@ def test_create_rejects_a_bad_event_date() -> None:
 
 def test_lists_tenant_campaigns_newest_first() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     _create(app, lead)
     _create(app, lead)
     campaigns = _req(app, "GET", "/api/v1/team/campaigns", lead).json()
@@ -227,7 +227,7 @@ def test_members_bootstrap_lists_the_team() -> None:
 
 def test_campaign_performance_returns_per_asset_metrics() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     cid, _board = _run_campaign(app, lead)
     perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
     assert len(perf["rows"]) >= 1
@@ -239,7 +239,7 @@ def test_campaign_performance_returns_per_asset_metrics() -> None:
 
 def test_record_metrics_overrides_the_mock() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     cid, board = _run_campaign(app, lead)
     asset = _task(board, "asset")
     updated = _req(
@@ -265,7 +265,7 @@ def test_permissions_and_auth() -> None:
 
 def test_assign_rejects_ai_agent_on_human_only_task() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     ai_agent = members["Ideation bot"]
     _cid, board = _run_campaign(app, lead)
     claim = _task(board, "claim_check")  # human_only
@@ -277,7 +277,7 @@ def test_assign_rejects_ai_agent_on_human_only_task() -> None:
 
 def test_submit_rejects_task_not_in_submittable_state() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     _cid, board = _run_campaign(app, lead)
     claim = _task(board, "claim_check")
 
@@ -290,7 +290,7 @@ def test_submit_rejects_task_not_in_submittable_state() -> None:
 
 def test_non_lead_non_assignee_cannot_edit() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     sam = members["Sam (Writer)"]
     _cid, board = _run_campaign(app, lead)
     asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # assigned to the AI agent
@@ -302,7 +302,7 @@ def test_non_lead_non_assignee_cannot_edit() -> None:
 
 def test_task_detail_exposes_available_actions() -> None:
     app, members = _build()
-    lead = members["Mia (Lead)"]
+    lead = members["Adam (Lead)"]
     _cid, board = _run_campaign(app, lead)
     claim = _task(board, "claim_check")  # todo, assigned to the lead
 
