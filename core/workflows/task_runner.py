@@ -13,6 +13,7 @@ is shared with the review API so approvals re-trigger the same fan-out; both
 work a human has already touched.
 """
 
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
@@ -40,15 +41,19 @@ from core.content.atoms import atoms_from_asset
 from core.content.brand import forbidden_word_issues
 from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
-from core.content.platform_specs import format_checks
+from core.content.platform_specs import format_checks, spec_for_channel
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
 from core.schemas.campaign import IdeationResult
 
 ClientForProvider = Callable[[str], BaseLLMClient]
 
-_RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING)
-_ROLE_BY_KIND = {TaskKind.IDEATION: "ideation", TaskKind.PLANNING: "planning"}
+_RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET)
+_ROLE_BY_KIND = {
+    TaskKind.IDEATION: "ideation",
+    TaskKind.PLANNING: "planning",
+    TaskKind.ASSET: "copywriter",
+}
 
 
 def _now() -> datetime:
@@ -120,22 +125,13 @@ def recompute_asset_checks(session: Session, task: Task) -> dict:
 
 
 def fan_out_from_plan(session: Session, planning_task: Task) -> None:
-    """Populate downstream asset and claim-check tasks from a finished plan.
+    """Seed the downstream claim-check task from a finished plan.
 
-    Idempotent: only untouched (still-TODO / unseeded) downstream tasks are
-    written, so re-running after a human edit never clobbers their work.
+    Asset tasks are no longer carved from the plan here — the Copywriter agent
+    renders each one from the shared content core (run by the runner). Idempotent:
+    a claim-check that already has output is left untouched.
     """
     plan = planning_task.output or {}
-    by_channel = {
-        (asset.get("channel") or "").lower(): asset
-        for asset in (plan.get("draft_assets") or [])
-    }
-    lead_id = _campaign_lead_id(session, planning_task.tenant_id)
-    brand = session.exec(
-        select(BrandProfile).where(BrandProfile.tenant_id == planning_task.tenant_id)
-    ).first()
-    forbidden = brand.forbidden_words if brand is not None else []
-    approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
     downstream = session.exec(
         select(Task).where(
             Task.tenant_id == planning_task.tenant_id,
@@ -146,42 +142,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
     for task in downstream:
         if planning_task.id not in (task.depends_on or []):
             continue
-
-        if task.kind == TaskKind.ASSET and task.execution_mode != ExecutionMode.HUMAN_ONLY:
-            if task.status != TaskStatus.TODO or (task.params or {}).get("ai_draft_skipped"):
-                continue
-            asset = by_channel.get((task.params or {}).get("channel", "").lower())
-            if asset is None:
-                # No AI draft for this channel: hand it to the lead to write.
-                task.params = {**(task.params or {}), "ai_draft_skipped": True}
-                task.assignee_id = lead_id or task.assignee_id
-                task.updated_at = _now()
-                _record_event(
-                    session, task, TaskEventType.STATUS_CHANGED,
-                    payload={"reason": "no_ai_draft_for_channel"},
-                )
-                session.add(task)
-                continue
-            task.ai_draft = asset
-            task.output = asset
-            task.checks = asset_checks(
-                asset, (task.params or {}).get("channel", ""), forbidden, approved_text
-            )
-            task.updated_at = _now()
-            if task.execution_mode == ExecutionMode.AI_AUTO:
-                task.status = TaskStatus.DONE
-                harvest_atoms(session, task)
-                _publish_post(session, task)
-            else:
-                task.status = TaskStatus.NEEDS_REVIEW
-                task.assignee_id = lead_id or task.assignee_id
-            _record_event(
-                session, task, TaskEventType.SUBMITTED, payload={"source": "planning_fan_out"}
-            )
-            session.add(task)
-        elif task.kind == TaskKind.CLAIM_CHECK:
-            if task.output is not None:
-                continue  # already seeded
+        if task.kind == TaskKind.CLAIM_CHECK and task.output is None:
             task.output = {"claim_checks": plan.get("claim_checks") or []}
             task.updated_at = _now()
             _record_event(
@@ -317,23 +278,26 @@ class TaskRunner:
 
         task.status = TaskStatus.IN_PROGRESS
         try:
-            # The assigned AI employee's role (M6 makes this org-configurable).
-            agent_kind = (member.agent_config or {}).get("agent_kind") if member else None
-            role_key = agent_kind or _ROLE_BY_KIND[task.kind]
-            payload = dict(campaign.brief)
-            payload.setdefault("campaign_template", campaign.template)
-            context: dict = {"request": payload}
-            if task.kind == TaskKind.PLANNING:
-                ideation_result = IdeationResult.model_validate(self._ideation_output(task))
-                if not ideation_result.is_ready_for_planning:
-                    task.status = TaskStatus.BLOCKED
-                    _record_event(
-                        self._session, task, TaskEventType.STATUS_CHANGED,
-                        payload={"reason": "ideation_not_ready"},
+            role_key = _ROLE_BY_KIND[task.kind]
+            if task.kind == TaskKind.ASSET:
+                context: dict = self._copywriter_context(task, campaign)
+            else:
+                payload = dict(campaign.brief)
+                payload.setdefault("campaign_template", campaign.template)
+                context = {"request": payload}
+                if task.kind == TaskKind.PLANNING:
+                    ideation_result = IdeationResult.model_validate(
+                        self._ideation_output(task)
                     )
-                    self._session.add(task)
-                    return
-                context["ideation_result"] = ideation_result.model_dump(mode="json")
+                    if not ideation_result.is_ready_for_planning:
+                        task.status = TaskStatus.BLOCKED
+                        _record_event(
+                            self._session, task, TaskEventType.STATUS_CHANGED,
+                            payload={"reason": "ideation_not_ready"},
+                        )
+                        self._session.add(task)
+                        return
+                    context["ideation_result"] = ideation_result.model_dump(mode="json")
             output = await agent_for_role(role_key, client).run(context)
         except Exception as exc:
             # Revert so a later run can retry, and leave an audit trail.
@@ -348,6 +312,8 @@ class TaskRunner:
 
         task.ai_draft = output
         task.output = output
+        if task.kind == TaskKind.ASSET:
+            task.checks = recompute_asset_checks(self._session, task)
         task.updated_at = _now()
         self._session.add(
             UsageEvent(
@@ -373,6 +339,31 @@ class TaskRunner:
                 actor_id=member.id if member else None,
             )
             self._session.add(task)
+
+    def _copywriter_context(self, task: Task, campaign: Campaign) -> dict:
+        """The slice a copywriter reads: shared core + platform spec + brand."""
+        planning = (
+            self._session.get(Task, task.depends_on[0]) if task.depends_on else None
+        )
+        plan = (planning.output if planning is not None else None) or {}
+        channel = (task.params or {}).get("channel", "")
+        spec = spec_for_channel(channel)
+        brand = self._session.exec(
+            select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+        ).first()
+        return {
+            "channel": channel,
+            "core_message": plan.get("core_message", ""),
+            "product_name": (campaign.brief or {}).get("product_name", ""),
+            "platform": asdict(spec) if spec is not None else {},
+            "brand": {
+                "voice": brand.voice,
+                "tone_rules": brand.tone_rules,
+                "forbidden_words": brand.forbidden_words,
+            }
+            if brand is not None
+            else {},
+        }
 
     def _ideation_output(self, planning_task: Task) -> dict:
         for dep_id in planning_task.depends_on or []:

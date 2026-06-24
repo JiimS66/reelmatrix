@@ -91,8 +91,9 @@ def test_runner_auto_completes_the_pipeline_by_default() -> None:
 
     ideation = _task(session, campaign_id, TaskKind.IDEATION)
     planning = _task(session, campaign_id, TaskKind.PLANNING)
-    # Default is ai_auto: ideation and planning both run to done in one pass.
-    assert len(ran) == 2
+    # Default is ai_auto: ideation, planning, and the two per-channel posts all run
+    # in one pass — the Copywriter renders each post from the shared content core.
+    assert len(ran) == 4
     assert ideation.status == TaskStatus.DONE
     assert planning.status == TaskStatus.DONE
 
@@ -101,7 +102,7 @@ def test_runner_auto_completes_the_pipeline_by_default() -> None:
             Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET
         )
     ).all()
-    # Planning fanned out into the asset tasks, which auto-complete with checks.
+    # Each post is rendered from the shared core, then auto-completes with checks.
     for asset in assets:
         assert asset.status == TaskStatus.DONE
         assert asset.output is not None
@@ -113,6 +114,23 @@ def test_runner_auto_completes_the_pipeline_by_default() -> None:
     claim_check = _task(session, campaign_id, TaskKind.CLAIM_CHECK)
     assert claim_check.output is not None
     assert "claim_checks" in claim_check.output
+
+
+def test_posts_render_from_the_shared_core() -> None:
+    session, campaign_id = _setup()
+    asyncio.run(_runner(session).run_ready_tasks(campaign_id))
+
+    planning = _task(session, campaign_id, TaskKind.PLANNING)
+    core = planning.output["core_message"]
+    assets = session.exec(
+        select(Task).where(
+            Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET
+        )
+    ).all()
+    assert len(assets) == 2
+    # Every channel's post carries the same campaign core -> cross-platform consistency.
+    for asset in assets:
+        assert core and core in asset.output["content"]
 
 
 def test_run_task_error_reverts_to_todo_and_audits() -> None:
