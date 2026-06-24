@@ -106,3 +106,30 @@ Defined in `app/globals.css`. Reuse them; don't reinvent.
 > technical labels, `.surface`/`.chip`/`.btn-*`/`.field` components, and the
 > status color mapping (done=emerald, review/in-progress=amber, blocked=red,
 > todo=neutral) via `statusAccent()`. Favor whitespace and clarity over density.
+
+---
+
+## Media / visual generation (planned)
+
+Built-in, locally-deployable image generation behind a **swappable provider** — design
+the abstraction now so a model upgrade is a config swap, not a rewrite.
+
+- **Models (open-weight):** default **HiDream-O1-Image** (MIT, commercial-free; one
+  checkpoint does text-to-image + instruction editing + subject-driven personalization).
+  Alternative **Ideogram 4.0** (best in-image text + palette/layout control; commercial
+  self-host needs an Ideogram license). Also viable: Qwen-Image (Apache-2.0), FLUX.2
+  (license-gated), SDXL (deepest LoRA/ControlNet/IP-Adapter ecosystem).
+- **Abstraction (mirror the LLM provider factory):** `MediaProvider.generate_image(prompt,
+  brand, refs, controls)` + `VisionProvider.understand(media)`; impls local
+  (ComfyUI / diffusers / vLLM) | hosted (Fal / Replicate / DashScope / Ideogram) | mock.
+  Model upgrade = swap the provider.
+- **Brand consistency:** LoRA (brand style) + IP-Adapter (reference images) + ControlNet
+  (layout templates) + native subject-driven personalization. Extend `BrandProfile` with a
+  visual identity (palette, logo, fonts, reference images, brand LoRA) and add a visual
+  consistency check (palette/logo + VLM-judge), mirroring the text format/brand/consistency
+  checks.
+- **Multimodal input:** a VLM reads a human-provided image / video frame / doc → brief +
+  references that feed the content core and the image pipeline.
+- A `Designer` digital-employee role calls these providers; `visual` tasks route to the AI
+  or a human designer (org-configurable). Video stays human for now (same interface leaves
+  a slot for a video model later).
