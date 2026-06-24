@@ -67,6 +67,7 @@ class TaskEventType(str, Enum):
     COMMENTED = "commented"
     STATUS_CHANGED = "status_changed"
     AI_RUN = "ai_run"
+    SELF_CORRECTED = "self_corrected"
 
 
 class Tenant(SQLModel, table=True):

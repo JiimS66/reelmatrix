@@ -44,7 +44,8 @@ shared campaign content core, the platform's format spec, and the brand. Keep th
 same core message and only the approved claims as the other channels — be
 consistent, and never invent unsourced performance, funding, customer, or
 user-count claims. Obey the brand voice, tone rules, and forbidden words, and the
-platform's length and structure. Return only the single asset.
+platform's length and structure. If revision_notes lists problems with a previous
+draft, fix exactly those issues and change nothing else. Return only the single asset.
 """.strip()
 
 
@@ -60,6 +61,7 @@ class CopywriterAgent(Agent):
             "platform": context.get("platform", {}),
             "brand": context.get("brand", {}),
             "recent_feedback": context.get("recent_feedback", []),
+            "revision_notes": context.get("revision_notes", []),
         }
         asset = await self._llm_client.generate_structured(
             system_prompt=COPYWRITER_SYSTEM_PROMPT,

@@ -66,6 +66,20 @@ def role_for(task: Task, member: Optional[Member]) -> str:
     return configured or _ROLE_BY_KIND[task.kind]
 
 
+# How many times a failed asset may be re-rendered with its check failures fed back
+# before the runner keeps the cleanest draft and moves on (checks stay advisory).
+_MAX_ASSET_REVISIONS = 2
+
+
+def _issue_count(checks: dict) -> int:
+    return sum(len(issues) for issues in checks.values())
+
+
+def _revision_notes(checks: dict) -> list[str]:
+    """The check failures, as plain sentences to feed back to the agent."""
+    return [issue.get("detail", "") for issues in checks.values() for issue in issues]
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -94,6 +108,21 @@ def _record_event(
     )
 
 
+def _record_usage(session: Session, task: Task, member: Optional[Member]) -> None:
+    """Meter one AI render for billing — one row per LLM call, so self-correction
+    retries are counted too (each retry is a real provider call)."""
+    config = (member.agent_config or {}) if member else {}
+    session.add(
+        UsageEvent(
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            member_id=task.assignee_id,
+            provider=config.get("provider", "mock"),
+            model=config.get("model"),
+        )
+    )
+
+
 def _campaign_lead_id(session: Session, tenant_id: str) -> Optional[str]:
     lead = session.exec(
         select(Member)
@@ -116,8 +145,12 @@ def asset_checks(asset: dict, channel: str, forbidden: list[str], approved_text:
     }
 
 
-def recompute_asset_checks(session: Session, task: Task) -> dict:
-    """Recompute an asset task's checks from its current output (e.g. after a human edit)."""
+def checks_for_output(session: Session, task: Task, output: dict) -> dict:
+    """Compute an asset's format/brand/consistency checks for a candidate output.
+
+    Read-only on the session (brand + plan lookups only), so it is safe to call
+    inside a gathered render while other tasks' renders are in flight.
+    """
     brand = session.exec(
         select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
     ).first()
@@ -130,8 +163,13 @@ def recompute_asset_checks(session: Session, task: Task) -> dict:
     plan = (planning.output if planning is not None else None) or {}
     approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
     return asset_checks(
-        task.output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text
+        output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text
     )
+
+
+def recompute_asset_checks(session: Session, task: Task) -> dict:
+    """Recompute an asset task's checks from its current output (e.g. after a human edit)."""
+    return checks_for_output(session, task, task.output or {})
 
 
 def fan_out_from_plan(session: Session, planning_task: Task) -> None:
@@ -314,7 +352,44 @@ class TaskRunner:
                 )
                 self._session.add(task)
                 return None
-        return await agent_for_role(role_key, client).run(context)
+        output = await agent_for_role(role_key, client).run(context)
+        if task.kind == TaskKind.ASSET:
+            output = await self._self_correct(task, member, client, role_key, context, output)
+        return output
+
+    async def _self_correct(
+        self,
+        task: Task,
+        member: Optional[Member],
+        client: BaseLLMClient,
+        role_key: str,
+        context: dict,
+        output: dict,
+    ) -> dict:
+        """Re-render an asset whose checks fail, feeding the failures back, and keep
+        the cleanest draft. The runner's execution-time half of self-improvement;
+        checks stay advisory, so a draft that can't be fixed still goes through."""
+        checks = checks_for_output(self._session, task, output)
+        best, best_issues = output, _issue_count(checks)
+        passes = 0
+        while best_issues > 0 and passes < _MAX_ASSET_REVISIONS:
+            passes += 1
+            revised_context = {**context, "revision_notes": _revision_notes(checks)}
+            candidate = await agent_for_role(role_key, client).run(revised_context)
+            _record_usage(self._session, task, member)  # each retry is a metered call
+            checks = checks_for_output(self._session, task, candidate)
+            issues = _issue_count(checks)
+            if issues < best_issues:
+                best, best_issues = candidate, issues
+            if best_issues == 0:
+                break
+        if passes:
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                actor_id=task.assignee_id,
+                payload={"passes": passes, "remaining_issues": best_issues},
+            )
+        return best
 
     def _persist(self, task: Task, output: dict) -> None:
         """Persist a rendered output (sync — keeps the single session serial)."""
@@ -325,15 +400,7 @@ class TaskRunner:
         if task.kind == TaskKind.ASSET:
             task.checks = recompute_asset_checks(self._session, task)
         task.updated_at = _now()
-        self._session.add(
-            UsageEvent(
-                tenant_id=task.tenant_id,
-                task_id=task.id,
-                member_id=task.assignee_id,
-                provider=provider,
-                model=(member.agent_config or {}).get("model") if member else None,
-            )
-        )
+        _record_usage(self._session, task, member)
         _record_event(
             self._session, task, TaskEventType.AI_RUN, actor_id=task.assignee_id,
             payload={"provider": provider},

@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from sqlmodel import Session, select
@@ -12,6 +13,7 @@ from core.db.models import (
     MemberRole,
     Task,
     TaskEvent,
+    TaskEventType,
     TaskKind,
     TaskStatus,
     UsageEvent,
@@ -28,6 +30,51 @@ class _FailingClient(BaseLLMClient):
 
     async def generate_structured(self, *, system_prompt, user_prompt, response_model):
         raise LLMProviderError("boom")
+
+
+class _SelfCorrectingClient(BaseLLMClient):
+    """Ships a forbidden word on the first draft, then complies once the failure is
+    fed back via revision_notes — mimics an agent that fixes its own flagged work."""
+
+    def __init__(self) -> None:
+        self._mock = MockLLMClient()
+
+    async def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        return await self._mock.generate_text(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        asset = await self._mock.generate_structured(
+            system_prompt=system_prompt, user_prompt=user_prompt, response_model=response_model
+        )
+        if response_model.__name__ == "CampaignAsset" and not json.loads(
+            user_prompt
+        ).get("revision_notes"):
+            return asset.model_copy(
+                update={"content": f"{asset.content} This launch is basically magic."}
+            )
+        return asset
+
+
+class _PersistentlyDirtyClient(BaseLLMClient):
+    """Always trips the brand check — self-correction can never clean it."""
+
+    def __init__(self) -> None:
+        self._mock = MockLLMClient()
+
+    async def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        return await self._mock.generate_text(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        asset = await self._mock.generate_structured(
+            system_prompt=system_prompt, user_prompt=user_prompt, response_model=response_model
+        )
+        if response_model.__name__ == "CampaignAsset":
+            return asset.model_copy(update={"content": f"{asset.content} Totally bug-free."})
+        return asset
 
 BRIEF = {
     "product_name": "TestSprite",
@@ -165,6 +212,61 @@ def test_role_for_prefers_the_members_configured_role() -> None:
         agent_config={"role": "designer", "provider": "mock"},
     )
     assert role_for(asset_task, custom) == "designer"
+
+
+def test_runner_self_corrects_a_failed_asset_check() -> None:
+    session, campaign_id = _setup()
+    client = _SelfCorrectingClient()
+    runner = TaskRunner(session, client_for_provider=lambda provider: client)
+    asyncio.run(runner.run_ready_tasks(campaign_id))
+
+    assets = session.exec(
+        select(Task).where(Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET)
+    ).all()
+    assert len(assets) == 2
+    for asset in assets:
+        # The forbidden word from the first draft was corrected out before completing.
+        assert asset.status == TaskStatus.DONE
+        assert asset.checks["brand"] == []
+        assert "magic" not in (asset.output["content"] or "").lower()
+
+    events = session.exec(
+        select(TaskEvent).where(TaskEvent.type == TaskEventType.SELF_CORRECTED)
+    ).all()
+    assert len(events) == 2  # one corrective pass per asset
+    assert all(e.payload["passes"] == 1 and e.payload["remaining_issues"] == 0 for e in events)
+
+    # Each retry is a real LLM call, so it is metered: first render + one retry.
+    for asset in assets:
+        usage = session.exec(
+            select(UsageEvent).where(UsageEvent.task_id == asset.id)
+        ).all()
+        assert len(usage) == 2
+
+
+def test_self_correction_caps_passes_and_keeps_least_bad() -> None:
+    session, campaign_id = _setup()
+    runner = TaskRunner(
+        session, client_for_provider=lambda provider: _PersistentlyDirtyClient()
+    )
+    asyncio.run(runner.run_ready_tasks(campaign_id))
+
+    asset = session.exec(
+        select(Task).where(Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET)
+    ).first()
+    # Checks are advisory: an un-fixable draft still completes, with the issue surfaced.
+    assert asset.status == TaskStatus.DONE
+    assert any(i["code"] == "forbidden_word" for i in asset.checks["brand"])
+
+    event = session.exec(
+        select(TaskEvent).where(
+            TaskEvent.task_id == asset.id,
+            TaskEvent.type == TaskEventType.SELF_CORRECTED,
+        )
+    ).first()
+    # It tried the capped number of passes, then gave up — no infinite loop.
+    assert event.payload["passes"] == 2
+    assert event.payload["remaining_issues"] >= 1
 
 
 def test_fan_out_preserves_human_edits_on_replay() -> None:
