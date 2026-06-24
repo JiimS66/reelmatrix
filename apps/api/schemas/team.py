@@ -36,6 +36,7 @@ class TaskRead(BaseModel):
     sequence: int
     params: dict
     output: Optional[dict]
+    checks: dict
     updated_at: datetime
 
 

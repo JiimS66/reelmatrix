@@ -34,6 +34,7 @@ from core.db.models import (
     TaskStatus,
     UsageEvent,
 )
+from core.content.platform_specs import format_checks
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
 from core.schemas.campaign import CampaignGenerationRequest, IdeationResult
@@ -124,6 +125,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
                 continue
             task.ai_draft = asset
             task.output = asset
+            task.checks = {"format": format_checks(asset, (task.params or {}).get("channel", ""))}
             task.updated_at = _now()
             if task.execution_mode == ExecutionMode.AI_AUTO:
                 task.status = TaskStatus.DONE

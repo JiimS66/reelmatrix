@@ -107,6 +107,8 @@ def test_runner_full_pipeline_when_ai_auto() -> None:
         assert asset.output["channel"] == asset.params["channel"]
         assert asset.status == TaskStatus.NEEDS_REVIEW
         assert asset.assignee_id == lead.id
+        # Each fanned-out asset carries its platform format checks.
+        assert "format" in asset.checks
 
     claim_check = _task(session, campaign_id, TaskKind.CLAIM_CHECK)
     assert claim_check.output is not None

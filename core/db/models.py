@@ -130,6 +130,7 @@ class Task(SQLModel, table=True):
     ai_draft: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     output: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     params: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    checks: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
