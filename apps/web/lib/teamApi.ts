@@ -136,6 +136,31 @@ export interface PerformanceData {
   note: string;
 }
 
+export interface OrgMember {
+  id: string;
+  kind: MemberKind;
+  role: MemberRole;
+  display_name: string;
+  job_description: string;
+  reports_to: string | null;
+  handles_kinds: string[];
+  agent_role: string | null;
+  provider: string | null;
+  model: string | null;
+}
+
+export interface AgentRoleInfo {
+  key: string;
+  title: string;
+  job_description: string;
+}
+
+export interface OrgData {
+  members: OrgMember[];
+  task_kinds: string[];
+  agent_roles: AgentRoleInfo[];
+}
+
 export class TeamApiError extends Error {
   constructor(message: string, public status?: number) {
     super(message);
@@ -297,6 +322,45 @@ export const listAtoms = (
   const qs = query.toString();
   return request<Atom[]>(`/api/v1/team/atoms${qs ? `?${qs}` : ""}`, { memberId });
 };
+
+export const getOrg = (memberId: string) =>
+  request<OrgData>("/api/v1/team/org", { memberId });
+
+export const createOrgMember = (
+  memberId: string,
+  body: {
+    display_name: string;
+    role: string;
+    job_description?: string;
+    handles_kinds?: string[];
+    provider?: string;
+    model?: string | null;
+    reports_to?: string | null;
+  },
+) =>
+  request<OrgMember>("/api/v1/team/org/members", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const updateOrgMember = (
+  memberId: string,
+  targetId: string,
+  body: {
+    job_description?: string;
+    handles_kinds?: string[];
+    reports_to?: string | null;
+    role?: string;
+    provider?: string;
+    model?: string | null;
+  },
+) =>
+  request<OrgMember>(`/api/v1/team/org/members/${targetId}`, {
+    method: "POST",
+    memberId,
+    body,
+  });
 
 export const TESTSPRITE_BRIEF: Record<string, unknown> = {
   product_name: "TestSprite",

@@ -7,6 +7,7 @@ import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
+import { TeamView } from "@/components/workspace/TeamView";
 import {
   ATOM_KIND_LABEL,
   AssigneeChip,
@@ -22,6 +23,7 @@ import {
   createCampaign,
   getBoard,
   getInbox,
+  getOrg,
   getPerformance,
   getSchedule,
   getTask,
@@ -35,13 +37,14 @@ import {
   type Atom,
   type Board,
   type Member,
+  type OrgData,
   type PerformanceData,
   type ScheduleData,
   type Task,
   type TaskDetail,
 } from "@/lib/teamApi";
 
-type View = "home" | "calendar" | "board" | "performance" | "library";
+type View = "home" | "calendar" | "board" | "performance" | "library" | "team";
 
 const VIEW_LABEL: Record<View, string> = {
   home: "Home",
@@ -49,6 +52,7 @@ const VIEW_LABEL: Record<View, string> = {
   board: "Board",
   performance: "Performance",
   library: "Library",
+  team: "Team",
 };
 
 function errMessage(error: unknown): string {
@@ -63,6 +67,7 @@ export default function Workspace() {
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
+  const [org, setOrg] = useState<OrgData | null>(null);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -123,6 +128,9 @@ export default function Workspace() {
     if (!currentId) return;
     if (view === "library") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
+    }
+    if (view === "team") {
+      getOrg(currentId).then(setOrg).catch((e) => setError(errMessage(e)));
     }
     if (view === "performance" && board) {
       getPerformance(currentId, board.campaign.id)
@@ -290,7 +298,7 @@ export default function Workspace() {
 
         {/* Tabs */}
         <nav className="mb-5 flex flex-wrap gap-1.5">
-          {(["home", "calendar", "board", "performance", "library"] as View[]).map(
+          {(["home", "calendar", "board", "performance", "library", "team"] as View[]).map(
             (v) => (
             <button
               key={v}
@@ -327,7 +335,25 @@ export default function Workspace() {
           </div>
         )}
 
-        {view === "library" ? (
+        {view === "team" ? (
+          org ? (
+            <TeamView
+              org={org}
+              currentMemberId={currentId}
+              isLead={!!isLead}
+              onChanged={async () => {
+                try {
+                  setOrg(await getOrg(currentId));
+                } catch (e) {
+                  setError(errMessage(e));
+                }
+              }}
+              onError={(m) => setError(m)}
+            />
+          ) : (
+            <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
+          )
+        ) : view === "library" ? (
           <AtomLibrary atoms={atoms} />
         ) : view === "performance" ? (
           performance ? (
