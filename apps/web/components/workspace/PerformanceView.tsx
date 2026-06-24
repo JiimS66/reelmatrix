@@ -1,21 +1,47 @@
 "use client";
 
+import { useState } from "react";
+
 import type { PerformanceData } from "@/lib/teamApi";
 
 function pct(n: number, d: number): string {
   return d > 0 ? `${((n / d) * 100).toFixed(1)}%` : "—";
 }
 
-export function PerformanceView({ data }: { data: PerformanceData }) {
+export function PerformanceView({
+  data,
+  canSync = false,
+  onSync,
+}: {
+  data: PerformanceData;
+  canSync?: boolean;
+  onSync?: () => Promise<void> | void;
+}) {
   const totals = data.totals;
   const impressions = totals.impressions ?? 0;
   const clicks = totals.clicks ?? 0;
   const signups = totals.signups ?? 0;
+  const [syncing, setSyncing] = useState(false);
+
+  async function sync() {
+    if (!onSync) return;
+    setSyncing(true);
+    try {
+      await onSync();
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
-      <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-        {data.note}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        <span>{data.note}</span>
+        {canSync && onSync && (
+          <button className="btn-line px-2.5 py-1 text-xs" disabled={syncing} onClick={sync}>
+            {syncing ? "Syncing…" : "Sync GA4 ↻"}
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

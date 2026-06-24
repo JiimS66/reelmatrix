@@ -35,6 +35,7 @@ import {
   refreshTrends,
   reviewTask,
   runCampaign,
+  syncAnalytics,
   TeamApiError,
   TESTSPRITE_BRIEF,
   type Atom,
@@ -361,7 +362,18 @@ export default function Workspace() {
           <AtomLibrary atoms={atoms} />
         ) : view === "performance" ? (
           performance ? (
-            <PerformanceView data={performance} />
+            <PerformanceView
+              data={performance}
+              canSync={!!isLead}
+              onSync={async () => {
+                if (!board || !currentId) return;
+                try {
+                  setPerformance(await syncAnalytics(currentId, board.campaign.id));
+                } catch (e) {
+                  setError(errMessage(e));
+                }
+              }}
+            />
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
               {board

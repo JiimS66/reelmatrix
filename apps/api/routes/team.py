@@ -39,6 +39,7 @@ from apps.api.schemas.team import (
 )
 from apps.api.services import team_service
 from core.agents.roles import ROLES
+from core.analytics.sync import sync_campaign_analytics
 from core.db.engine import get_session
 from core.db.models import Member, TaskKind
 from core.trends.refresh import refresh_campaign_trends
@@ -234,6 +235,25 @@ def get_performance(
         note=(
             "Mock data. Connect owned-destination analytics + signup attribution "
             "(UTMs) for real conversions; platform APIs where available."
+        ),
+    )
+
+
+@router.post("/campaigns/{campaign_id}/analytics/sync", response_model=PerformanceData)
+async def sync_analytics(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    updated = await sync_campaign_analytics(session, campaign)
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            f"Synced {updated} posts from GA4 (mock connector) by UTM. "
+            "Swap ANALYTICS_SOURCE=ga4 with a service account for live conversions."
         ),
     )
 

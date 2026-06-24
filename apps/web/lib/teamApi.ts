@@ -244,6 +244,12 @@ export const getPerformance = (memberId: string, campaignId: string) =>
     { memberId },
   );
 
+export const syncAnalytics = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(
+    `/api/v1/team/campaigns/${campaignId}/analytics/sync`,
+    { method: "POST", memberId },
+  );
+
 export const recordMetrics = (
   memberId: string,
   postId: string,
