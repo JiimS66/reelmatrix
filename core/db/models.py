@@ -168,3 +168,20 @@ class UsageEvent(SQLModel, table=True):
     model: Optional[str] = None
     tokens: Optional[int] = None
     created_at: datetime = Field(default_factory=_now)
+
+
+class BrandProfile(SQLModel, table=True):
+    """Persistent, tenant-level brand identity applied across all campaigns.
+
+    One per tenant; this is what makes tone and proof consistent across events,
+    not just within one campaign.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, unique=True, foreign_key="tenant.id")
+    voice: str = ""
+    tone_rules: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    forbidden_words: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    approved_phrases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    proof_points: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)

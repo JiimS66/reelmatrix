@@ -13,9 +13,37 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from core.db.engine import get_engine, init_db
-from core.db.models import Member, MemberKind, MemberRole, Tenant, User
+from core.db.models import (
+    BrandProfile,
+    Member,
+    MemberKind,
+    MemberRole,
+    Tenant,
+    User,
+)
 
 TENANT_NAME = "TestSprite"
+
+BRAND = {
+    "voice": "Technical, direct, evidence-led, developer-trust-first",
+    "tone_rules": [
+        "Lead with the verification gap",
+        "Prefer technical proof over hype",
+    ],
+    "forbidden_words": [
+        "bug-free",
+        "magic",
+        "fully autonomous without review",
+        "set and forget",
+    ],
+    "approved_phrases": ["agentic testing", "verification loop"],
+    "proof_points": [
+        {
+            "claim": "TestSprite announced $6.7M in seed funding",
+            "source": "https://www.geekwire.com/",
+        }
+    ],
+}
 
 HUMANS = [
     {"email": "mia@testsprite.com", "display_name": "Mia (Lead)", "role": MemberRole.LEAD},
@@ -77,8 +105,26 @@ def _get_or_create_member(
     return member
 
 
+def _get_or_create_brand_profile(session: Session, tenant_id: str) -> BrandProfile:
+    existing = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == tenant_id)
+    ).first()
+    if existing is not None:
+        return existing
+    profile = BrandProfile(
+        tenant_id=tenant_id,
+        voice=BRAND["voice"],
+        tone_rules=BRAND["tone_rules"],
+        forbidden_words=BRAND["forbidden_words"],
+        approved_phrases=BRAND["approved_phrases"],
+        proof_points=BRAND["proof_points"],
+    )
+    session.add(profile)
+    return profile
+
+
 def seed_testsprite(session: Session) -> Tenant:
-    """Create (or reuse) the TestSprite tenant, its humans, and its AI agents."""
+    """Create (or reuse) the TestSprite tenant, its humans, AI agents, and brand."""
     tenant = _get_or_create_tenant(session, TENANT_NAME)
 
     for human in HUMANS:
@@ -102,6 +148,9 @@ def seed_testsprite(session: Session) -> Tenant:
             display_name=agent["display_name"],
             agent_config={"agent_kind": agent["agent_kind"], "provider": "mock"},
         )
+
+    session.flush()  # tenant.id is set, but ensure rows exist before the brand FK
+    _get_or_create_brand_profile(session, tenant.id)
 
     session.commit()
     return tenant

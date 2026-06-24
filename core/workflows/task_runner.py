@@ -22,6 +22,7 @@ from configs.settings import get_settings
 from core.agents.ideation_bot import IdeationBot
 from core.agents.planning_bot import PlanningBot
 from core.db.models import (
+    BrandProfile,
     Campaign,
     ExecutionMode,
     Member,
@@ -34,6 +35,7 @@ from core.db.models import (
     TaskStatus,
     UsageEvent,
 )
+from core.content.brand import forbidden_word_issues
 from core.content.platform_specs import format_checks
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
@@ -97,6 +99,10 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
         for asset in (plan.get("draft_assets") or [])
     }
     lead_id = _campaign_lead_id(session, planning_task.tenant_id)
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == planning_task.tenant_id)
+    ).first()
+    forbidden = brand.forbidden_words if brand is not None else []
     downstream = session.exec(
         select(Task).where(
             Task.tenant_id == planning_task.tenant_id,
@@ -125,7 +131,10 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
                 continue
             task.ai_draft = asset
             task.output = asset
-            task.checks = {"format": format_checks(asset, (task.params or {}).get("channel", ""))}
+            task.checks = {
+                "format": format_checks(asset, (task.params or {}).get("channel", "")),
+                "brand": forbidden_word_issues(asset, forbidden),
+            }
             task.updated_at = _now()
             if task.execution_mode == ExecutionMode.AI_AUTO:
                 task.status = TaskStatus.DONE
