@@ -13,6 +13,7 @@ is shared with the review API so approvals re-trigger the same fan-out; both
 work a human has already touched.
 """
 
+import asyncio
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -228,15 +229,26 @@ class TaskRunner:
         self._client_for_provider = client_for_provider or default_client_for_provider
 
     async def run_ready_tasks(self, campaign_id: str) -> list[str]:
-        """Run every currently-ready AI task, returning the ids that ran."""
+        """Run every currently-ready AI task. Independent tasks (e.g. the per-channel
+        posts once the plan's core is locked) render concurrently; persistence stays
+        serial on the single session."""
         ran: list[str] = []
         while True:
-            task = self._next_ready_ai_task(campaign_id)
-            if task is None:
+            ready = self._ready_ai_tasks(campaign_id)
+            if not ready:
                 break
-            await self._run_task(task)
-            self._session.commit()
-            ran.append(task.id)
+            rendered = await asyncio.gather(
+                *(self._render(task) for task in ready), return_exceptions=True
+            )
+            for task, result in zip(ready, rendered):
+                if isinstance(result, BaseException):
+                    self._revert_failed(task, result)
+                    self._session.commit()
+                    raise result
+                if result is not None:
+                    self._persist(task, result)
+                    ran.append(task.id)
+                self._session.commit()
         return ran
 
     def _campaign_tasks(self, campaign_id: str) -> list[Task]:
@@ -244,9 +256,10 @@ class TaskRunner:
             self._session.exec(select(Task).where(Task.campaign_id == campaign_id)).all()
         )
 
-    def _next_ready_ai_task(self, campaign_id: str) -> Optional[Task]:
+    def _ready_ai_tasks(self, campaign_id: str) -> list[Task]:
         tasks = self._campaign_tasks(campaign_id)
         done_ids = {t.id for t in tasks if t.status == TaskStatus.DONE}
+        ready: list[Task] = []
         for task in sorted(tasks, key=lambda t: t.sequence):
             if task.kind not in _RUNNABLE_KINDS:
                 continue
@@ -258,10 +271,13 @@ class TaskRunner:
             if member is None or member.kind != MemberKind.AI:
                 continue
             if all(dep in done_ids for dep in (task.depends_on or [])):
-                return task
-        return None
+                ready.append(task)
+        return ready
 
-    async def _run_task(self, task: Task) -> None:
+    async def _render(self, task: Task) -> Optional[dict]:
+        """Produce a task's output — the only await is the agent's LLM call, so
+        gathered renders overlap only there. Returns None when the task is blocked
+        (handled in place); raises on agent failure (the caller reverts)."""
         campaign = self._session.get(Campaign, task.campaign_id)
         if campaign is None:
             task.status = TaskStatus.BLOCKED
@@ -270,46 +286,37 @@ class TaskRunner:
                 payload={"reason": "missing_campaign"},
             )
             self._session.add(task)
-            return
+            return None
 
         member = self._session.get(Member, task.assignee_id)
         provider = (member.agent_config or {}).get("provider", "mock") if member else "mock"
         client = self._client_for_provider(provider)
-
         task.status = TaskStatus.IN_PROGRESS
-        try:
-            role_key = _ROLE_BY_KIND[task.kind]
-            if task.kind == TaskKind.ASSET:
-                context: dict = self._copywriter_context(task, campaign)
-            else:
-                payload = dict(campaign.brief)
-                payload.setdefault("campaign_template", campaign.template)
-                context = {"request": payload}
-                if task.kind == TaskKind.PLANNING:
-                    ideation_result = IdeationResult.model_validate(
-                        self._ideation_output(task)
-                    )
-                    if not ideation_result.is_ready_for_planning:
-                        task.status = TaskStatus.BLOCKED
-                        _record_event(
-                            self._session, task, TaskEventType.STATUS_CHANGED,
-                            payload={"reason": "ideation_not_ready"},
-                        )
-                        self._session.add(task)
-                        return
-                    context["ideation_result"] = ideation_result.model_dump(mode="json")
-            output = await agent_for_role(role_key, client).run(context)
-        except Exception as exc:
-            # Revert so a later run can retry, and leave an audit trail.
-            task.status = TaskStatus.TODO
-            _record_event(
-                self._session, task, TaskEventType.STATUS_CHANGED,
-                payload={"error": type(exc).__name__},
-            )
-            self._session.add(task)
-            self._session.commit()
-            raise
 
+        role_key = _ROLE_BY_KIND[task.kind]
+        if task.kind == TaskKind.ASSET:
+            context: dict = self._copywriter_context(task, campaign)
+        else:
+            payload = dict(campaign.brief)
+            payload.setdefault("campaign_template", campaign.template)
+            context = {"request": payload}
+            if task.kind == TaskKind.PLANNING:
+                ideation_result = IdeationResult.model_validate(self._ideation_output(task))
+                if not ideation_result.is_ready_for_planning:
+                    task.status = TaskStatus.BLOCKED
+                    _record_event(
+                        self._session, task, TaskEventType.STATUS_CHANGED,
+                        payload={"reason": "ideation_not_ready"},
+                    )
+                    self._session.add(task)
+                    return None
+                context["ideation_result"] = ideation_result.model_dump(mode="json")
+        return await agent_for_role(role_key, client).run(context)
+
+    def _persist(self, task: Task, output: dict) -> None:
+        """Persist a rendered output (sync — keeps the single session serial)."""
+        member = self._session.get(Member, task.assignee_id)
+        provider = (member.agent_config or {}).get("provider", "mock") if member else "mock"
         task.ai_draft = output
         task.output = output
         if task.kind == TaskKind.ASSET:
@@ -328,7 +335,6 @@ class TaskRunner:
             self._session, task, TaskEventType.AI_RUN, actor_id=task.assignee_id,
             payload={"provider": provider},
         )
-
         if task.execution_mode == ExecutionMode.AI_AUTO:
             complete_task(self._session, task, actor_id=task.assignee_id)
         else:
@@ -339,6 +345,14 @@ class TaskRunner:
                 actor_id=member.id if member else None,
             )
             self._session.add(task)
+
+    def _revert_failed(self, task: Task, exc: BaseException) -> None:
+        task.status = TaskStatus.TODO
+        _record_event(
+            self._session, task, TaskEventType.STATUS_CHANGED,
+            payload={"error": type(exc).__name__},
+        )
+        self._session.add(task)
 
     def _copywriter_context(self, task: Task, campaign: Campaign) -> dict:
         """The slice a copywriter reads: shared core + platform spec + brand."""
