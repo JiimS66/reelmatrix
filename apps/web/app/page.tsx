@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { CalendarView } from "@/components/workspace/CalendarView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
+import { TodoView } from "@/components/workspace/TodoView";
 import {
   ATOM_KIND_LABEL,
   AssigneeChip,
@@ -16,7 +18,9 @@ import {
   createCampaign,
   getBoard,
   getInbox,
+  getSchedule,
   getTask,
+  getTodo,
   listAtoms,
   listCampaigns,
   listMembers,
@@ -26,11 +30,21 @@ import {
   type Atom,
   type Board,
   type Member,
+  type ScheduleData,
   type Task,
   type TaskDetail,
+  type TodoItem,
 } from "@/lib/teamApi";
 
-type View = "board" | "inbox" | "atoms";
+type View = "board" | "calendar" | "todo" | "inbox" | "atoms";
+
+const VIEW_LABEL: Record<View, string> = {
+  board: "Board",
+  calendar: "Calendar",
+  todo: "To-do",
+  inbox: "My inbox",
+  atoms: "Atom library",
+};
 
 function errMessage(error: unknown): string {
   if (error instanceof TeamApiError) return error.message;
@@ -44,6 +58,8 @@ export default function Workspace() {
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
+  const [schedule, setSchedule] = useState<ScheduleData | null>(null);
+  const [todo, setTodo] = useState<TodoItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +121,21 @@ export default function Workspace() {
     if (view === "atoms") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
     }
-  }, [view, currentId]);
+    if (view === "todo") {
+      getTodo(currentId).then(setTodo).catch((e) => setError(errMessage(e)));
+    }
+    if (view === "calendar" && board) {
+      getSchedule(currentId, board.campaign.id)
+        .then(setSchedule)
+        .catch((e) => setError(errMessage(e)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, currentId, board?.campaign.id]);
+
+  function openTaskOnBoard(id: string) {
+    setSelectedId(id);
+    setView("board");
+  }
 
   async function onChanged() {
     await refreshBoard();
@@ -128,6 +158,8 @@ export default function Workspace() {
         name: "TestSprite launch",
         brief: TESTSPRITE_BRIEF,
         template: "general",
+        event_name: "TestSprite v2 launch",
+        event_date: "2026-07-31",
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);
@@ -200,7 +232,7 @@ export default function Workspace() {
 
         {/* Tabs */}
         <nav className="mb-5 flex gap-1.5">
-          {(["board", "inbox", "atoms"] as View[]).map((v) => (
+          {(["board", "calendar", "todo", "inbox", "atoms"] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => {
@@ -213,7 +245,7 @@ export default function Workspace() {
                   : "border border-ink/10 bg-white text-ink/70 hover:text-ink"
               }`}
             >
-              {v === "board" ? "Board" : v === "inbox" ? "My inbox" : "Atom library"}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </nav>
@@ -229,6 +261,26 @@ export default function Workspace() {
 
         {view === "atoms" ? (
           <AtomLibrary atoms={atoms} />
+        ) : view === "calendar" ? (
+          schedule ? (
+            <CalendarView
+              schedule={schedule}
+              members={board?.members ?? members}
+              onSelectTask={openTaskOnBoard}
+            />
+          ) : (
+            <p className="surface p-6 text-sm text-ink/60">
+              {board
+                ? "Loading schedule…"
+                : "Create a campaign with an event date to see the calendar."}
+            </p>
+          )
+        ) : view === "todo" ? (
+          <TodoView
+            items={todo}
+            members={board?.members ?? members}
+            onSelectTask={openTaskOnBoard}
+          />
         ) : (
           <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
             {/* Left: list */}

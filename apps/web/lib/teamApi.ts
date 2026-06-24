@@ -37,6 +37,8 @@ export interface Task {
   params: Record<string, unknown>;
   output: Record<string, unknown> | null;
   checks: Record<string, CheckIssue[]>;
+  due_date: string | null;
+  phase: string | null;
   updated_at: string;
 }
 
@@ -45,6 +47,29 @@ export interface Campaign {
   name: string;
   template: string;
   status: string;
+  event_name: string | null;
+  event_date: string | null;
+}
+
+export interface Milestone {
+  id: string;
+  phase: string;
+  name: string;
+  date: string;
+  offset_days: number;
+  objective: string;
+}
+
+export interface ScheduleData {
+  campaign: Campaign;
+  milestones: Milestone[];
+  tasks: Task[];
+  timely_angles: string[];
+}
+
+export interface TodoItem {
+  campaign_name: string;
+  task: Task;
 }
 
 export interface Board {
@@ -131,8 +156,22 @@ export const listCampaigns = (memberId: string) =>
 
 export const createCampaign = (
   memberId: string,
-  body: { name: string; brief: Record<string, unknown>; template?: string },
+  body: {
+    name: string;
+    brief: Record<string, unknown>;
+    template?: string;
+    event_name?: string;
+    event_date?: string;
+  },
 ) => request<Board>("/api/v1/team/campaigns", { method: "POST", memberId, body });
+
+export const getSchedule = (memberId: string, campaignId: string) =>
+  request<ScheduleData>(`/api/v1/team/campaigns/${campaignId}/schedule`, {
+    memberId,
+  });
+
+export const getTodo = (memberId: string) =>
+  request<TodoItem[]>("/api/v1/team/todo", { memberId });
 
 export const getBoard = (memberId: string, campaignId: string) =>
   request<Board>(`/api/v1/team/campaigns/${campaignId}/board`, { memberId });
