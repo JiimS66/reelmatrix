@@ -110,18 +110,24 @@ export function HomeView({
     <div className="space-y-5">
       {/* Status strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat
-          label="Event"
-          value={
-            eventDays === null
-              ? "—"
-              : eventDays < 0
-                ? "Launched"
-                : `In ${eventDays}d`
-          }
-          sub={schedule?.campaign.event_date ? fmtDate(schedule.campaign.event_date) : ""}
-          accent
-        />
+        <div className="surface p-3">
+          <p className="tlabel">Event</p>
+          <p
+            className="mt-0.5 truncate text-sm font-semibold text-forest"
+            title={schedule?.campaign.event_name ?? board.campaign.name}
+          >
+            {schedule?.campaign.event_name ?? board.campaign.name}
+          </p>
+          <p className="font-mono text-[11px] text-ink/50">
+            {eventDays === null
+              ? "no date"
+              : `${eventDays < 0 ? "Launched" : `In ${eventDays}d`}${
+                  schedule?.campaign.event_date
+                    ? ` · ${fmtDate(schedule.campaign.event_date)}`
+                    : ""
+                }`}
+          </p>
+        </div>
         <Stat
           label="Phase"
           value={nextMilestone ? nextMilestone.name : "Post-launch"}
