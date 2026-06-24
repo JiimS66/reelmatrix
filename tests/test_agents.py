@@ -105,3 +105,23 @@ def test_designer_agent_renders_a_visual_with_an_image_ref() -> None:
     # The MediaProvider rendered the image and filled the ref.
     assert out["image_ref"].startswith("mock://image/")
     assert ROLES["designer"].title == "Designer"
+
+
+def test_designer_agent_understands_reference_media() -> None:
+    agent = agent_for_role("designer", MockLLMClient())
+    out = asyncio.run(
+        agent.run(
+            {
+                "channel": "LinkedIn",
+                "core_message": "Give AI-native teams a verification loop.",
+                "product_name": "TestSprite",
+                "brand": {},
+                "reference_media": ["mock://ref/logo", "mock://ref/hero-shot"],
+            }
+        )
+    )
+    # The VisionProvider read each human-provided reference into a structured brief.
+    refs = out["references"]
+    assert [r["ref"] for r in refs] == ["mock://ref/logo", "mock://ref/hero-shot"]
+    assert all(r["summary"] for r in refs)
+    assert out["image_ref"].startswith("mock://image/")

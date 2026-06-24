@@ -130,7 +130,9 @@ class AuditVerdict(StrictSchema):
 
 class VisualAsset(StrictSchema):
     """A Designer's visual for one channel: the creative spec (concept, image-gen
-    prompt, alt text) plus the rendered ``image_ref`` filled by the MediaProvider."""
+    prompt, alt text) plus the rendered ``image_ref`` filled by the MediaProvider.
+    ``references`` records any human-provided media the VisionProvider understood and
+    fed in as brand references."""
 
     channel: NonEmptyStr
     concept: NonEmptyStr
@@ -138,6 +140,7 @@ class VisualAsset(StrictSchema):
     alt_text: NonEmptyStr
     aspect_ratio: str = "1:1"
     image_ref: Optional[str] = None
+    references: Optional[List[dict]] = None
 
 
 class ClaimStatus(str, Enum):

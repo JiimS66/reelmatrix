@@ -605,6 +605,7 @@ class TaskRunner:
             "channel": (task.params or {}).get("channel", ""),
             "core_message": plan.get("core_message", ""),
             "product_name": (campaign.brief or {}).get("product_name", ""),
+            "reference_media": (campaign.brief or {}).get("reference_media", []),
             "brand": {
                 "voice": brand.voice,
                 "tone_rules": brand.tone_rules,

@@ -12,7 +12,7 @@ from core.agents.ideation_bot import IdeationBot
 from core.agents.planning_bot import PlanningBot
 from core.agents.roles import AUDITOR, COPYWRITER, DESIGNER, IDEATION, PLANNING
 from core.llm.base import BaseLLMClient
-from core.media.factory import create_media_provider
+from core.media.factory import create_media_provider, create_vision_provider
 from core.schemas.campaign import (
     AuditVerdict,
     CampaignAsset,
@@ -124,12 +124,26 @@ class DesignerAgent(Agent):
     role = DESIGNER
 
     async def run(self, context: dict) -> dict:
+        # Multimodal input: a VLM reads any human-provided reference media into a
+        # structured brief, which both informs the spec and feeds image generation
+        # as brand references (IP-Adapter / subject-driven personalization).
+        refs = context.get("reference_media") or []
+        understood: list[dict] = []
+        if refs:
+            vision = create_vision_provider(context.get("vision_provider", "mock"))
+            for ref in refs:
+                reading = await vision.understand(media_ref=ref)
+                understood.append(
+                    {"ref": ref, "summary": reading.summary, "tags": reading.tags}
+                )
+
         payload = {
             "task": "visual_design",
             "channel": context.get("channel", ""),
             "core_message": context.get("core_message", ""),
             "product_name": context.get("product_name", ""),
             "brand": context.get("brand", {}),
+            "reference_briefs": [item["summary"] for item in understood],
             "revision_notes": context.get("revision_notes", []),
         }
         spec = await self._llm_client.generate_structured(
@@ -141,9 +155,13 @@ class DesignerAgent(Agent):
         image = await provider.generate_image(
             prompt=spec.prompt,
             brand=context.get("brand", {}),
+            refs=refs or None,
             aspect_ratio=spec.aspect_ratio,
         )
-        return {**spec.model_dump(mode="json"), "image_ref": image.image_ref}
+        result = {**spec.model_dump(mode="json"), "image_ref": image.image_ref}
+        if understood:
+            result["references"] = understood
+        return result
 
 
 _REGISTRY: dict[str, type[Agent]] = {
