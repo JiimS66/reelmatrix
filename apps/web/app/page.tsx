@@ -216,6 +216,7 @@ export default function Workspace() {
         event_name: "TestSprite v2 launch",
         event_date: "2026-07-31",
         review_assets: true,
+        with_visuals: true,
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);

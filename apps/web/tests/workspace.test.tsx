@@ -37,6 +37,7 @@ describe("workspace primitives", () => {
   it("capitalizes and maps labels", () => {
     expect(cap("ideation")).toBe("Ideation");
     expect(KIND_LABEL.claim_check).toBe("Claim check");
+    expect(KIND_LABEL.visual).toBe("Visual");
     expect(MODE_LABEL.ai_auto).toBe("AI auto");
     expect(ATOM_KIND_LABEL.cta).toBe("CTA");
   });
@@ -60,5 +61,11 @@ describe("workspace primitives", () => {
     render(<CheckBadges task={t} />);
     expect(screen.getByText(/Format/)).toBeInTheDocument();
     expect(screen.getByText(/Brand/)).toBeInTheDocument();
+  });
+
+  it("labels the auditor verdict as an Audit check", () => {
+    const t = task({ checks: { audit: [{ code: "brand_tone", detail: "x" }] } });
+    render(<CheckBadges task={t} />);
+    expect(screen.getByText(/Audit/)).toBeInTheDocument();
   });
 });

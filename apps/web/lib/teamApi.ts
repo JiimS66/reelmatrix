@@ -3,7 +3,12 @@ const BASE_URL =
 
 export type MemberKind = "human" | "ai";
 export type MemberRole = "lead" | "member";
-export type TaskKind = "ideation" | "planning" | "asset" | "claim_check";
+export type TaskKind =
+  | "ideation"
+  | "planning"
+  | "asset"
+  | "visual"
+  | "claim_check";
 export type TaskStatus =
   | "todo"
   | "in_progress"
@@ -214,6 +219,7 @@ export const createCampaign = (
     event_name?: string;
     event_date?: string;
     review_assets?: boolean;
+    with_visuals?: boolean;
   },
 ) => request<Board>("/api/v1/team/campaigns", { method: "POST", memberId, body });
 

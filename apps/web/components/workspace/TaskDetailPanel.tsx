@@ -15,6 +15,7 @@ import {
 
 import {
   AssigneeChip,
+  CHECK_LABEL,
   KIND_LABEL,
   MODE_LABEL,
   StatusBadge,
@@ -41,6 +42,7 @@ export function TaskDetailPanel({
 }: Props) {
   const task = detail.task;
   const isAsset = task.kind === "asset";
+  const isVisual = task.kind === "visual";
   const output = (task.output ?? {}) as Record<string, unknown>;
 
   const [title, setTitle] = useState("");
@@ -159,6 +161,15 @@ export function TaskDetailPanel({
               onChange={(e) => setCta(e.target.value)}
             />
           </div>
+        ) : isVisual ? (
+          <div className="space-y-2">
+            <VisualPreview output={output} />
+            <textarea
+              className="field min-h-32 resize-y font-mono text-[12px] leading-5"
+              value={jsonText}
+              onChange={(e) => setJsonText(e.target.value)}
+            />
+          </div>
         ) : (
           <textarea
             className="field min-h-56 resize-y font-mono text-[12px] leading-5"
@@ -175,7 +186,9 @@ export function TaskDetailPanel({
           <div className="space-y-1.5">
             {Object.entries(task.checks).map(([name, issues]) => (
               <div key={name} className="text-sm">
-                <span className="font-mono text-[12px] text-ink/60">{cap(name)}: </span>
+                <span className="font-mono text-[12px] text-ink/60">
+                  {CHECK_LABEL[name] ?? cap(name)}:{" "}
+                </span>
                 {issues.length === 0 ? (
                   <span className="text-emerald-700">clean</span>
                 ) : (
@@ -317,6 +330,48 @@ export function TaskDetailPanel({
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+function VisualPreview({ output }: { output: Record<string, unknown> }) {
+  const ref = String(output.image_ref ?? "");
+  const alt = String(output.alt_text ?? "");
+  const isImageUrl = /^https?:\/\//.test(ref);
+  return (
+    <div className="space-y-2">
+      {isImageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={ref}
+          alt={alt}
+          className="w-full rounded-lg border border-ink/10"
+        />
+      ) : (
+        <div className="flex aspect-square w-full max-w-[16rem] flex-col items-center justify-center rounded-lg border border-dashed border-ink/25 bg-canvas text-center">
+          <div className="text-2xl">🖼</div>
+          <p className="mt-1 px-3 font-mono text-[11px] text-ink/55">
+            {ref || "no image"}
+          </p>
+          <p className="font-mono text-[10px] text-ink/40">
+            {String(output.aspect_ratio ?? "1:1")} · generated
+          </p>
+        </div>
+      )}
+      {typeof output.concept === "string" && (
+        <p className="text-sm text-ink">
+          <span className="tlabel">Concept</span> {output.concept}
+        </p>
+      )}
+      {typeof output.prompt === "string" && (
+        <div>
+          <p className="tlabel">Prompt</p>
+          <p className="mt-0.5 rounded-lg border border-ink/10 bg-canvas p-2 font-mono text-[12px] leading-5 text-ink/80">
+            {output.prompt}
+          </p>
+        </div>
+      )}
+      {alt && <p className="text-xs text-ink/55">Alt: {alt}</p>}
     </div>
   );
 }

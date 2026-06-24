@@ -4,7 +4,16 @@ export const KIND_LABEL: Record<string, string> = {
   ideation: "Ideation",
   planning: "Planning",
   asset: "Content",
+  visual: "Visual",
   claim_check: "Claim check",
+};
+
+// Check groups recorded on a task (format/brand/consistency/audit) -> display label.
+export const CHECK_LABEL: Record<string, string> = {
+  format: "Format",
+  brand: "Brand",
+  consistency: "Consistency",
+  audit: "Audit",
 };
 
 export const MODE_LABEL: Record<string, string> = {
@@ -147,7 +156,7 @@ export function CheckBadges({ task }: { task: Task }) {
                 : "border-amber-300 bg-amber-50 text-amber-800"
             }`}
           >
-            {ok ? "✓" : n} {cap(name)}
+            {ok ? "✓" : n} {CHECK_LABEL[name] ?? cap(name)}
           </span>
         );
       })}
