@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ATOM_KIND_LABEL,
+  CHECK_LABEL,
   CheckBadges,
   KIND_LABEL,
   MODE_LABEL,
@@ -40,6 +41,8 @@ describe("workspace primitives", () => {
     expect(KIND_LABEL.visual).toBe("Visual");
     expect(MODE_LABEL.ai_auto).toBe("AI auto");
     expect(ATOM_KIND_LABEL.cta).toBe("CTA");
+    expect(CHECK_LABEL.audit).toBe("Audit");
+    expect(CHECK_LABEL.brand_fit).toBe("Brand fit");
   });
 
   it("counts check issues across groups", () => {

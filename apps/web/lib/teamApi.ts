@@ -228,6 +228,12 @@ export const getSchedule = (memberId: string, campaignId: string) =>
     memberId,
   });
 
+export const refreshTrends = (memberId: string, campaignId: string) =>
+  request<{ campaign_id: string; timely_angles: string[] }>(
+    `/api/v1/team/campaigns/${campaignId}/trends`,
+    { method: "POST", memberId },
+  );
+
 export const getTodo = (memberId: string) =>
   request<TodoItem[]>("/api/v1/team/todo", { memberId });
 

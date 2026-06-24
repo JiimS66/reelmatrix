@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 import type { Member, ScheduleData, Task } from "@/lib/teamApi";
 
 import { KIND_LABEL, StatusBadge } from "./primitives";
@@ -16,11 +18,26 @@ export function CalendarView({
   schedule,
   members,
   onSelectTask,
+  canRefresh = false,
+  onRefreshTrends,
 }: {
   schedule: ScheduleData;
   members: Member[];
   onSelectTask: (id: string) => void;
+  canRefresh?: boolean;
+  onRefreshTrends?: () => Promise<void> | void;
 }) {
+  const [refreshing, setRefreshing] = useState(false);
+  async function refresh() {
+    if (!onRefreshTrends) return;
+    setRefreshing(true);
+    try {
+      await onRefreshTrends();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   const tasksByPhase: Record<string, Task[]> = {};
   for (const task of schedule.tasks) {
     const phase = task.phase ?? "prep";
@@ -40,9 +57,20 @@ export function CalendarView({
             </span>
           )}
         </h2>
-        {schedule.timely_angles.length > 0 && (
-          <div className="mt-3">
+        <div className="mt-3">
+          <div className="flex items-center justify-between gap-2">
             <p className="tlabel">Timely angles to ride</p>
+            {canRefresh && onRefreshTrends && (
+              <button
+                className="btn-line px-2.5 py-1 text-xs"
+                disabled={refreshing}
+                onClick={refresh}
+              >
+                {refreshing ? "Pulling trends…" : "Refresh from trends ↻"}
+              </button>
+            )}
+          </div>
+          {schedule.timely_angles.length > 0 ? (
             <ul className="mt-1.5 space-y-1">
               {schedule.timely_angles.map((angle, i) => (
                 <li key={i} className="text-sm text-ink/80">
@@ -50,8 +78,14 @@ export function CalendarView({
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          ) : (
+            <p className="mt-1.5 text-sm text-ink/50">
+              {canRefresh
+                ? "Pull current hot topics to suggest timely hooks."
+                : "No timely angles yet."}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="space-y-3">

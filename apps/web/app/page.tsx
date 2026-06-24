@@ -30,6 +30,7 @@ import {
   listAtoms,
   listCampaigns,
   listMembers,
+  refreshTrends,
   reviewTask,
   runCampaign,
   TeamApiError,
@@ -374,6 +375,16 @@ export default function Workspace() {
                 schedule={schedule}
                 members={board?.members ?? members}
                 onSelectTask={openTaskOnBoard}
+                canRefresh={!!isLead}
+                onRefreshTrends={async () => {
+                  if (!board || !currentId) return;
+                  try {
+                    await refreshTrends(currentId, board.campaign.id);
+                    setSchedule(await getSchedule(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
               />
             </div>
           ) : (

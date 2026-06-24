@@ -14,6 +14,7 @@ export const CHECK_LABEL: Record<string, string> = {
   brand: "Brand",
   consistency: "Consistency",
   audit: "Audit",
+  brand_fit: "Brand fit",
 };
 
 export const MODE_LABEL: Record<string, string> = {
