@@ -113,7 +113,7 @@ def instantiate_campaign(
                 tenant_id=tenant_id,
                 campaign_id=campaign.id,
                 kind=TaskKind.ASSET,
-                title=f"{channel} asset",
+                title=f"{channel} post",
                 execution_mode=asset_mode,
                 depends_on=[planning.id],
                 assignee_id=assignees["asset"],

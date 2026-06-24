@@ -173,7 +173,7 @@ export function HomeView({
                     disabled={busy}
                     onClick={() => onBulkApprove(cleanReviews.map((t) => t.id))}
                   >
-                    Approve all clean ({cleanReviews.length})
+                    Approve all passing ({cleanReviews.length})
                   </button>
                 ) : null
               }

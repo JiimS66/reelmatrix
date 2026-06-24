@@ -3,7 +3,7 @@ import type { Member, Task, TaskStatus } from "@/lib/teamApi";
 export const KIND_LABEL: Record<string, string> = {
   ideation: "Ideation",
   planning: "Planning",
-  asset: "Asset",
+  asset: "Content",
   claim_check: "Claim check",
 };
 
