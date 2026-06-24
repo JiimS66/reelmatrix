@@ -198,6 +198,23 @@ def test_run_task_error_reverts_to_todo_and_audits() -> None:
     assert any(e.payload and "error" in e.payload for e in events)
 
 
+def test_campaign_template_reaches_the_ideation_agent() -> None:
+    engine = create_db_engine("sqlite://")
+    init_db(engine)
+    session = Session(engine)
+    tenant = seed_testsprite(session)
+    campaign = instantiate_campaign(
+        session, tenant_id=tenant.id, name="Dev launch", brief=BRIEF,
+        template="developer_tool",
+    )
+    asyncio.run(_runner(session).run_ready_tasks(campaign.id))
+
+    ideation = _task(session, campaign.id, TaskKind.IDEATION)
+    # The template flows through _build_context -> CampaignGenerationRequest into the
+    # agent, so the mock takes its developer_tool branch (not the generic one).
+    assert "Developer Trust Launch" in ideation.output["campaign_concept"]
+
+
 def test_role_for_prefers_the_members_configured_role() -> None:
     asset_task = Task(tenant_id="t", campaign_id="c", kind=TaskKind.ASSET, title="x")
     # No member / no configured role -> the kind's default agent.

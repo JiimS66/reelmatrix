@@ -1,11 +1,13 @@
 """Async runner that advances a campaign's task graph.
 
-The runner executes the directly-runnable AI tasks (ideation, planning) whose
-dependencies are satisfied, persisting their output, a UsageEvent, and audit
-TaskEvents. Completing a planning task fans its plan out into the downstream
-asset and claim-check tasks.
+The runner executes the directly-runnable AI tasks (ideation, planning, and the
+per-channel posts) whose dependencies are satisfied, persisting their output, a
+UsageEvent, and audit TaskEvents. Completing a planning task fans its plan out
+into the downstream claim-check task (posts are rendered by the Copywriter from
+the shared content core, not carved from the plan).
 
-Because the default template uses ``ai_auto`` for ideation/planning/assets, a run
+Because ``instantiate_campaign`` defaults ideation/planning/posts to ``ai_auto``
+(the Task model's own field default is the safer ``ai_draft_human_review``), a run
 typically advances through every AI-owned step in one pass; only human-only tasks
 (e.g. the claim check) stay in ``todo`` until a human submits them. ``complete_task``
 is shared with the review API so approvals re-trigger the same fan-out; both
