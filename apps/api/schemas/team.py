@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
+from core.content.scoring import content_score
 from core.db.models import (
     ExecutionMode,
     Member,
@@ -41,6 +42,12 @@ class TaskRead(BaseModel):
     due_date: Optional[str]
     phase: Optional[str]
     updated_at: datetime
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def score(self) -> Optional[dict]:
+        """0–100 content score derived from the checks (None when not scoreable)."""
+        return content_score(self.checks)
 
 
 class CommentRead(BaseModel):

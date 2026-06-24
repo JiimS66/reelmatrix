@@ -90,6 +90,8 @@ def test_run_auto_completes_the_ai_pipeline() -> None:
     assets = [t for t in board["tasks"] if t["kind"] == "asset"]
     assert assets and all(a["status"] == "done" and a["output"] for a in assets)
     assert all("format" in a["checks"] for a in assets)
+    # Clean mock content scores 100 (the checks surfaced as a single number).
+    assert all(a["score"]["overall"] == 100 for a in assets)
     claim = _task(board, "claim_check")
     assert claim["status"] == "todo"
     assert claim["output"] and "claim_checks" in claim["output"]

@@ -8,6 +8,7 @@ import {
   KIND_LABEL,
   MODE_LABEL,
   StatusBadge,
+  averageScore,
   cap,
   checkCount,
 } from "@/components/workspace/primitives";
@@ -27,6 +28,7 @@ function task(overrides: Partial<Task> = {}): Task {
     params: {},
     output: null,
     checks: {},
+    score: null,
     due_date: null,
     phase: null,
     updated_at: "2026-06-24",
@@ -70,5 +72,12 @@ describe("workspace primitives", () => {
     const t = task({ checks: { audit: [{ code: "brand_tone", detail: "x" }] } });
     render(<CheckBadges task={t} />);
     expect(screen.getByText(/Audit/)).toBeInTheDocument();
+  });
+
+  it("averages content scores, ignoring unscored tasks", () => {
+    const a = task({ score: { overall: 90, dimensions: {} } });
+    const b = task({ score: { overall: 70, dimensions: {} } });
+    expect(averageScore([a, b, task({ score: null })])).toBe(80);
+    expect(averageScore([task({ score: null })])).toBeNull();
   });
 });

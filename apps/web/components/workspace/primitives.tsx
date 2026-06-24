@@ -140,6 +140,36 @@ export function checkCount(task: Task): number {
   );
 }
 
+export function scoreBand(n: number): string {
+  if (n >= 85) return "border-emerald-300 bg-emerald-50 text-emerald-800";
+  if (n >= 60) return "border-amber-300 bg-amber-50 text-amber-800";
+  return "border-red-300 bg-red-50 text-red-700";
+}
+
+// The 0–100 content score (the visible face of the checks + cross-model audit).
+export function ScoreBadge({ score }: { score: Task["score"] }) {
+  if (!score) return null;
+  const detail = Object.entries(score.dimensions)
+    .map(([k, v]) => `${CHECK_LABEL[k] ?? k}: ${v}`)
+    .join(" · ");
+  return (
+    <span
+      title={detail}
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${scoreBand(
+        score.overall,
+      )}`}
+    >
+      ★ {score.overall}
+    </span>
+  );
+}
+
+export function averageScore(tasks: Task[]): number | null {
+  const scored = tasks.filter((t) => t.score).map((t) => t.score!.overall);
+  if (scored.length === 0) return null;
+  return Math.round(scored.reduce((a, b) => a + b, 0) / scored.length);
+}
+
 export function CheckBadges({ task }: { task: Task }) {
   const groups = Object.entries(task.checks || {});
   if (groups.length === 0) return null;

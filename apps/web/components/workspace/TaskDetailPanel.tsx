@@ -18,6 +18,7 @@ import {
   CHECK_LABEL,
   KIND_LABEL,
   MODE_LABEL,
+  ScoreBadge,
   StatusBadge,
   cap,
   memberName,
@@ -128,7 +129,10 @@ export function TaskDetailPanel({
       <header className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
-          <StatusBadge status={task.status} />
+          <div className="flex items-center gap-2">
+            <ScoreBadge score={task.score} />
+            <StatusBadge status={task.status} />
+          </div>
         </div>
         <h2 className="text-lg font-semibold text-ink">{task.title}</h2>
         <div className="flex flex-wrap items-center gap-2">

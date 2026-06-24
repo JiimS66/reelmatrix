@@ -13,7 +13,9 @@ import {
   AssigneeChip,
   CheckBadges,
   KIND_LABEL,
+  ScoreBadge,
   StatusBadge,
+  averageScore,
   cap,
   checkCount,
   statusAccent,
@@ -496,17 +498,32 @@ function BoardHeader({
       </div>
     );
   }
+  const avg = averageScore(board.tasks);
   return (
     <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
       <div>
         <p className="tlabel">Campaign</p>
         <h2 className="mt-0.5 font-semibold text-ink">{board.campaign.name}</h2>
       </div>
-      {isLead && (
-        <button className="btn-line" disabled={busy} onClick={onRun}>
-          {busy ? "Running…" : "Run AI ↻"}
-        </button>
-      )}
+      <div className="flex items-center gap-3">
+        {avg !== null && (
+          <div className="text-right">
+            <p className="tlabel">Avg score</p>
+            <p
+              className={`font-mono text-lg font-semibold ${
+                avg >= 85 ? "text-forest" : avg >= 60 ? "text-amber-700" : "text-red-600"
+              }`}
+            >
+              {avg}
+            </p>
+          </div>
+        )}
+        {isLead && (
+          <button className="btn-line" disabled={busy} onClick={onRun}>
+            {busy ? "Running…" : "Run AI ↻"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -539,6 +556,7 @@ function TaskRow({
       <p className="mt-1.5 font-semibold text-ink">{task.title}</p>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <AssigneeChip members={members} id={task.assignee_id} />
+        <ScoreBadge score={task.score} />
         {issues > 0 && (
           <span className="font-mono text-[11px] text-amber-700">
             {issues} check issue{issues === 1 ? "" : "s"}
