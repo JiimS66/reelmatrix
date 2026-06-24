@@ -1,5 +1,168 @@
 """SQLModel ORM entities for the human-AI team OS slice.
 
-Tables are defined in the next step. Importing this module registers every
-table on ``SQLModel.metadata`` so ``init_db()`` can create them.
+All tenant-owned rows carry ``tenant_id`` for row-level isolation. Importing
+this module registers every table on ``SQLModel.metadata`` so ``init_db()``
+can create them.
+
+Relationships are intentionally modelled as plain foreign-key id columns (no
+ORM ``Relationship``) to keep the slice simple and session-handling explicit;
+the service layer joins by querying ids.
 """
+
+import uuid
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Optional
+
+from sqlalchemy import JSON, Column
+from sqlmodel import Field, SQLModel
+
+
+def _uuid() -> str:
+    return uuid.uuid4().hex
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class MemberKind(str, Enum):
+    HUMAN = "human"
+    AI = "ai"
+
+
+class MemberRole(str, Enum):
+    LEAD = "lead"
+    MEMBER = "member"
+
+
+class TaskKind(str, Enum):
+    IDEATION = "ideation"
+    PLANNING = "planning"
+    ASSET = "asset"
+    CLAIM_CHECK = "claim_check"
+
+
+class TaskStatus(str, Enum):
+    TODO = "todo"
+    IN_PROGRESS = "in_progress"
+    NEEDS_REVIEW = "needs_review"
+    DONE = "done"
+    BLOCKED = "blocked"
+
+
+class ExecutionMode(str, Enum):
+    AI_DRAFT_HUMAN_REVIEW = "ai_draft_human_review"
+    AI_AUTO = "ai_auto"
+    HUMAN_ONLY = "human_only"
+
+
+class TaskEventType(str, Enum):
+    CREATED = "created"
+    ASSIGNED = "assigned"
+    SUBMITTED = "submitted"
+    APPROVED = "approved"
+    CHANGES_REQUESTED = "changes_requested"
+    EDITED = "edited"
+    COMMENTED = "commented"
+    STATUS_CHANGED = "status_changed"
+    AI_RUN = "ai_run"
+
+
+class Tenant(SQLModel, table=True):
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    name: str
+    created_at: datetime = Field(default_factory=_now)
+
+
+class User(SQLModel, table=True):
+    # "app_user" avoids the reserved word "user" on engines like PostgreSQL.
+    __tablename__ = "app_user"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    email: str = Field(index=True, unique=True)
+    display_name: str
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Member(SQLModel, table=True):
+    """A worker in a tenant — either a human (links to a User) or an AI agent."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    kind: MemberKind
+    role: MemberRole = MemberRole.MEMBER
+    display_name: str
+    user_id: Optional[str] = Field(default=None, foreign_key="app_user.id")
+    agent_config: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Campaign(SQLModel, table=True):
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    name: str
+    template: str = "general"
+    brief: dict = Field(sa_column=Column(JSON, nullable=False))
+    status: str = "active"
+    created_by: Optional[str] = Field(default=None, foreign_key="member.id")
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Task(SQLModel, table=True):
+    """A unit of work in a campaign, assignable to a human or an AI member.
+
+    ``ai_draft`` keeps the immutable original AI output; ``output`` holds the
+    current (possibly human-edited) version. Their diff is the future learning
+    signal. Both store one of the existing Pydantic schemas as JSON.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    kind: TaskKind
+    title: str
+    status: TaskStatus = TaskStatus.TODO
+    execution_mode: ExecutionMode = ExecutionMode.AI_DRAFT_HUMAN_REVIEW
+    assignee_id: Optional[str] = Field(default=None, foreign_key="member.id")
+    depends_on: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    sequence: int = 0
+    ai_draft: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    output: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class Comment(SQLModel, table=True):
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    task_id: str = Field(index=True, foreign_key="task.id")
+    author_id: str = Field(foreign_key="member.id")
+    body: str
+    created_at: datetime = Field(default_factory=_now)
+
+
+class TaskEvent(SQLModel, table=True):
+    """Audit trail entry. Approve/edit/reject rows seed the Phase 3 learning loop."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    task_id: str = Field(index=True, foreign_key="task.id")
+    actor_id: Optional[str] = Field(default=None, foreign_key="member.id")
+    type: TaskEventType
+    payload: Optional[dict] = Field(default=None, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
+
+
+class UsageEvent(SQLModel, table=True):
+    """Metering for future billing — one row per AI task run."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    task_id: Optional[str] = Field(default=None, foreign_key="task.id")
+    member_id: Optional[str] = Field(default=None, foreign_key="member.id")
+    kind: str = "ai_task_run"
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    tokens: Optional[int] = None
+    created_at: datetime = Field(default_factory=_now)
