@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from core.db.models import (
     ExecutionMode,
+    Member,
     MemberKind,
     MemberRole,
     TaskEventType,
@@ -201,3 +202,79 @@ class PerformanceData(BaseModel):
     platforms: list[PlatformPerformance]
     totals: dict[str, int]
     note: str
+
+
+# --- Org configuration (the per-tenant digital-employee roster) ---
+
+
+class OrgMemberRead(BaseModel):
+    id: str
+    kind: MemberKind
+    role: MemberRole
+    display_name: str
+    job_description: str
+    reports_to: Optional[str]
+    handles_kinds: list[str]
+    # AI-only, surfaced from agent_config for the team view.
+    agent_role: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None
+
+    @classmethod
+    def from_member(cls, member: Member) -> "OrgMemberRead":
+        config = member.agent_config or {}
+        return cls(
+            id=member.id,
+            kind=member.kind,
+            role=member.role,
+            display_name=member.display_name,
+            job_description=member.job_description,
+            reports_to=member.reports_to,
+            handles_kinds=member.handles_kinds or [],
+            agent_role=config.get("role"),
+            provider=config.get("provider"),
+            model=config.get("model"),
+        )
+
+
+class AgentRoleRead(BaseModel):
+    key: str
+    title: str
+    job_description: str
+
+
+class OrgRead(BaseModel):
+    members: list[OrgMemberRead]
+    task_kinds: list[str]  # kinds a member can be set to handle
+    agent_roles: list[AgentRoleRead]  # AI agents a digital employee can run as
+
+
+class CreateOrgMemberRequest(BaseModel):
+    """Add an AI digital employee. Humans are onboarded via auth/invite, later."""
+
+    display_name: str
+    role: str  # the agent role this employee runs as (an agent_roles key)
+    job_description: str = ""
+    handles_kinds: list[str] = []
+    provider: str = "mock"
+    model: Optional[str] = None
+    reports_to: Optional[str] = None
+
+    @field_validator("display_name")
+    @classmethod
+    def _non_empty_name(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("display_name cannot be empty")
+        return cleaned
+
+
+class UpdateOrgMemberRequest(BaseModel):
+    """Reconfigure a digital employee. Every field is optional; omitted = unchanged."""
+
+    job_description: Optional[str] = None
+    handles_kinds: Optional[list[str]] = None
+    reports_to: Optional[str] = None
+    role: Optional[str] = None
+    provider: Optional[str] = None
+    model: Optional[str] = None

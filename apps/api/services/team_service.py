@@ -29,6 +29,7 @@ from core.db.models import (
     TaskKind,
     TaskStatus,
 )
+from core.agents.roles import ROLES
 from core.content.tracking import mock_metrics
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import complete_task, recompute_asset_checks
@@ -177,6 +178,139 @@ def list_all_members(session: Session) -> list[Member]:
     Unauthenticated, like the X-Member-Id stub — remove with real auth.
     """
     return list(session.exec(select(Member)).all())
+
+
+# --- Org configuration (the per-tenant digital-employee roster) ---
+
+
+def get_org(session: Session, actor: Member) -> list[Member]:
+    """The actor's tenant roster, oldest first (so the org chart is stable)."""
+    return list(
+        session.exec(
+            select(Member)
+            .where(Member.tenant_id == actor.tenant_id)
+            .order_by(Member.created_at)
+        ).all()
+    )
+
+
+def _validate_org_inputs(
+    session: Session,
+    actor: Member,
+    *,
+    role: Optional[str],
+    handles_kinds: Optional[list[str]],
+    reports_to: Optional[str],
+    member_id: Optional[str] = None,
+) -> None:
+    """Guard the org-config inputs so a bad config can't silently wedge routing."""
+    if handles_kinds is not None:
+        valid = {kind.value for kind in TaskKind}
+        unknown = [kind for kind in handles_kinds if kind not in valid]
+        if unknown:
+            raise HTTPException(
+                status_code=400, detail=f"Unknown task kinds: {unknown}."
+            )
+    if role is not None and role not in ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown agent role '{role}'. Available: {sorted(ROLES)}.",
+        )
+    if reports_to is not None:
+        if member_id is not None and reports_to == member_id:
+            raise HTTPException(status_code=400, detail="A member cannot report to itself.")
+        manager = session.get(Member, reports_to)
+        if manager is None or manager.tenant_id != actor.tenant_id:
+            raise HTTPException(
+                status_code=400, detail="reports_to must be a member of this tenant."
+            )
+
+
+def create_org_member(
+    session: Session,
+    actor: Member,
+    *,
+    display_name: str,
+    role: str,
+    job_description: str = "",
+    handles_kinds: Optional[list[str]] = None,
+    provider: str = "mock",
+    model: Optional[str] = None,
+    reports_to: Optional[str] = None,
+) -> Member:
+    """Add an AI digital employee to the actor's tenant (lead only)."""
+    _require_lead(actor)
+    _validate_org_inputs(
+        session, actor, role=role, handles_kinds=handles_kinds, reports_to=reports_to
+    )
+    agent_config: dict = {"role": role, "provider": provider}
+    if model:
+        agent_config["model"] = model
+    member = Member(
+        tenant_id=actor.tenant_id,
+        kind=MemberKind.AI,
+        role=MemberRole.MEMBER,
+        display_name=display_name,
+        job_description=job_description,
+        reports_to=reports_to,
+        handles_kinds=handles_kinds or [],
+        agent_config=agent_config,
+    )
+    session.add(member)
+    session.commit()
+    session.refresh(member)
+    return member
+
+
+def update_org_member(
+    session: Session,
+    actor: Member,
+    member_id: str,
+    *,
+    job_description: Optional[str] = None,
+    handles_kinds: Optional[list[str]] = None,
+    reports_to: Optional[str] = None,
+    role: Optional[str] = None,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Member:
+    """Reconfigure a digital employee (lead only). Omitted fields are left as-is."""
+    _require_lead(actor)
+    member = session.get(Member, member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found.")
+    _require_same_tenant(actor, member.tenant_id)
+    _validate_org_inputs(
+        session, actor, role=role, handles_kinds=handles_kinds,
+        reports_to=reports_to, member_id=member_id,
+    )
+
+    is_agent_change = role is not None or provider is not None or model is not None
+    if is_agent_change and member.kind != MemberKind.AI:
+        raise HTTPException(
+            status_code=400, detail="role/provider/model only apply to AI members."
+        )
+
+    if job_description is not None:
+        member.job_description = job_description
+    if handles_kinds is not None:
+        member.handles_kinds = handles_kinds
+    if reports_to is not None:
+        member.reports_to = reports_to
+    if is_agent_change:
+        config = dict(member.agent_config or {})
+        if role is not None:
+            config["role"] = role
+        if provider is not None:
+            config["provider"] = provider
+        if model is not None:
+            config["model"] = model
+        member.agent_config = config  # reassign so the JSON column registers the change
+
+    session.add(member)
+    session.commit()
+    session.refresh(member)
+    return member
 
 
 def list_campaigns(session: Session, actor: Member) -> list[Campaign]:

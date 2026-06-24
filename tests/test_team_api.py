@@ -325,3 +325,104 @@ def test_task_detail_exposes_available_actions() -> None:
 
     detail = _req(app, "GET", f"/api/v1/team/tasks/{claim['id']}", lead).json()
     assert {"edit", "assign", "submit", "comment"} <= set(detail["available_actions"])
+
+
+def _org(app, member) -> dict:
+    return _req(app, "GET", "/api/v1/team/org", member).json()
+
+
+def test_org_returns_the_roster_and_config_catalogs() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    org = _org(app, lead)
+
+    assert len(org["members"]) == 5
+    by_name = {m["display_name"]: m for m in org["members"]}
+    assert by_name["Adam (Lead)"]["reports_to"] is None
+    asset_writer = by_name["Asset writer"]
+    assert asset_writer["handles_kinds"] == ["asset"]
+    assert asset_writer["agent_role"] == "copywriter"
+    assert asset_writer["reports_to"] == lead
+    # Catalogs the team UI offers when configuring an employee.
+    assert "asset" in org["task_kinds"]
+    assert any(r["key"] == "copywriter" for r in org["agent_roles"])
+
+
+def test_lead_adds_a_digital_employee_and_work_routes_to_it() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+
+    # Hand asset work off the seeded writer, then hire a fresh AI copywriter for it.
+    asset_writer = next(
+        m for m in _org(app, lead)["members"] if m["display_name"] == "Asset writer"
+    )
+    _req(app, "POST", f"/api/v1/team/org/members/{asset_writer['id']}", lead,
+         json={"handles_kinds": []})
+    hired = _req(app, "POST", "/api/v1/team/org/members", lead, json={
+        "display_name": "Social copywriter",
+        "role": "copywriter",
+        "job_description": "Punchy social posts.",
+        "handles_kinds": ["asset"],
+        "reports_to": lead,
+    })
+    assert hired.status_code == 200
+    new_id = hired.json()["id"]
+    assert hired.json()["kind"] == "ai"
+
+    # A new campaign routes — and runs — its posts through the new employee.
+    cid, board = _run_campaign(app, lead)
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(a["assignee_id"] == new_id for a in assets)
+    assert all(a["status"] == "done" and a["output"] for a in assets)
+
+
+def test_update_org_member_reprovisions_and_reroutes() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    ideation_bot = next(
+        m for m in _org(app, lead)["members"] if m["display_name"] == "Ideation bot"
+    )
+    updated = _req(app, "POST", f"/api/v1/team/org/members/{ideation_bot['id']}", lead,
+                   json={"provider": "openai", "model": "gpt-x", "job_description": "New job."})
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["provider"] == "openai" and body["model"] == "gpt-x"
+    assert body["job_description"] == "New job."
+    # Untouched fields are preserved.
+    assert body["agent_role"] == "ideation"
+    assert body["handles_kinds"] == ["ideation"]
+
+
+def test_org_config_is_lead_only() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+    create = _req(app, "POST", "/api/v1/team/org/members", sam,
+                  json={"display_name": "X", "role": "copywriter"})
+    assert create.status_code == 403
+    update = _req(app, "POST", f"/api/v1/team/org/members/{sam}", sam,
+                  json={"job_description": "self-promotion"})
+    assert update.status_code == 403
+
+
+def test_org_create_rejects_bad_inputs() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    base = {"display_name": "Bot", "role": "copywriter"}
+
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "role": "nonexistent"}).status_code == 400
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "handles_kinds": ["asset", "bogus"]}).status_code == 400
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "reports_to": "no-such-member"}).status_code == 400
+    # An empty display name fails validation (422).
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={"display_name": "  ", "role": "copywriter"}).status_code == 422
+
+
+def test_update_rejects_agent_fields_on_a_human() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    rejected = _req(app, "POST", f"/api/v1/team/org/members/{lead}", lead,
+                    json={"provider": "openai"})
+    assert rejected.status_code == 400

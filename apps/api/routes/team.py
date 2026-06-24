@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlmodel import Session
 
 from apps.api.schemas.team import (
+    AgentRoleRead,
     AssignRequest,
     AtomRead,
     BoardRead,
@@ -17,11 +18,14 @@ from apps.api.schemas.team import (
     CommentRead,
     CommentRequest,
     CreateCampaignRequest,
+    CreateOrgMemberRequest,
     EditRequest,
     EventRead,
     MemberRead,
     MetricsRequest,
     MilestoneRead,
+    OrgMemberRead,
+    OrgRead,
     PerformanceData,
     PlatformPerformance,
     ReviewRequest,
@@ -30,10 +34,12 @@ from apps.api.schemas.team import (
     TaskDetailRead,
     TaskRead,
     TodoItem,
+    UpdateOrgMemberRequest,
 )
 from apps.api.services import team_service
+from core.agents.roles import ROLES
 from core.db.engine import get_session
-from core.db.models import Member
+from core.db.models import Member, TaskKind
 from core.workflows.task_runner import TaskRunner
 
 router = APIRouter(prefix="/api/v1/team", tags=["team"])
@@ -114,6 +120,63 @@ def list_members(
 ) -> list[MemberRead]:
     # Dev bootstrap (no auth): lets the stub UI pick who to act as.
     return [MemberRead.model_validate(m) for m in team_service.list_all_members(session)]
+
+
+@router.get("/org", response_model=OrgRead)
+def get_org(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgRead:
+    members = team_service.get_org(session, actor)
+    return OrgRead(
+        members=[OrgMemberRead.from_member(m) for m in members],
+        task_kinds=[kind.value for kind in TaskKind],
+        agent_roles=[
+            AgentRoleRead(key=r.key, title=r.title, job_description=r.job_description)
+            for r in ROLES.values()
+        ],
+    )
+
+
+@router.post("/org/members", response_model=OrgMemberRead)
+def create_org_member(
+    payload: CreateOrgMemberRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgMemberRead:
+    member = team_service.create_org_member(
+        session,
+        actor,
+        display_name=payload.display_name,
+        role=payload.role,
+        job_description=payload.job_description,
+        handles_kinds=payload.handles_kinds,
+        provider=payload.provider,
+        model=payload.model,
+        reports_to=payload.reports_to,
+    )
+    return OrgMemberRead.from_member(member)
+
+
+@router.post("/org/members/{member_id}", response_model=OrgMemberRead)
+def update_org_member(
+    member_id: str,
+    payload: UpdateOrgMemberRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgMemberRead:
+    member = team_service.update_org_member(
+        session,
+        actor,
+        member_id,
+        job_description=payload.job_description,
+        handles_kinds=payload.handles_kinds,
+        reports_to=payload.reports_to,
+        role=payload.role,
+        provider=payload.provider,
+        model=payload.model,
+    )
+    return OrgMemberRead.from_member(member)
 
 
 @router.get("/inbox", response_model=list[TaskRead])
