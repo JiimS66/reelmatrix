@@ -94,6 +94,14 @@ def list_tenant_members(session: Session, tenant_id: str) -> list[Member]:
     )
 
 
+def list_all_members(session: Session) -> list[Member]:
+    """Dev bootstrap: every member so a stub UI can choose who to act as.
+
+    Unauthenticated, like the X-Member-Id stub — remove with real auth.
+    """
+    return list(session.exec(select(Member)).all())
+
+
 def get_board(
     session: Session, actor: Member, campaign_id: str
 ) -> tuple[Campaign, list[Task], list[Member]]:

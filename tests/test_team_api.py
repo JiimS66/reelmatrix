@@ -162,6 +162,13 @@ def test_human_member_completes_a_reassigned_task() -> None:
     assert submitted.status_code == 200 and submitted.json()["status"] == "done"
 
 
+def test_members_bootstrap_lists_the_team() -> None:
+    app, _members = _build()
+    listed = _req(app, "GET", "/api/v1/team/members").json()
+    assert len(listed) == 5
+    assert any(m["role"] == "lead" for m in listed)
+
+
 def test_permissions_and_auth() -> None:
     app, members = _build()
     sam = members["Sam (Writer)"]

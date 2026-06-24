@@ -84,6 +84,14 @@ async def run_campaign(
     return _board_response(session, actor, campaign_id)
 
 
+@router.get("/members", response_model=list[MemberRead])
+def list_members(
+    session: Session = Depends(get_session),
+) -> list[MemberRead]:
+    # Dev bootstrap (no auth): lets the stub UI pick who to act as.
+    return [MemberRead.model_validate(m) for m in team_service.list_all_members(session)]
+
+
 @router.get("/inbox", response_model=list[TaskRead])
 def get_inbox(
     actor: Member = Depends(get_current_member),
