@@ -199,3 +199,44 @@ def test_approving_an_asset_harvests_reusable_atoms() -> None:
     # Retrieval by kind works.
     ctas = _req(app, "GET", "/api/v1/team/atoms?kind=cta", lead).json()
     assert ctas and all(a["kind"] == "cta" for a in ctas)
+
+
+def test_lead_can_edit_a_done_asset_and_checks_recompute() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
+    # Approve it to DONE.
+    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
+         json={"action": "approve"})
+
+    # A human can still modify a finished task; brand checks recompute.
+    edited = {**asset["output"], "content": "This release is bug-free and basically magic."}
+    response = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
+                    json={"output": edited})
+    assert response.status_code == 200
+    body = response.json()
+    assert "bug-free" in body["output"]["content"]
+    assert any(i["code"] == "forbidden_word" for i in body["checks"]["brand"])
+
+
+def test_non_lead_non_assignee_cannot_edit() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    sam = members["Sam (Writer)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # assigned to lead
+
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", sam,
+                    json={"output": {"x": 1}})
+    assert rejected.status_code == 403
+
+
+def test_task_detail_exposes_available_actions() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # needs_review
+
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}", lead).json()
+    assert {"edit", "assign", "review", "comment"} <= set(detail["available_actions"])

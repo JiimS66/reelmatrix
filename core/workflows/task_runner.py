@@ -90,6 +90,33 @@ def _campaign_lead_id(session: Session, tenant_id: str) -> Optional[str]:
     return lead.id if lead is not None else None
 
 
+def asset_checks(asset: dict, channel: str, forbidden: list[str], approved_text: str) -> dict:
+    """The format/brand/consistency checks recorded on every asset task."""
+    return {
+        "format": format_checks(asset, channel),
+        "brand": forbidden_word_issues(asset, forbidden),
+        "consistency": unsourced_stat_issues(asset, approved_text),
+    }
+
+
+def recompute_asset_checks(session: Session, task: Task) -> dict:
+    """Recompute an asset task's checks from its current output (e.g. after a human edit)."""
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+    ).first()
+    forbidden = brand.forbidden_words if brand is not None else []
+    planning = session.exec(
+        select(Task).where(
+            Task.campaign_id == task.campaign_id, Task.kind == TaskKind.PLANNING
+        )
+    ).first()
+    plan = (planning.output if planning is not None else None) or {}
+    approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
+    return asset_checks(
+        task.output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text
+    )
+
+
 def fan_out_from_plan(session: Session, planning_task: Task) -> None:
     """Populate downstream asset and claim-check tasks from a finished plan.
 
@@ -135,11 +162,9 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
                 continue
             task.ai_draft = asset
             task.output = asset
-            task.checks = {
-                "format": format_checks(asset, (task.params or {}).get("channel", "")),
-                "brand": forbidden_word_issues(asset, forbidden),
-                "consistency": unsourced_stat_issues(asset, approved_text),
-            }
+            task.checks = asset_checks(
+                asset, (task.params or {}).get("channel", ""), forbidden, approved_text
+            )
             task.updated_at = _now()
             if task.execution_mode == ExecutionMode.AI_AUTO:
                 task.status = TaskStatus.DONE

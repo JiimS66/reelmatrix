@@ -22,10 +22,11 @@ from core.db.models import (
     Task,
     TaskEvent,
     TaskEventType,
+    TaskKind,
     TaskStatus,
 )
 from core.workflows.campaign_instantiation import instantiate_campaign
-from core.workflows.task_runner import complete_task
+from core.workflows.task_runner import complete_task, recompute_asset_checks
 
 
 def _require_lead(actor: Member) -> None:
@@ -242,6 +243,41 @@ def review_task(
         session.add(task)
     session.commit()
     return task
+
+
+def edit_task(session: Session, actor: Member, task_id: str, *, output: dict) -> Task:
+    """Modify a task's output at any stage. Asset checks are recomputed."""
+    task = _get_task(session, actor, task_id)
+    is_lead = actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD
+    is_assignee = task.assignee_id == actor.id and actor.kind == MemberKind.HUMAN
+    if not (is_lead or is_assignee):
+        raise HTTPException(
+            status_code=403, detail="Only the lead or the assignee can edit this task."
+        )
+    task.output = output
+    task.updated_at = datetime.now(timezone.utc)
+    if task.kind == TaskKind.ASSET:
+        task.checks = recompute_asset_checks(session, task)
+    _record_event(session, task, TaskEventType.EDITED, actor_id=actor.id)
+    session.add(task)
+    session.commit()
+    return task
+
+
+def available_actions(actor: Member, task: Task) -> list[str]:
+    """Intervention affordances for this actor on this task, for a friendly UI."""
+    actions = ["comment"]
+    is_lead = actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD
+    is_assignee = task.assignee_id == actor.id and actor.kind == MemberKind.HUMAN
+    if is_lead or is_assignee:
+        actions.append("edit")
+    if is_lead:
+        actions.append("assign")
+    if is_lead and task.status == TaskStatus.NEEDS_REVIEW:
+        actions.append("review")
+    if is_assignee and task.status in (TaskStatus.TODO, TaskStatus.IN_PROGRESS):
+        actions.append("submit")
+    return actions
 
 
 def add_comment(session: Session, actor: Member, task_id: str, *, body: str) -> Comment:

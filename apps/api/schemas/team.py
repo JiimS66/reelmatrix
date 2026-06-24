@@ -90,6 +90,7 @@ class TaskDetailRead(BaseModel):
     ai_draft: Optional[dict]
     comments: list[CommentRead]
     events: list[EventRead]
+    available_actions: list[str]
 
 
 class CreateCampaignRequest(BaseModel):
@@ -105,6 +106,10 @@ class AssignRequest(BaseModel):
 
 class SubmitRequest(BaseModel):
     output: Optional[dict] = None
+
+
+class EditRequest(BaseModel):
+    output: dict
 
 
 class ReviewRequest(BaseModel):

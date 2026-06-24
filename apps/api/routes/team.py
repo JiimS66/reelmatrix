@@ -17,6 +17,7 @@ from apps.api.schemas.team import (
     CommentRead,
     CommentRequest,
     CreateCampaignRequest,
+    EditRequest,
     EventRead,
     MemberRead,
     ReviewRequest,
@@ -114,7 +115,19 @@ def get_task(
         ai_draft=task.ai_draft,
         comments=[CommentRead.model_validate(c) for c in comments],
         events=[EventRead.model_validate(e) for e in events],
+        available_actions=team_service.available_actions(actor, task),
     )
+
+
+@router.post("/tasks/{task_id}/edit", response_model=TaskRead)
+def edit_task(
+    task_id: str,
+    payload: EditRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.edit_task(session, actor, task_id, output=payload.output)
+    return TaskRead.model_validate(task)
 
 
 @router.post("/tasks/{task_id}/assign", response_model=TaskRead)
