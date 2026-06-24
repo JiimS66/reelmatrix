@@ -275,6 +275,25 @@ def test_performance_groups_published_posts_by_platform() -> None:
     assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
 
 
+def test_publish_marks_posts_published_with_permalinks() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # ai_auto -> posts drafted
+
+    published = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/publish", lead)
+    assert published.status_code == 200
+    rows = [p for pl in published.json()["platforms"] for p in pl["posts"]]
+    assert rows
+    assert all(p["publish_status"] == "published" for p in rows)
+    assert all(p["permalink"] and p["permalink"].startswith("mock://") for p in rows)
+
+    # Lead-only.
+    sam = members["Sam (Writer)"]
+    assert (
+        _req(app, "POST", f"/api/v1/team/campaigns/{cid}/publish", sam).status_code == 403
+    )
+
+
 def test_sync_analytics_replaces_mock_with_ga4_metrics() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

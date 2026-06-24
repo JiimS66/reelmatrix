@@ -32,6 +32,7 @@ import {
   listAtoms,
   listCampaigns,
   listMembers,
+  publishCampaign,
   refreshTrends,
   reviewTask,
   runCampaign,
@@ -369,6 +370,14 @@ export default function Workspace() {
                 if (!board || !currentId) return;
                 try {
                   setPerformance(await syncAnalytics(currentId, board.campaign.id));
+                } catch (e) {
+                  setError(errMessage(e));
+                }
+              }}
+              onPublish={async () => {
+                if (!board || !currentId) return;
+                try {
+                  setPerformance(await publishCampaign(currentId, board.campaign.id));
                 } catch (e) {
                   setError(errMessage(e));
                 }

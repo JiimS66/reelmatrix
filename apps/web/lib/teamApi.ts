@@ -121,6 +121,8 @@ export interface PostPerformance {
   title: string;
   url: string;
   published_at: string;
+  publish_status: string;
+  permalink: string | null;
   impressions: number;
   clicks: number;
   signups: number;
@@ -249,6 +251,12 @@ export const syncAnalytics = (memberId: string, campaignId: string) =>
     `/api/v1/team/campaigns/${campaignId}/analytics/sync`,
     { method: "POST", memberId },
   );
+
+export const publishCampaign = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(`/api/v1/team/campaigns/${campaignId}/publish`, {
+    method: "POST",
+    memberId,
+  });
 
 export const recordMetrics = (
   memberId: string,

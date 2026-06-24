@@ -609,6 +609,8 @@ def campaign_performance(
                 "title": asset_titles.get(post.asset_task_id, "Post"),
                 "url": post.url,
                 "published_at": post.published_at,
+                "publish_status": post.publish_status,
+                "permalink": post.permalink,
                 **metrics,
             }
         )

@@ -234,7 +234,12 @@ class Milestone(SQLModel, table=True):
 
 
 class Post(SQLModel, table=True):
-    """A published instance of an asset on a specific platform."""
+    """A published instance of an asset on a specific platform.
+
+    ``url`` is the UTM-tagged destination; the publish_* fields track the actual
+    delivery to a channel through a swappable PublishProvider (mock until a real
+    provider is connected). ``permalink`` is the public post URL once it is live.
+    """
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     tenant_id: str = Field(index=True, foreign_key="tenant.id")
@@ -243,6 +248,11 @@ class Post(SQLModel, table=True):
     platform: str
     url: str
     published_at: str  # ISO date
+    publish_provider: str = "none"
+    publish_status: str = "draft"  # draft | scheduled | published | failed
+    external_id: Optional[str] = None
+    permalink: Optional[str] = None
+    publish_error: Optional[str] = None
     created_at: datetime = Field(default_factory=_now)
 
 

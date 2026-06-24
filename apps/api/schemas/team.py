@@ -196,6 +196,8 @@ class PostPerformance(BaseModel):
     title: str
     url: str
     published_at: str
+    publish_status: str = "draft"
+    permalink: Optional[str] = None
     impressions: int
     clicks: int
     signups: int

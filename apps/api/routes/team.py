@@ -42,6 +42,7 @@ from core.agents.roles import ROLES
 from core.analytics.sync import sync_campaign_analytics
 from core.db.engine import get_session
 from core.db.models import Member, TaskKind
+from core.publish.publish import publish_campaign_posts
 from core.trends.refresh import refresh_campaign_trends
 from core.workflows.task_runner import TaskRunner
 
@@ -235,6 +236,25 @@ def get_performance(
         note=(
             "Mock data. Connect owned-destination analytics + signup attribution "
             "(UTMs) for real conversions; platform APIs where available."
+        ),
+    )
+
+
+@router.post("/campaigns/{campaign_id}/publish", response_model=PerformanceData)
+async def publish_campaign(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    live = await publish_campaign_posts(session, campaign)
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            f"Published {live} posts via the mock provider (deterministic permalinks). "
+            "Swap PUBLISH_PROVIDER=buffer (or a native API) to ship for real."
         ),
     )
 
