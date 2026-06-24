@@ -111,14 +111,15 @@ def _record_event(
 
 
 def _record_usage(session: Session, task: Task, member: Optional[Member]) -> None:
-    """Meter one AI render for billing — one row per LLM call, so self-correction
-    retries are counted too (each retry is a real provider call)."""
+    """Meter one AI call for billing — one row per LLM call, so self-correction
+    retries and the auditor are counted too. Attributed to the member that did the
+    work (the copywriter for a render, the auditor for an audit)."""
     config = (member.agent_config or {}) if member else {}
     session.add(
         UsageEvent(
             tenant_id=task.tenant_id,
             task_id=task.id,
-            member_id=task.assignee_id,
+            member_id=member.id if member else task.assignee_id,
             provider=config.get("provider", "mock"),
             model=config.get("model"),
         )
@@ -276,6 +277,9 @@ class TaskRunner:
     ) -> None:
         self._session = session
         self._client_for_provider = client_for_provider or default_client_for_provider
+        # Audit verdicts produced during a gathered render, handed to the serial
+        # _persist (which then merges them into task.checks). Keyed by task id.
+        self._pending_audit: dict[str, list[dict]] = {}
 
     async def run_ready_tasks(self, campaign_id: str) -> list[str]:
         """Run every currently-ready AI task. Independent tasks (e.g. the per-channel
@@ -370,21 +374,31 @@ class TaskRunner:
     ) -> dict:
         """Re-render an asset whose checks fail, feeding the failures back, and keep
         the cleanest draft. The runner's execution-time half of self-improvement;
-        checks stay advisory, so a draft that can't be fixed still goes through."""
+        checks stay advisory, so a draft that can't be fixed still goes through.
+
+        Failures come from both the deterministic checks AND the LLM-as-judge Auditor
+        (a different model family, when configured); both feed the revision notes."""
         checks = checks_for_output(self._session, task, output)
-        best, best_issues = output, _issue_count(checks)
+        audit = await self._run_audit(task, output, context)  # None when no auditor
+        best, best_audit = output, audit
+        best_issues = _issue_count(checks) + len(audit or [])
         passes = 0
         while best_issues > 0 and passes < _MAX_ASSET_REVISIONS:
             passes += 1
-            revised_context = {**context, "revision_notes": _revision_notes(checks)}
-            candidate = await agent_for_role(role_key, client).run(revised_context)
+            notes = _revision_notes(checks) + [issue["detail"] for issue in (audit or [])]
+            candidate = await agent_for_role(role_key, client).run(
+                {**context, "revision_notes": notes}
+            )
             _record_usage(self._session, task, member)  # each retry is a metered call
             checks = checks_for_output(self._session, task, candidate)
-            issues = _issue_count(checks)
+            audit = await self._run_audit(task, candidate, context)
+            issues = _issue_count(checks) + len(audit or [])
             if issues < best_issues:
-                best, best_issues = candidate, issues
+                best, best_audit, best_issues = candidate, audit, issues
             if best_issues == 0:
                 break
+        if best_audit is not None:
+            self._pending_audit[task.id] = best_audit
         if passes:
             _record_event(
                 self._session, task, TaskEventType.SELF_CORRECTED,
@@ -393,6 +407,42 @@ class TaskRunner:
             )
         return best
 
+    def _auditor_member(self, tenant_id: str) -> Optional[Member]:
+        """The tenant's configured Auditor (an AI member whose role is 'auditor'),
+        or None if the tenant hasn't hired one — in which case audit is skipped."""
+        members = self._session.exec(
+            select(Member).where(
+                Member.tenant_id == tenant_id, Member.kind == MemberKind.AI
+            )
+        ).all()
+        return next(
+            (m for m in members if (m.agent_config or {}).get("role") == "auditor"), None
+        )
+
+    async def _run_audit(self, task: Task, post: dict, context: dict) -> Optional[list[dict]]:
+        """Judge a rendered post with the tenant's Auditor (on its own — ideally
+        different-family — provider). Returns issues as {code, detail} dicts, or None
+        when no auditor is configured. Read-only on the session apart from metering."""
+        auditor = self._auditor_member(task.tenant_id)
+        if auditor is None:
+            return None
+        provider = (auditor.agent_config or {}).get("provider", "mock")
+        client = self._client_for_provider(provider)
+        verdict = await agent_for_role("auditor", client).run(
+            {
+                "channel": context.get("channel", ""),
+                "core_message": context.get("core_message", ""),
+                "approved_claims": context.get("approved_claims", []),
+                "brand": context.get("brand", {}),
+                "post": post,
+            }
+        )
+        _record_usage(self._session, task, auditor)
+        return [
+            {"code": issue["dimension"], "detail": issue["detail"]}
+            for issue in verdict.get("issues", [])
+        ]
+
     def _persist(self, task: Task, output: dict) -> None:
         """Persist a rendered output (sync — keeps the single session serial)."""
         member = self._session.get(Member, task.assignee_id)
@@ -400,7 +450,11 @@ class TaskRunner:
         task.ai_draft = output
         task.output = output
         if task.kind == TaskKind.ASSET:
-            task.checks = recompute_asset_checks(self._session, task)
+            checks = recompute_asset_checks(self._session, task)
+            audit = self._pending_audit.pop(task.id, None)
+            if audit is not None:
+                checks["audit"] = audit  # the Auditor's verdict, surfaced like a check
+            task.checks = checks
         task.updated_at = _now()
         _record_usage(self._session, task, member)
         _record_event(
@@ -457,6 +511,11 @@ class TaskRunner:
             "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
             "core_message": plan.get("core_message", ""),
+            "approved_claims": [
+                claim.get("claim", "")
+                for claim in (plan.get("claim_checks") or [])
+                if claim.get("status") == "source_backed"
+            ],
             "product_name": (campaign.brief or {}).get("product_name", ""),
             "platform": asdict(spec) if spec is not None else {},
             "brand": {

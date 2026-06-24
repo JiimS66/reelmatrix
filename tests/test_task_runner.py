@@ -20,8 +20,17 @@ from core.db.models import (
 )
 from core.db.seed import seed_testsprite
 from core.llm.mock_client import MockLLMClient
+from core.schemas.campaign import AuditDimension, AuditIssue, AuditVerdict
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import TaskRunner, fan_out_from_plan, role_for
+
+
+def _auditor(session: Session) -> Member:
+    return next(
+        m
+        for m in session.exec(select(Member)).all()
+        if (m.agent_config or {}).get("role") == "auditor"
+    )
 
 
 class _FailingClient(BaseLLMClient):
@@ -75,6 +84,38 @@ class _PersistentlyDirtyClient(BaseLLMClient):
         if response_model.__name__ == "CampaignAsset":
             return asset.model_copy(update={"content": f"{asset.content} Totally bug-free."})
         return asset
+
+
+class _FlaggingAuditorClient(BaseLLMClient):
+    """An auditor that rejects the first draft, then approves — so the AUDITOR alone
+    (not the deterministic checks) drives a self-correction pass."""
+
+    def __init__(self) -> None:
+        self._mock = MockLLMClient()
+        self.audit_calls = 0
+
+    async def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        return await self._mock.generate_text(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        if response_model.__name__ == "AuditVerdict":
+            self.audit_calls += 1
+            if self.audit_calls == 1:
+                return AuditVerdict(
+                    approved=False,
+                    issues=[
+                        AuditIssue(
+                            dimension=AuditDimension.BRAND_TONE,
+                            detail="Tone reads too hype for this brand.",
+                        )
+                    ],
+                )
+            return AuditVerdict(approved=True, issues=[])
+        return await self._mock.generate_structured(
+            system_prompt=system_prompt, user_prompt=user_prompt, response_model=response_model
+        )
 
 BRIEF = {
     "product_name": "TestSprite",
@@ -253,10 +294,14 @@ def test_runner_self_corrects_a_failed_asset_check() -> None:
     assert len(events) == 2  # one corrective pass per asset
     assert all(e.payload["passes"] == 1 and e.payload["remaining_issues"] == 0 for e in events)
 
-    # Each retry is a real LLM call, so it is metered: first render + one retry.
+    # Each retry is a real LLM call, so the writer's calls are metered: first
+    # render + one retry (the auditor's calls are metered separately).
     for asset in assets:
         usage = session.exec(
-            select(UsageEvent).where(UsageEvent.task_id == asset.id)
+            select(UsageEvent).where(
+                UsageEvent.task_id == asset.id,
+                UsageEvent.member_id == asset.assignee_id,
+            )
         ).all()
         assert len(usage) == 2
 
@@ -284,6 +329,73 @@ def test_self_correction_caps_passes_and_keeps_least_bad() -> None:
     # It tried the capped number of passes, then gave up — no infinite loop.
     assert event.payload["passes"] == 2
     assert event.payload["remaining_issues"] >= 1
+
+
+def test_auditor_runs_on_every_post_and_is_metered() -> None:
+    session, campaign_id = _setup()
+    asyncio.run(_runner(session).run_ready_tasks(campaign_id))
+    auditor = _auditor(session)
+
+    assets = session.exec(
+        select(Task).where(Task.campaign_id == campaign_id, Task.kind == TaskKind.ASSET)
+    ).all()
+    assert len(assets) == 2
+    for asset in assets:
+        # The auditor verdict is surfaced alongside the deterministic checks; the
+        # mock auditor approves clean content.
+        assert asset.checks["audit"] == []
+        # The audit call is metered against the auditor member (not the writer).
+        audit_usage = session.exec(
+            select(UsageEvent).where(
+                UsageEvent.task_id == asset.id, UsageEvent.member_id == auditor.id
+            )
+        ).all()
+        assert len(audit_usage) >= 1
+
+
+def test_auditor_flag_drives_a_self_correction_pass() -> None:
+    engine = create_db_engine("sqlite://")
+    init_db(engine)
+    session = Session(engine)
+    tenant = seed_testsprite(session)
+
+    # Point the auditor at its own provider and route only that to the flagging client,
+    # so the writer (mock) renders deterministically-clean copy.
+    auditor = _auditor(session)
+    auditor.agent_config = {**auditor.agent_config, "provider": "audit"}
+    session.add(auditor)
+    session.commit()
+
+    flagging = _FlaggingAuditorClient()
+    runner = TaskRunner(
+        session,
+        client_for_provider=lambda provider: flagging if provider == "audit" else MockLLMClient(),
+    )
+    campaign = instantiate_campaign(
+        session, tenant_id=tenant.id, name="Solo",
+        brief={**BRIEF, "selected_channels": ["LinkedIn"]},
+    )
+    asyncio.run(runner.run_ready_tasks(campaign.id))
+
+    asset = _task(session, campaign.id, TaskKind.ASSET)
+    # Deterministic checks were clean; the auditor's first verdict forced a rewrite,
+    # and it approved the second draft.
+    assert asset.status == TaskStatus.DONE
+    assert asset.checks["brand"] == [] and asset.checks["audit"] == []
+    event = session.exec(
+        select(TaskEvent).where(
+            TaskEvent.task_id == asset.id,
+            TaskEvent.type == TaskEventType.SELF_CORRECTED,
+        )
+    ).first()
+    assert event is not None and event.payload["passes"] == 1
+    # Cross-model: the auditor billed its own (different) provider.
+    audit_usage = session.exec(
+        select(UsageEvent).where(
+            UsageEvent.task_id == asset.id, UsageEvent.member_id == auditor.id
+        )
+    ).all()
+    assert audit_usage and all(u.provider == "audit" for u in audit_usage)
 
 
 def test_fan_out_preserves_human_edits_on_replay() -> None:

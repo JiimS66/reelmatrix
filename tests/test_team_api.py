@@ -221,7 +221,7 @@ def test_lists_tenant_campaigns_newest_first() -> None:
 def test_members_bootstrap_lists_the_team() -> None:
     app, _members = _build()
     listed = _req(app, "GET", "/api/v1/team/members").json()
-    assert len(listed) == 5
+    assert len(listed) == 6
     assert any(m["role"] == "lead" for m in listed)
 
 
@@ -336,12 +336,16 @@ def test_org_returns_the_roster_and_config_catalogs() -> None:
     lead = members["Adam (Lead)"]
     org = _org(app, lead)
 
-    assert len(org["members"]) == 5
+    assert len(org["members"]) == 6
     by_name = {m["display_name"]: m for m in org["members"]}
     assert by_name["Adam (Lead)"]["reports_to"] is None
     asset_writer = by_name["Asset writer"]
     assert asset_writer["handles_kinds"] == ["asset"]
     assert asset_writer["agent_role"] == "copywriter"
+    # The Auditor is a configured employee that owns no task kinds.
+    assert by_name["Content auditor"]["agent_role"] == "auditor"
+    assert by_name["Content auditor"]["handles_kinds"] == []
+    assert any(r["key"] == "auditor" for r in org["agent_roles"])
     assert asset_writer["reports_to"] == lead
     # Catalogs the team UI offers when configuring an employee.
     assert "asset" in org["task_kinds"]

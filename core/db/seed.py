@@ -95,6 +95,17 @@ AI_AGENTS = [
         "handles_kinds": [TaskKind.ASSET],
         "reports_to": "Adam (Lead)",
     },
+    {
+        # Invoked by the runner on each rendered post (not task-assigned), so it owns
+        # no task kinds. Production should point this at a DIFFERENT model family than
+        # the writer so their errors decorrelate; the demo uses the mock provider.
+        "display_name": "Content auditor",
+        "agent_kind": "auditor",
+        "agent_role": "auditor",
+        "job_description": "Independently judges each AI-drafted post (LLM-as-judge).",
+        "handles_kinds": [],
+        "reports_to": "Adam (Lead)",
+    },
 ]
 
 
