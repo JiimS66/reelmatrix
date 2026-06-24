@@ -24,6 +24,21 @@ export const ATOM_KIND_LABEL: Record<string, string> = {
 export const cap = (value: string): string =>
   value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 
+export function dueInfo(
+  due: string | null,
+): { label: string; overdue: boolean } | null {
+  if (!due) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${due}T00:00:00`);
+  const days = Math.round((target.getTime() - today.getTime()) / 86_400_000);
+  if (Number.isNaN(days)) return null;
+  if (days < 0) return { label: `${-days}d overdue`, overdue: true };
+  if (days === 0) return { label: "Due today", overdue: false };
+  if (days === 1) return { label: "Due tomorrow", overdue: false };
+  return { label: `Due in ${days}d`, overdue: false };
+}
+
 export function memberName(members: Member[], id: string | null): string {
   if (!id) return "Unassigned";
   return members.find((m) => m.id === id)?.display_name ?? "Unknown";

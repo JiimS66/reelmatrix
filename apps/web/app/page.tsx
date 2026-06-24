@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
+import { HomeView } from "@/components/workspace/HomeView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TodoView } from "@/components/workspace/TodoView";
 import {
@@ -24,6 +25,7 @@ import {
   listAtoms,
   listCampaigns,
   listMembers,
+  reviewTask,
   runCampaign,
   TeamApiError,
   TESTSPRITE_BRIEF,
@@ -36,13 +38,13 @@ import {
   type TodoItem,
 } from "@/lib/teamApi";
 
-type View = "board" | "calendar" | "todo" | "inbox" | "atoms";
+type View = "home" | "board" | "calendar" | "todo" | "atoms";
 
 const VIEW_LABEL: Record<View, string> = {
+  home: "Home",
   board: "Board",
   calendar: "Calendar",
   todo: "To-do",
-  inbox: "My inbox",
   atoms: "Atom library",
 };
 
@@ -54,7 +56,7 @@ function errMessage(error: unknown): string {
 export default function Workspace() {
   const [members, setMembers] = useState<Member[]>([]);
   const [currentId, setCurrentId] = useState("");
-  const [view, setView] = useState<View>("board");
+  const [view, setView] = useState<View>("home");
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -102,9 +104,10 @@ export default function Workspace() {
     else setDetail(null);
   }, [selectedId, refreshDetail]);
 
-  // Load the latest campaign so the board is populated on open.
+  // On member change: load my inbox + the latest campaign so Home is populated.
   useEffect(() => {
     if (!currentId) return;
+    getInbox(currentId).then(setInbox).catch((e) => setError(errMessage(e)));
     listCampaigns(currentId)
       .then((cs) => (cs.length > 0 ? getBoard(currentId, cs[0].id) : null))
       .then((b) => {
@@ -115,9 +118,6 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!currentId) return;
-    if (view === "inbox") {
-      getInbox(currentId).then(setInbox).catch((e) => setError(errMessage(e)));
-    }
     if (view === "atoms") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
     }
@@ -140,12 +140,40 @@ export default function Workspace() {
   async function onChanged() {
     await refreshBoard();
     await refreshDetail();
-    if (view === "inbox" && currentId) {
+    if (currentId) {
       try {
         setInbox(await getInbox(currentId));
       } catch (e) {
         setError(errMessage(e));
       }
+    }
+  }
+
+  async function approve(id: string) {
+    if (!currentId) return;
+    setBusy(true);
+    try {
+      await reviewTask(currentId, id, { action: "approve" });
+      await onChanged();
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function bulkApprove(ids: string[]) {
+    if (!currentId) return;
+    setBusy(true);
+    try {
+      for (const id of ids) {
+        await reviewTask(currentId, id, { action: "approve" });
+      }
+      await onChanged();
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -163,7 +191,7 @@ export default function Workspace() {
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);
-      setView("board");
+      setView("home");
       setSelectedId(null);
     } catch (e) {
       setError(errMessage(e));
@@ -188,9 +216,20 @@ export default function Workspace() {
   function pickMember(id: string) {
     setCurrentId(id);
     setSelectedId(null);
+    setView("home");
   }
 
-  const tasks = view === "inbox" ? inbox : board?.tasks ?? [];
+  const boardTasks = board?.tasks ?? [];
+  const needsYou = isLead
+    ? boardTasks.filter(
+        (t) =>
+          t.status === "needs_review" ||
+          t.status === "blocked" ||
+          (t.assignee_id === currentId &&
+            (t.status === "todo" || t.status === "in_progress")),
+      )
+    : inbox.filter((t) => t.status === "todo" || t.status === "in_progress");
+  const needsYouCount = needsYou.length;
 
   return (
     <div className="min-h-screen gridbg">
@@ -231,21 +270,30 @@ export default function Workspace() {
         </header>
 
         {/* Tabs */}
-        <nav className="mb-5 flex gap-1.5">
-          {(["board", "calendar", "todo", "inbox", "atoms"] as View[]).map((v) => (
+        <nav className="mb-5 flex flex-wrap gap-1.5">
+          {(["home", "board", "calendar", "todo", "atoms"] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => {
                 setView(v);
                 setSelectedId(null);
               }}
-              className={`rounded-lg px-3 py-1.5 font-mono text-[12px] transition ${
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[12px] transition ${
                 view === v
                   ? "bg-ink text-white"
                   : "border border-ink/10 bg-white text-ink/70 hover:text-ink"
               }`}
             >
               {VIEW_LABEL[v]}
+              {v === "home" && needsYouCount > 0 && (
+                <span
+                  className={`rounded-full px-1.5 text-[10px] ${
+                    view === v ? "bg-white/20 text-white" : "bg-forest text-white"
+                  }`}
+                >
+                  {needsYouCount}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -283,37 +331,46 @@ export default function Workspace() {
           />
         ) : (
           <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            {/* Left: list */}
+            {/* Left: home queue or board list */}
             <div className="space-y-4">
-              {view === "board" && (
-                <BoardHeader
+              {view === "home" ? (
+                <HomeView
+                  role={isLead ? "lead" : "member"}
                   board={board}
-                  isLead={!!isLead}
+                  inbox={inbox}
+                  members={board?.members ?? members}
+                  currentMemberId={currentId}
+                  selectedId={selectedId}
                   busy={busy}
-                  onCreate={createAndRun}
-                  onRun={runAgain}
+                  onSelect={setSelectedId}
+                  onApprove={approve}
+                  onBulkApprove={bulkApprove}
+                  onStart={createAndRun}
                 />
-              )}
-
-              {tasks.length > 0 ? (
-                <ul className="space-y-2.5">
-                  {tasks.map((task) => (
-                    <li key={task.id}>
-                      <TaskRow
-                        task={task}
-                        members={board?.members ?? members}
-                        selected={task.id === selectedId}
-                        onClick={() => setSelectedId(task.id)}
-                      />
-                    </li>
-                  ))}
-                </ul>
               ) : (
-                view === "inbox" && (
-                  <p className="surface p-6 text-sm text-ink/60">
-                    Nothing assigned to you right now.
-                  </p>
-                )
+                <>
+                  <BoardHeader
+                    board={board}
+                    isLead={!!isLead}
+                    busy={busy}
+                    onCreate={createAndRun}
+                    onRun={runAgain}
+                  />
+                  {boardTasks.length > 0 && (
+                    <ul className="space-y-2.5">
+                      {boardTasks.map((task) => (
+                        <li key={task.id}>
+                          <TaskRow
+                            task={task}
+                            members={board?.members ?? members}
+                            selected={task.id === selectedId}
+                            onClick={() => setSelectedId(task.id)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
 
@@ -359,13 +416,11 @@ function BoardHeader({
     return (
       <div className="surface p-6">
         <p className="tlabel">Start</p>
-        <h2 className="mt-1 text-lg font-semibold text-ink">
-          Spin up a campaign
-        </h2>
+        <h2 className="mt-1 text-lg font-semibold text-ink">Spin up a campaign</h2>
         <p className="mt-1 max-w-md text-sm text-ink/60">
           {isLead
-            ? "Create the TestSprite launch and let the AI team draft the whole package. You can edit, reassign, or review any step after."
-            : "Only the lead can create a campaign. Switch to the lead to start one, then it lands in your inbox."}
+            ? "Create the TestSprite launch and let the AI team draft the whole package."
+            : "Only the lead can create a campaign. Switch to the lead to start one."}
         </p>
         {isLead && (
           <button className="btn-dark mt-4" disabled={busy} onClick={onCreate}>
