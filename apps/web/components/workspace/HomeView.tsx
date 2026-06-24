@@ -1,8 +1,15 @@
 "use client";
 
-import type { Board, Member, ScheduleData, Task } from "@/lib/teamApi";
+import type {
+  Board,
+  Member,
+  ScheduleData,
+  Task,
+  TaskDetail,
+} from "@/lib/teamApi";
 
 import { CalendarView } from "./CalendarView";
+import { TaskDetailPanel } from "./TaskDetailPanel";
 import {
   AssigneeChip,
   KIND_LABEL,
@@ -36,11 +43,15 @@ interface HomeViewProps {
   members: Member[];
   currentMemberId: string;
   selectedId: string | null;
+  detail: TaskDetail | null;
   busy: boolean;
   onSelect: (id: string) => void;
   onApprove: (id: string) => void;
   onBulkApprove: (ids: string[]) => void;
   onStart: () => void;
+  onChanged: () => void;
+  onError: (message: string) => void;
+  onClose: () => void;
 }
 
 export function HomeView({
@@ -51,11 +62,15 @@ export function HomeView({
   members,
   currentMemberId,
   selectedId,
+  detail,
   busy,
   onSelect,
   onApprove,
   onBulkApprove,
   onStart,
+  onChanged,
+  onError,
+  onClose,
 }: HomeViewProps) {
   if (!board) {
     if (role !== "lead") {
@@ -108,7 +123,7 @@ export function HomeView({
 
   return (
     <div className="space-y-5">
-      {/* Status strip */}
+      {/* Status strip (full width) */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="surface p-3">
           <p className="tlabel">Event</p>
@@ -141,95 +156,114 @@ export function HomeView({
         <Stat label="Progress" value={`${done}/${tasks.length}`} sub="tasks done" />
       </div>
 
-      {/* Agenda */}
-      {isLead && reviews.length > 0 && (
-        <Section
-          title={`To review · ${reviews.length}`}
-          action={
-            cleanReviews.length > 0 ? (
-              <button
-                className="btn-dark"
-                disabled={busy}
-                onClick={() => onBulkApprove(cleanReviews.map((t) => t.id))}
-              >
-                Approve all clean ({cleanReviews.length})
-              </button>
-            ) : null
-          }
-        >
-          {reviews.map((t) => (
-            <AgendaRow
-              key={t.id}
-              task={t}
+      {/* Master-detail: agenda (left) + calendar/detail (right) */}
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <div className="space-y-5">
+          {isLead && reviews.length > 0 && (
+            <Section
+              title={`To review · ${reviews.length}`}
+              action={
+                cleanReviews.length > 0 ? (
+                  <button
+                    className="btn-dark"
+                    disabled={busy}
+                    onClick={() => onBulkApprove(cleanReviews.map((t) => t.id))}
+                  >
+                    Approve all clean ({cleanReviews.length})
+                  </button>
+                ) : null
+              }
+            >
+              {reviews.map((t) => (
+                <AgendaRow
+                  key={t.id}
+                  task={t}
+                  members={members}
+                  selected={t.id === selectedId}
+                  busy={busy}
+                  onSelect={() => onSelect(t.id)}
+                  onApprove={() => onApprove(t.id)}
+                />
+              ))}
+            </Section>
+          )}
+
+          {overdue.length > 0 && (
+            <Bucket
+              title="Overdue"
+              danger
+              tasks={overdue}
               members={members}
-              selected={t.id === selectedId}
+              selectedId={selectedId}
               busy={busy}
-              onSelect={() => onSelect(t.id)}
-              onApprove={() => onApprove(t.id)}
+              onSelect={onSelect}
             />
-          ))}
-        </Section>
-      )}
+          )}
+          {thisWeek.length > 0 && (
+            <Bucket
+              title="This week"
+              tasks={thisWeek}
+              members={members}
+              selectedId={selectedId}
+              busy={busy}
+              onSelect={onSelect}
+            />
+          )}
+          {later.length > 0 && (
+            <Bucket
+              title="Upcoming"
+              tasks={later}
+              members={members}
+              selectedId={selectedId}
+              busy={busy}
+              onSelect={onSelect}
+            />
+          )}
+          {nodate.length > 0 && (
+            <Bucket
+              title="No due date"
+              tasks={nodate}
+              members={members}
+              selectedId={selectedId}
+              busy={busy}
+              onSelect={onSelect}
+            />
+          )}
+          {queueCount === 0 && (
+            <p className="surface p-4 text-sm text-ink/60">
+              You&apos;re all caught up — nothing needs you right now.
+            </p>
+          )}
+        </div>
 
-      {overdue.length > 0 && (
-        <Bucket
-          title="Overdue"
-          danger
-          tasks={overdue}
-          members={members}
-          selectedId={selectedId}
-          busy={busy}
-          onSelect={onSelect}
-        />
-      )}
-      {thisWeek.length > 0 && (
-        <Bucket
-          title="This week"
-          tasks={thisWeek}
-          members={members}
-          selectedId={selectedId}
-          busy={busy}
-          onSelect={onSelect}
-        />
-      )}
-      {later.length > 0 && (
-        <Bucket
-          title="Upcoming"
-          tasks={later}
-          members={members}
-          selectedId={selectedId}
-          busy={busy}
-          onSelect={onSelect}
-        />
-      )}
-      {nodate.length > 0 && (
-        <Bucket
-          title="No due date"
-          tasks={nodate}
-          members={members}
-          selectedId={selectedId}
-          busy={busy}
-          onSelect={onSelect}
-        />
-      )}
-      {queueCount === 0 && (
-        <p className="surface p-4 text-sm text-ink/60">
-          You&apos;re all caught up — nothing needs you right now.
-        </p>
-      )}
-
-      {/* Calendar */}
-      <div>
-        <p className="tlabel mb-2">Schedule</p>
-        {schedule ? (
-          <CalendarView
-            schedule={schedule}
-            members={members}
-            onSelectTask={onSelect}
-          />
-        ) : (
-          <p className="surface p-4 text-sm text-ink/55">Loading schedule…</p>
-        )}
+        {/* Right pane: detail when a task is selected, else the calendar */}
+        <div className="lg:sticky lg:top-6">
+          {detail ? (
+            <div className="surface p-5">
+              <button
+                className="tlabel mb-3 hover:underline"
+                onClick={onClose}
+              >
+                ← Back to schedule
+              </button>
+              <TaskDetailPanel
+                detail={detail}
+                members={members}
+                currentMemberId={currentMemberId}
+                onChanged={onChanged}
+                onError={onError}
+              />
+            </div>
+          ) : schedule ? (
+            <CalendarView
+              schedule={schedule}
+              members={members}
+              onSelectTask={onSelect}
+            />
+          ) : (
+            <p className="surface p-4 text-sm text-ink/55">Loading schedule…</p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -239,21 +273,15 @@ function Stat({
   label,
   value,
   sub,
-  accent,
 }: {
   label: string;
   value: string;
   sub?: string;
-  accent?: boolean;
 }) {
   return (
     <div className="surface p-3">
       <p className="tlabel">{label}</p>
-      <p
-        className={`mt-0.5 text-lg font-semibold ${accent ? "text-forest" : "text-ink"}`}
-      >
-        {value}
-      </p>
+      <p className="mt-0.5 text-lg font-semibold text-ink">{value}</p>
       {sub ? <p className="font-mono text-[11px] text-ink/50">{sub}</p> : null}
     </div>
   );

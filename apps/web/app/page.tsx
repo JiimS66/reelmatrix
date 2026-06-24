@@ -343,49 +343,49 @@ export default function Workspace() {
             members={board?.members ?? members}
             onSelectTask={openTaskOnBoard}
           />
+        ) : view === "home" ? (
+          <HomeView
+            role={isLead ? "lead" : "member"}
+            board={board}
+            schedule={schedule}
+            inbox={inbox}
+            members={board?.members ?? members}
+            currentMemberId={currentId}
+            selectedId={selectedId}
+            detail={detail}
+            busy={busy}
+            onSelect={setSelectedId}
+            onApprove={approve}
+            onBulkApprove={bulkApprove}
+            onStart={createAndRun}
+            onChanged={onChanged}
+            onError={(m) => setError(m)}
+            onClose={() => setSelectedId(null)}
+          />
         ) : (
           <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            {/* Left: home queue or board list */}
+            {/* Left: board list */}
             <div className="space-y-4">
-              {view === "home" ? (
-                <HomeView
-                  role={isLead ? "lead" : "member"}
-                  board={board}
-                  schedule={schedule}
-                  inbox={inbox}
-                  members={board?.members ?? members}
-                  currentMemberId={currentId}
-                  selectedId={selectedId}
-                  busy={busy}
-                  onSelect={setSelectedId}
-                  onApprove={approve}
-                  onBulkApprove={bulkApprove}
-                  onStart={createAndRun}
-                />
-              ) : (
-                <>
-                  <BoardHeader
-                    board={board}
-                    isLead={!!isLead}
-                    busy={busy}
-                    onCreate={createAndRun}
-                    onRun={runAgain}
-                  />
-                  {boardTasks.length > 0 && (
-                    <ul className="space-y-2.5">
-                      {boardTasks.map((task) => (
-                        <li key={task.id}>
-                          <TaskRow
-                            task={task}
-                            members={board?.members ?? members}
-                            selected={task.id === selectedId}
-                            onClick={() => setSelectedId(task.id)}
-                          />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
+              <BoardHeader
+                board={board}
+                isLead={!!isLead}
+                busy={busy}
+                onCreate={createAndRun}
+                onRun={runAgain}
+              />
+              {boardTasks.length > 0 && (
+                <ul className="space-y-2.5">
+                  {boardTasks.map((task) => (
+                    <li key={task.id}>
+                      <TaskRow
+                        task={task}
+                        members={board?.members ?? members}
+                        selected={task.id === selectedId}
+                        onClick={() => setSelectedId(task.id)}
+                      />
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
 
