@@ -257,7 +257,7 @@ export default function Workspace() {
           <div className="flex items-baseline gap-2">
             <span className="font-semibold tracking-tight">ReelMatrix</span>
             <span className="font-mono text-[11px] text-white/55">
-              / Marketing Team OS
+              / Digital Marketing Copilot
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -281,8 +281,7 @@ export default function Workspace() {
 
       <main className="mx-auto max-w-6xl px-5 py-7">
         <header className="mb-6">
-          <p className="tlabel">Human + AI marketing team</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-ink">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink">
             {current ? `${current.display_name}'s workspace` : "Workspace"}
           </h1>
         </header>
