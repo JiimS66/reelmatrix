@@ -1,0 +1,181 @@
+import asyncio
+from typing import Any, Optional
+
+import httpx
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, create_engine, select
+
+from apps.api.main import create_app
+from configs.settings import AppSettings
+from core.db.engine import get_session, init_db
+from core.db.models import Member
+from core.db.seed import seed_testsprite
+
+BRIEF = {
+    "product_name": "TestSprite",
+    "product_description": "An agentic testing platform that verifies AI-generated code.",
+    "target_audience": "Engineering leaders and AI-native developers",
+    "marketing_goal": "Generate qualified developer signups and API key starts",
+    "user_prompt": "ready for planning: launch campaign for TestSprite",
+    "selected_channels": ["LinkedIn", "Email", "Landing Page"],
+}
+
+
+def _build() -> tuple[Any, dict[str, str]]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    init_db(engine)
+    with Session(engine) as session:
+        seed_testsprite(session)
+        members = {m.display_name: m.id for m in session.exec(select(Member)).all()}
+
+    app = create_app(AppSettings(_env_file=None, app_env="test", llm_provider="mock"))
+
+    def _override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_session
+    return app, members
+
+
+async def _call(
+    app: Any, method: str, path: str, member_id: Optional[str] = None, json: Any = None
+) -> httpx.Response:
+    headers = {"X-Member-Id": member_id} if member_id else {}
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.request(method, path, headers=headers, json=json)
+
+
+def _req(app, method, path, member_id=None, json=None) -> httpx.Response:
+    return asyncio.run(_call(app, method, path, member_id, json))
+
+
+def _task(board: dict, kind: str) -> dict:
+    return next(t for t in board["tasks"] if t["kind"] == kind)
+
+
+def _drive_to_plan(app, lead) -> dict:
+    board = _req(app, "POST", "/api/v1/team/campaigns", lead,
+                 json={"name": "Launch", "brief": BRIEF}).json()
+    cid = board["campaign"]["id"]
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)
+    ideation = _task(_req(app, "GET", f"/api/v1/team/campaigns/{cid}/board", lead).json(), "ideation")
+    _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead, json={"action": "approve"})
+    board = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/board", lead).json()
+    planning = _task(board, "planning")
+    return _req(app, "POST", f"/api/v1/team/tasks/{planning['id']}/review", lead,
+                json={"action": "approve"}).json()
+
+
+def test_lead_drives_campaign_from_brief_to_fanned_out_plan() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+
+    created = _req(app, "POST", "/api/v1/team/campaigns", lead,
+                   json={"name": "Launch", "brief": BRIEF})
+    assert created.status_code == 200
+    board = created.json()
+    cid = board["campaign"]["id"]
+    # ideation + planning + 3 channel assets + claim check.
+    assert len(board["tasks"]) == 6
+    assert all(t["status"] == "todo" for t in board["tasks"])
+
+    # Run advances only ideation (default mode waits for human review).
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    ideation = _task(board, "ideation")
+    assert ideation["status"] == "needs_review"
+    assert ideation["assignee_id"] == lead
+
+    # Approving ideation unblocks planning, which drafts and waits for review.
+    board = _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead,
+                 json={"action": "approve"}).json()
+    assert _task(board, "ideation")["status"] == "done"
+    assert _task(board, "planning")["status"] == "needs_review"
+
+    # Approving planning fans out into asset + claim-check tasks.
+    planning = _task(board, "planning")
+    board = _req(app, "POST", f"/api/v1/team/tasks/{planning['id']}/review", lead,
+                 json={"action": "approve"}).json()
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(a["status"] == "needs_review" and a["output"] for a in assets)
+    claim = _task(board, "claim_check")
+    assert claim["output"] and "claim_checks" in claim["output"]
+
+
+def test_lead_can_edit_and_approve_an_asset() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")
+
+    edited = {**asset["output"], "title": "Lead-edited headline"}
+    board = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/review", lead,
+                 json={"action": "approve", "output": edited}).json()
+    reviewed = next(t for t in board["tasks"] if t["id"] == asset["id"])
+    assert reviewed["status"] == "done"
+    assert reviewed["output"]["title"] == "Lead-edited headline"
+
+
+def test_human_member_completes_a_reassigned_task() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    sam = members["Sam (Writer)"]
+    board = _drive_to_plan(app, lead)
+    claim = _task(board, "claim_check")
+
+    # Lead hands the claim check to the human writer.
+    assigned = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
+                    json={"member_id": sam})
+    assert assigned.status_code == 200
+    assert assigned.json()["assignee_id"] == sam
+
+    # It shows up in Sam's inbox.
+    inbox = _req(app, "GET", "/api/v1/team/inbox", sam).json()
+    assert any(t["id"] == claim["id"] for t in inbox)
+
+    # Sam submits; a human_only task completes directly.
+    submitted = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", sam,
+                     json={"output": {"claim_checks": []}})
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "done"
+
+
+def test_permissions_and_auth() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+
+    # Missing header is rejected.
+    assert _req(app, "GET", "/api/v1/team/inbox").status_code == 422
+    # Unknown member id is unauthorized.
+    assert _req(app, "GET", "/api/v1/team/inbox", "no-such-member").status_code == 401
+    # A non-lead member cannot create a campaign.
+    forbidden = _req(app, "POST", "/api/v1/team/campaigns", sam,
+                     json={"name": "x", "brief": BRIEF})
+    assert forbidden.status_code == 403
+
+
+def test_assign_rejects_ai_agent_on_human_only_task() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    ai_agent = members["Ideation bot"]
+    board = _drive_to_plan(app, lead)
+    claim = _task(board, "claim_check")  # human_only
+
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
+                    json={"member_id": ai_agent})
+    assert rejected.status_code == 400
+
+
+def test_submit_rejects_task_not_in_submittable_state() -> None:
+    app, members = _build()
+    lead = members["Mia (Lead)"]
+    board = _drive_to_plan(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # needs_review
+
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/submit", lead, json={})
+    assert rejected.status_code == 409

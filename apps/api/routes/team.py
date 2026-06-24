@@ -1,0 +1,155 @@
+"""Team workspace API: campaign board, member inbox, and task actions.
+
+Auth is a development stub: the acting member is taken from the ``X-Member-Id``
+header. Replace with real authentication before any non-local use.
+"""
+
+from fastapi import APIRouter, Depends, Header, HTTPException
+from sqlmodel import Session
+
+from apps.api.schemas.team import (
+    AssignRequest,
+    BoardRead,
+    CampaignRead,
+    CommentRead,
+    CommentRequest,
+    CreateCampaignRequest,
+    EventRead,
+    MemberRead,
+    ReviewRequest,
+    SubmitRequest,
+    TaskDetailRead,
+    TaskRead,
+)
+from apps.api.services import team_service
+from core.db.engine import get_session
+from core.db.models import Member
+from core.workflows.task_runner import TaskRunner
+
+router = APIRouter(prefix="/api/v1/team", tags=["team"])
+
+
+def get_current_member(
+    x_member_id: str = Header(..., alias="X-Member-Id"),
+    session: Session = Depends(get_session),
+) -> Member:
+    member = session.get(Member, x_member_id)
+    if member is None:
+        raise HTTPException(status_code=401, detail="Unknown member.")
+    return member
+
+
+def _board_response(session: Session, actor: Member, campaign_id: str) -> BoardRead:
+    campaign, tasks, members = team_service.get_board(session, actor, campaign_id)
+    return BoardRead(
+        campaign=CampaignRead.model_validate(campaign),
+        tasks=[TaskRead.model_validate(task) for task in tasks],
+        members=[MemberRead.model_validate(member) for member in members],
+    )
+
+
+@router.post("/campaigns", response_model=BoardRead)
+def create_campaign(
+    payload: CreateCampaignRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    campaign = team_service.create_campaign(
+        session, actor, name=payload.name, brief=payload.brief, template=payload.template
+    )
+    return _board_response(session, actor, campaign.id)
+
+
+@router.get("/campaigns/{campaign_id}/board", response_model=BoardRead)
+def get_board(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    return _board_response(session, actor, campaign_id)
+
+
+@router.post("/campaigns/{campaign_id}/run", response_model=BoardRead)
+async def run_campaign(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    team_service.get_board(session, actor, campaign_id)  # access check
+    await TaskRunner(session).run_ready_tasks(campaign_id)
+    return _board_response(session, actor, campaign_id)
+
+
+@router.get("/inbox", response_model=list[TaskRead])
+def get_inbox(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TaskRead]:
+    return [TaskRead.model_validate(task) for task in team_service.get_inbox(session, actor)]
+
+
+@router.get("/tasks/{task_id}", response_model=TaskDetailRead)
+def get_task(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskDetailRead:
+    task, comments, events = team_service.get_task_detail(session, actor, task_id)
+    return TaskDetailRead(
+        task=TaskRead.model_validate(task),
+        ai_draft=task.ai_draft,
+        comments=[CommentRead.model_validate(c) for c in comments],
+        events=[EventRead.model_validate(e) for e in events],
+    )
+
+
+@router.post("/tasks/{task_id}/assign", response_model=TaskRead)
+def assign_task(
+    task_id: str,
+    payload: AssignRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.assign_task(
+        session, actor, task_id,
+        member_id=payload.member_id, execution_mode=payload.execution_mode,
+    )
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/submit", response_model=TaskRead)
+def submit_task(
+    task_id: str,
+    payload: SubmitRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.submit_task(session, actor, task_id, output=payload.output)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/review", response_model=BoardRead)
+async def review_task(
+    task_id: str,
+    payload: ReviewRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    task = team_service.review_task(
+        session, actor, task_id,
+        action=payload.action, output=payload.output, note=payload.note,
+    )
+    if payload.action == "approve":
+        await TaskRunner(session).run_ready_tasks(task.campaign_id)
+    return _board_response(session, actor, task.campaign_id)
+
+
+@router.post("/tasks/{task_id}/comments", response_model=CommentRead)
+def add_comment(
+    task_id: str,
+    payload: CommentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> CommentRead:
+    comment = team_service.add_comment(session, actor, task_id, body=payload.body)
+    return CommentRead.model_validate(comment)
