@@ -180,6 +180,7 @@ export const createCampaign = (
     template?: string;
     event_name?: string;
     event_date?: string;
+    review_assets?: boolean;
   },
 ) => request<Board>("/api/v1/team/campaigns", { method: "POST", memberId, body });
 

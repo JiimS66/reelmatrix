@@ -16,6 +16,7 @@ import {
   cap,
   checkCount,
   statusAccent,
+  statusTint,
 } from "@/components/workspace/primitives";
 import {
   createCampaign,
@@ -206,6 +207,7 @@ export default function Workspace() {
         template: "general",
         event_name: "TestSprite v2 launch",
         event_date: "2026-07-31",
+        review_assets: true,
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);
@@ -486,9 +488,11 @@ function TaskRow({
   return (
     <button
       onClick={onClick}
-      className={`w-full rounded-2xl border-y border-r border-l-4 border-y-ink/10 border-r-ink/10 bg-white p-4 text-left transition ${statusAccent(
+      className={`w-full rounded-2xl border-y border-r border-l-4 border-y-ink/10 border-r-ink/10 ${statusTint(
         task.status,
-      )} ${selected ? "ring-2 ring-forest/30" : "hover:border-y-ink/25 hover:border-r-ink/25"}`}
+      )} p-4 text-left transition ${statusAccent(task.status)} ${
+        selected ? "ring-2 ring-forest/30" : "hover:border-y-ink/25 hover:border-r-ink/25"
+      }`}
     >
       <div className="flex items-center justify-between gap-3">
         <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>

@@ -225,6 +225,19 @@ def test_members_bootstrap_lists_the_team() -> None:
     assert any(m["role"] == "lead" for m in listed)
 
 
+def test_review_assets_leaves_drafts_for_review() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    created = _req(
+        app, "POST", "/api/v1/team/campaigns", lead,
+        json={"name": "Launch", "brief": BRIEF, "review_assets": True},
+    ).json()
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(t["status"] == "needs_review" for t in assets)
+
+
 def test_campaign_performance_returns_per_asset_metrics() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

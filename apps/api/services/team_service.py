@@ -86,8 +86,12 @@ def create_campaign(
     template: str,
     event_name: Optional[str] = None,
     event_date: Optional[str] = None,
+    review_assets: bool = False,
 ) -> Campaign:
     _require_lead(actor)
+    asset_mode = (
+        ExecutionMode.AI_DRAFT_HUMAN_REVIEW if review_assets else ExecutionMode.AI_AUTO
+    )
     return instantiate_campaign(
         session,
         tenant_id=actor.tenant_id,
@@ -97,6 +101,7 @@ def create_campaign(
         created_by=actor.id,
         event_name=event_name,
         event_date=event_date,
+        asset_mode=asset_mode,
     )
 
 

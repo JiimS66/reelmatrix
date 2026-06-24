@@ -17,6 +17,7 @@ import {
   checkCount,
   dueInfo,
   statusAccent,
+  statusTint,
 } from "./primitives";
 
 function daysUntil(iso: string | null): number | null {
@@ -342,9 +343,11 @@ function AgendaRow({
   const clean = checkCount(task) === 0;
   return (
     <div
-      className={`rounded-xl border-y border-r border-l-4 border-y-ink/10 border-r-ink/10 bg-white p-3 transition ${statusAccent(
+      className={`rounded-xl border-y border-r border-l-4 border-y-ink/10 border-r-ink/10 ${statusTint(
         task.status,
-      )} ${selected ? "ring-2 ring-forest/30" : ""}`}
+      )} p-3 transition ${statusAccent(task.status)} ${
+        selected ? "ring-2 ring-forest/30" : ""
+      }`}
     >
       <button onClick={onSelect} className="block w-full text-left">
         <div className="flex items-center justify-between gap-2">

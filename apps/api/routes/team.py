@@ -72,6 +72,7 @@ def create_campaign(
         template=payload.template,
         event_name=payload.event_name,
         event_date=payload.event_date,
+        review_assets=payload.review_assets,
     )
     return _board_response(session, actor, campaign.id)
 

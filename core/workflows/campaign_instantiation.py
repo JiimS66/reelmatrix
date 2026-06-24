@@ -62,6 +62,7 @@ def instantiate_campaign(
     created_by: Optional[str] = None,
     event_name: Optional[str] = None,
     event_date: Optional[str] = None,
+    asset_mode: ExecutionMode = ExecutionMode.AI_AUTO,
 ) -> Campaign:
     """Create a campaign plus its fixed task graph, returning the campaign.
 
@@ -113,7 +114,7 @@ def instantiate_campaign(
                 campaign_id=campaign.id,
                 kind=TaskKind.ASSET,
                 title=f"{channel} asset",
-                execution_mode=ExecutionMode.AI_AUTO,
+                execution_mode=asset_mode,
                 depends_on=[planning.id],
                 assignee_id=assignees["asset"],
                 params={"channel": channel},

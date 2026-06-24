@@ -91,6 +91,19 @@ export function statusAccent(status: TaskStatus): string {
   return STATUS_ACCENT[status];
 }
 
+// Soft background tint to reinforce done (green) vs incomplete (amber/red).
+const STATUS_TINT: Record<TaskStatus, string> = {
+  done: "bg-emerald-50/50",
+  needs_review: "bg-amber-50/60",
+  in_progress: "bg-amber-50/40",
+  blocked: "bg-red-50/50",
+  todo: "bg-white",
+};
+
+export function statusTint(status: TaskStatus): string {
+  return STATUS_TINT[status];
+}
+
 export function AssigneeChip({
   members,
   id,
