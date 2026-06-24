@@ -8,8 +8,8 @@ import type {
   TaskDetail,
 } from "@/lib/teamApi";
 
-import { MonthCalendar } from "./MonthCalendar";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { UpcomingPanel } from "./UpcomingPanel";
 import {
   AssigneeChip,
   KIND_LABEL,
@@ -259,7 +259,7 @@ export function HomeView({
               />
             </div>
           ) : schedule ? (
-            <MonthCalendar schedule={schedule} onSelectTask={onSelect} />
+            <UpcomingPanel schedule={schedule} onSelectTask={onSelect} />
           ) : (
             <p className="surface p-4 text-sm text-ink/55">Loading schedule…</p>
           )}
