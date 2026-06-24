@@ -8,7 +8,7 @@ import type {
   TaskDetail,
 } from "@/lib/teamApi";
 
-import { CalendarView } from "./CalendarView";
+import { MonthCalendar } from "./MonthCalendar";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import {
   AssigneeChip,
@@ -123,37 +123,39 @@ export function HomeView({
 
   return (
     <div className="space-y-5">
-      {/* Status strip (full width) */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="surface p-3">
-          <p className="tlabel">Event</p>
-          <p
-            className="mt-0.5 truncate text-sm font-semibold text-forest"
-            title={schedule?.campaign.event_name ?? board.campaign.name}
-          >
-            {schedule?.campaign.event_name ?? board.campaign.name}
-          </p>
-          <p className="font-mono text-[11px] text-ink/50">
-            {eventDays === null
-              ? "no date"
-              : `${eventDays < 0 ? "Launched" : `In ${eventDays}d`}${
-                  schedule?.campaign.event_date
-                    ? ` · ${fmtDate(schedule.campaign.event_date)}`
-                    : ""
-                }`}
-          </p>
-        </div>
-        <Stat
-          label="Phase"
-          value={nextMilestone ? nextMilestone.name : "Post-launch"}
-          sub={nextMilestone ? fmtDate(nextMilestone.date) : "wrap-up"}
-        />
-        <Stat
-          label="Needs you"
-          value={String(queueCount)}
-          sub={overdue.length > 0 ? `${overdue.length} overdue` : "on track"}
-        />
-        <Stat label="Progress" value={`${done}/${tasks.length}`} sub="tasks done" />
+      {/* Compact status bar */}
+      <div className="surface flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 py-2.5 text-sm">
+        <span className="font-semibold text-ink">
+          {schedule?.campaign.event_name ?? board.campaign.name}
+        </span>
+        {eventDays !== null && (
+          <span className="font-mono text-[12px] text-forest">
+            {eventDays < 0 ? "Launched" : `In ${eventDays}d`}
+            {schedule?.campaign.event_date
+              ? ` · ${fmtDate(schedule.campaign.event_date)}`
+              : ""}
+          </span>
+        )}
+        <span className="text-ink/60">
+          Phase{" "}
+          <span className="font-medium text-ink">
+            {nextMilestone ? nextMilestone.name : "Post-launch"}
+          </span>
+        </span>
+        <span className="text-ink/60">
+          <span className="font-mono text-ink">
+            {done}/{tasks.length}
+          </span>{" "}
+          done
+        </span>
+        {queueCount > 0 ? (
+          <span className="font-medium text-forest">
+            {queueCount} need you
+            {overdue.length > 0 ? ` · ${overdue.length} overdue` : ""}
+          </span>
+        ) : (
+          <span className="text-ink/50">All caught up</span>
+        )}
       </div>
 
       {/* Master-detail: agenda (left) + calendar/detail (right) */}
@@ -255,34 +257,12 @@ export function HomeView({
               />
             </div>
           ) : schedule ? (
-            <CalendarView
-              schedule={schedule}
-              members={members}
-              onSelectTask={onSelect}
-            />
+            <MonthCalendar schedule={schedule} onSelectTask={onSelect} />
           ) : (
             <p className="surface p-4 text-sm text-ink/55">Loading schedule…</p>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="surface p-3">
-      <p className="tlabel">{label}</p>
-      <p className="mt-0.5 text-lg font-semibold text-ink">{value}</p>
-      {sub ? <p className="font-mono text-[11px] text-ink/50">{sub}</p> : null}
     </div>
   );
 }

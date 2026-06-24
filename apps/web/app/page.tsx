@@ -7,7 +7,6 @@ import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
-import { TodoView } from "@/components/workspace/TodoView";
 import {
   ATOM_KIND_LABEL,
   AssigneeChip,
@@ -24,7 +23,6 @@ import {
   getPerformance,
   getSchedule,
   getTask,
-  getTodo,
   listAtoms,
   listCampaigns,
   listMembers,
@@ -39,18 +37,16 @@ import {
   type ScheduleData,
   type Task,
   type TaskDetail,
-  type TodoItem,
 } from "@/lib/teamApi";
 
-type View = "home" | "board" | "calendar" | "todo" | "performance" | "atoms";
+type View = "home" | "calendar" | "board" | "performance" | "library";
 
 const VIEW_LABEL: Record<View, string> = {
   home: "Home",
-  board: "Board",
   calendar: "Calendar",
-  todo: "To-do",
+  board: "Board",
   performance: "Performance",
-  atoms: "Atom library",
+  library: "Library",
 };
 
 function errMessage(error: unknown): string {
@@ -66,7 +62,6 @@ export default function Workspace() {
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
-  const [todo, setTodo] = useState<TodoItem[]>([]);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -124,11 +119,8 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!currentId) return;
-    if (view === "atoms") {
+    if (view === "library") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
-    }
-    if (view === "todo") {
-      getTodo(currentId).then(setTodo).catch((e) => setError(errMessage(e)));
     }
     if (view === "performance" && board) {
       getPerformance(currentId, board.campaign.id)
@@ -296,7 +288,7 @@ export default function Workspace() {
 
         {/* Tabs */}
         <nav className="mb-5 flex flex-wrap gap-1.5">
-          {(["home", "board", "calendar", "todo", "performance", "atoms"] as View[]).map(
+          {(["home", "calendar", "board", "performance", "library"] as View[]).map(
             (v) => (
             <button
               key={v}
@@ -333,7 +325,7 @@ export default function Workspace() {
           </div>
         )}
 
-        {view === "atoms" ? (
+        {view === "library" ? (
           <AtomLibrary atoms={atoms} />
         ) : view === "performance" ? (
           performance ? (
@@ -362,12 +354,6 @@ export default function Workspace() {
                 : "Create a campaign with an event date to see the calendar."}
             </p>
           )
-        ) : view === "todo" ? (
-          <TodoView
-            items={todo}
-            members={board?.members ?? members}
-            onSelectTask={openTaskOnBoard}
-          />
         ) : view === "home" ? (
           <HomeView
             role={isLead ? "lead" : "member"}
