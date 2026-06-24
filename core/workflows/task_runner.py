@@ -19,8 +19,7 @@ from typing import Callable, Optional
 from sqlmodel import Session, select
 
 from configs.settings import get_settings
-from core.agents.ideation_bot import IdeationBot
-from core.agents.planning_bot import PlanningBot
+from core.agents.employees import agent_for_role
 from core.db.models import (
     BrandProfile,
     Campaign,
@@ -44,11 +43,12 @@ from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
-from core.schemas.campaign import CampaignGenerationRequest, IdeationResult
+from core.schemas.campaign import IdeationResult
 
 ClientForProvider = Callable[[str], BaseLLMClient]
 
 _RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING)
+_ROLE_BY_KIND = {TaskKind.IDEATION: "ideation", TaskKind.PLANNING: "planning"}
 
 
 def _now() -> datetime:
@@ -317,13 +317,13 @@ class TaskRunner:
 
         task.status = TaskStatus.IN_PROGRESS
         try:
+            # The assigned AI employee's role (M6 makes this org-configurable).
+            agent_kind = (member.agent_config or {}).get("agent_kind") if member else None
+            role_key = agent_kind or _ROLE_BY_KIND[task.kind]
             payload = dict(campaign.brief)
             payload.setdefault("campaign_template", campaign.template)
-            request = CampaignGenerationRequest.model_validate(payload)
-            if task.kind == TaskKind.IDEATION:
-                result = await IdeationBot(client).run(request)
-                output = result.model_dump(mode="json")
-            else:  # PLANNING
+            context: dict = {"request": payload}
+            if task.kind == TaskKind.PLANNING:
                 ideation_result = IdeationResult.model_validate(self._ideation_output(task))
                 if not ideation_result.is_ready_for_planning:
                     task.status = TaskStatus.BLOCKED
@@ -333,8 +333,8 @@ class TaskRunner:
                     )
                     self._session.add(task)
                     return
-                plan = await PlanningBot(client).run(request, ideation_result)
-                output = plan.model_dump(mode="json")
+                context["ideation_result"] = ideation_result.model_dump(mode="json")
+            output = await agent_for_role(role_key, client).run(context)
         except Exception as exc:
             # Revert so a later run can retry, and leave an audit trail.
             task.status = TaskStatus.TODO
