@@ -86,13 +86,23 @@ class User(SQLModel, table=True):
 
 
 class Member(SQLModel, table=True):
-    """A worker in a tenant — either a human (links to a User) or an AI agent."""
+    """A worker in a tenant — either a human (links to a User) or an AI agent.
+
+    The org is configured per tenant on the members themselves: ``job_description``
+    is the digital employee's charter, ``reports_to`` is their manager (a member in
+    the same tenant), and ``handles_kinds`` are the task kinds they are the default
+    owner of — which is what routes work to them, instead of a hardcoded table.
+    For an AI member, ``agent_config["role"]`` names the agent that runs their work.
+    """
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     tenant_id: str = Field(index=True, foreign_key="tenant.id")
     kind: MemberKind
     role: MemberRole = MemberRole.MEMBER
     display_name: str
+    job_description: str = ""
+    reports_to: Optional[str] = Field(default=None, foreign_key="member.id")
+    handles_kinds: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     user_id: Optional[str] = Field(default=None, foreign_key="app_user.id")
     agent_config: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)

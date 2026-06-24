@@ -6,6 +6,7 @@ from core.db.models import (
     Member,
     MemberKind,
     MemberRole,
+    TaskKind,
     Tenant,
     User,
 )
@@ -33,6 +34,32 @@ def test_seed_creates_expected_team() -> None:
         assert len(ai_agents) == 3
         assert any(m.role == MemberRole.LEAD for m in humans)
         assert all(m.agent_config and m.agent_config["agent_kind"] for m in ai_agents)
+
+
+def test_seed_wires_the_org_config() -> None:
+    with _session() as session:
+        tenant = seed_testsprite(session)
+        by_name = {
+            m.display_name: m
+            for m in session.exec(
+                select(Member).where(Member.tenant_id == tenant.id)
+            ).all()
+        }
+
+        lead = by_name["Adam (Lead)"]
+        # handles_kinds is what routes work; each AI agent owns one kind, the lead
+        # owns the human-only claim check.
+        assert lead.handles_kinds == [TaskKind.CLAIM_CHECK.value]
+        assert by_name["Ideation bot"].handles_kinds == [TaskKind.IDEATION.value]
+        assert by_name["Planning bot"].handles_kinds == [TaskKind.PLANNING.value]
+        assert by_name["Asset writer"].handles_kinds == [TaskKind.ASSET.value]
+
+        # AI members name the agent that runs their work; the org reports to the lead.
+        assert by_name["Asset writer"].agent_config["role"] == "copywriter"
+        assert lead.reports_to is None
+        for name in ("Sam (Writer)", "Ideation bot", "Asset writer"):
+            assert by_name[name].reports_to == lead.id
+            assert by_name[name].job_description
 
 
 def test_seed_creates_brand_profile() -> None:

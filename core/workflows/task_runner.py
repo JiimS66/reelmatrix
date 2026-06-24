@@ -51,11 +51,19 @@ from core.schemas.campaign import IdeationResult
 ClientForProvider = Callable[[str], BaseLLMClient]
 
 _RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET)
+# Fallback agent for each kind when the assigned member declares no explicit role.
 _ROLE_BY_KIND = {
     TaskKind.IDEATION: "ideation",
     TaskKind.PLANNING: "planning",
     TaskKind.ASSET: "copywriter",
 }
+
+
+def role_for(task: Task, member: Optional[Member]) -> str:
+    """The agent that runs this task: the member's configured role takes precedence,
+    so a tenant can point a kind at a custom agent without editing _ROLE_BY_KIND."""
+    configured = (member.agent_config or {}).get("role") if member else None
+    return configured or _ROLE_BY_KIND[task.kind]
 
 
 def _now() -> datetime:
@@ -294,7 +302,7 @@ class TaskRunner:
         client = self._client_for_provider(provider)
         task.status = TaskStatus.IN_PROGRESS
 
-        role_key = _ROLE_BY_KIND[task.kind]
+        role_key = role_for(task, member)
         context = self._build_context(task, campaign)
         if task.kind == TaskKind.PLANNING:
             ideation_result = IdeationResult.model_validate(context["ideation_result"])

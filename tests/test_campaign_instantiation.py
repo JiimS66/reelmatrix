@@ -73,6 +73,37 @@ def test_instantiate_creates_expected_task_graph() -> None:
         assert claim_check.assignee_id == lead.id
 
 
+def test_org_config_reroutes_a_kind_to_a_different_member() -> None:
+    """Reconfiguring who handles a kind reroutes the work — no code change."""
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        by_name = {
+            m.display_name: m
+            for m in session.exec(
+                select(Member).where(Member.tenant_id == tenant.id)
+            ).all()
+        }
+        # Hand asset work to the human writer instead of the AI Asset writer.
+        by_name["Asset writer"].handles_kinds = []
+        by_name["Sam (Writer)"].handles_kinds = [TaskKind.ASSET.value]
+        session.add(by_name["Asset writer"])
+        session.add(by_name["Sam (Writer)"])
+        session.commit()
+
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={"product_name": "TestSprite", "selected_channels": ["LinkedIn"]},
+        )
+        asset = session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).first()
+        assert asset.assignee_id == by_name["Sam (Writer)"].id
+
+
 def test_instantiate_falls_back_to_default_channels() -> None:
     with _seeded_session() as session:
         tenant = seed_testsprite(session)

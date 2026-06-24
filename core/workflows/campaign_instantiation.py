@@ -25,31 +25,39 @@ from core.workflows.scheduler import generate_schedule
 DEFAULT_CHANNELS = ["LinkedIn", "Email", "Blog"]
 
 
-def resolve_default_assignees(
-    session: Session, tenant_id: str
-) -> dict[str, Optional[str]]:
-    """Map each default role (ideation/planning/asset AI agents + lead) to a member id."""
-    members = session.exec(
-        select(Member).where(Member.tenant_id == tenant_id)
-    ).all()
-    assignees: dict[str, Optional[str]] = {
-        "ideation": None,
-        "planning": None,
-        "asset": None,
-        "lead": None,
-    }
+def route_assignees(session: Session, tenant_id: str) -> dict[str, Optional[str]]:
+    """Map each task kind to the member configured to own it (``handles_kinds``).
+
+    This is the per-tenant org routing: whoever declares a kind handles it, so a
+    tenant reconfigures who does what without touching this code. When two members
+    declare the same kind the earliest-created wins (a stable default). The claim
+    check falls back to the lead so fact-checking always reaches a human even in an
+    under-configured org.
+    """
+    members = list(
+        session.exec(
+            select(Member)
+            .where(Member.tenant_id == tenant_id)
+            .order_by(Member.created_at)
+        ).all()
+    )
+    routes: dict[str, Optional[str]] = {}
     for member in members:
-        if member.kind == MemberKind.AI and member.agent_config:
-            agent_kind = member.agent_config.get("agent_kind")
-            if agent_kind in assignees and assignees[agent_kind] is None:
-                assignees[agent_kind] = member.id
-        elif (
-            member.kind == MemberKind.HUMAN
-            and member.role == MemberRole.LEAD
-            and assignees["lead"] is None
-        ):
-            assignees["lead"] = member.id
-    return assignees
+        for kind in member.handles_kinds or []:
+            routes.setdefault(kind, member.id)
+
+    if routes.get(TaskKind.CLAIM_CHECK.value) is None:
+        lead = next(
+            (
+                m
+                for m in members
+                if m.kind == MemberKind.HUMAN and m.role == MemberRole.LEAD
+            ),
+            None,
+        )
+        if lead is not None:
+            routes[TaskKind.CLAIM_CHECK.value] = lead.id
+    return routes
 
 
 def instantiate_campaign(
@@ -80,7 +88,7 @@ def instantiate_campaign(
     )
     session.add(campaign)
 
-    assignees = resolve_default_assignees(session, tenant_id)
+    routes = route_assignees(session, tenant_id)
 
     ideation = Task(
         tenant_id=tenant_id,
@@ -88,7 +96,7 @@ def instantiate_campaign(
         kind=TaskKind.IDEATION,
         title="Ideation",
         execution_mode=ExecutionMode.AI_AUTO,
-        assignee_id=assignees["ideation"],
+        assignee_id=routes.get(TaskKind.IDEATION.value),
         sequence=1,
     )
     session.add(ideation)
@@ -100,7 +108,7 @@ def instantiate_campaign(
         title="Campaign plan",
         execution_mode=ExecutionMode.AI_AUTO,
         depends_on=[ideation.id],
-        assignee_id=assignees["planning"],
+        assignee_id=routes.get(TaskKind.PLANNING.value),
         sequence=2,
     )
     session.add(planning)
@@ -116,14 +124,14 @@ def instantiate_campaign(
                 title=f"{channel} post",
                 execution_mode=asset_mode,
                 depends_on=[planning.id],
-                assignee_id=assignees["asset"],
+                assignee_id=routes.get(TaskKind.ASSET.value),
                 params={"channel": channel},
                 sequence=sequence,
             )
         )
         sequence += 1
 
-    # Fact-checking defaults to a human task assigned to the lead.
+    # Fact-checking is a human-only task; route_assignees guarantees a lead fallback.
     session.add(
         Task(
             tenant_id=tenant_id,
@@ -132,7 +140,7 @@ def instantiate_campaign(
             title="Claim check",
             depends_on=[planning.id],
             execution_mode=ExecutionMode.HUMAN_ONLY,
-            assignee_id=assignees["lead"],
+            assignee_id=routes.get(TaskKind.CLAIM_CHECK.value),
             sequence=sequence,
         )
     )

@@ -8,6 +8,7 @@ from core.llm.base import BaseLLMClient, LLMProviderError
 from core.db.models import (
     ExecutionMode,
     Member,
+    MemberKind,
     MemberRole,
     Task,
     TaskEvent,
@@ -18,7 +19,7 @@ from core.db.models import (
 from core.db.seed import seed_testsprite
 from core.llm.mock_client import MockLLMClient
 from core.workflows.campaign_instantiation import instantiate_campaign
-from core.workflows.task_runner import TaskRunner, fan_out_from_plan
+from core.workflows.task_runner import TaskRunner, fan_out_from_plan, role_for
 
 
 class _FailingClient(BaseLLMClient):
@@ -148,6 +149,22 @@ def test_run_task_error_reverts_to_todo_and_audits() -> None:
         select(TaskEvent).where(TaskEvent.task_id == ideation.id)
     ).all()
     assert any(e.payload and "error" in e.payload for e in events)
+
+
+def test_role_for_prefers_the_members_configured_role() -> None:
+    asset_task = Task(tenant_id="t", campaign_id="c", kind=TaskKind.ASSET, title="x")
+    # No member / no configured role -> the kind's default agent.
+    assert role_for(asset_task, None) == "copywriter"
+    plain = Member(tenant_id="t", kind=MemberKind.AI, display_name="plain")
+    assert role_for(asset_task, plain) == "copywriter"
+    # A configured role on the member wins, so a kind can be pointed at a custom agent.
+    custom = Member(
+        tenant_id="t",
+        kind=MemberKind.AI,
+        display_name="custom",
+        agent_config={"role": "designer", "provider": "mock"},
+    )
+    assert role_for(asset_task, custom) == "designer"
 
 
 def test_fan_out_preserves_human_edits_on_replay() -> None:
