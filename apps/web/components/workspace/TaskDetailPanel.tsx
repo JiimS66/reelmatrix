@@ -72,7 +72,12 @@ export function TaskDetailPanel({
       return { ...output, title, content, call_to_action: cta };
     }
     try {
-      return JSON.parse(jsonText) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(jsonText);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        onError("Output must be a JSON object — fix it before saving.");
+        return null;
+      }
+      return parsed as Record<string, unknown>;
     } catch {
       onError("Output is not valid JSON — fix it before saving.");
       return null;

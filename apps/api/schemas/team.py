@@ -160,3 +160,11 @@ class ReviewRequest(BaseModel):
 
 class CommentRequest(BaseModel):
     body: str
+
+    @field_validator("body")
+    @classmethod
+    def _non_empty_body(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("comment body cannot be empty")
+        return cleaned

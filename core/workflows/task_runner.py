@@ -5,10 +5,10 @@ dependencies are satisfied, persisting their output, a UsageEvent, and audit
 TaskEvents. Completing a planning task fans its plan out into the downstream
 asset and claim-check tasks.
 
-Because the default execution mode is ``ai_draft_human_review``, a fresh run
-typically advances only one step (ideation) and then stops, waiting for a human
-to approve before the next AI task becomes ready. ``complete_task`` is shared
-with the review API so approvals re-trigger the same fan-out; both
+Because the default template uses ``ai_auto`` for ideation/planning/assets, a run
+typically advances through every AI-owned step in one pass; only human-only tasks
+(e.g. the claim check) stay in ``todo`` until a human submits them. ``complete_task``
+is shared with the review API so approvals re-trigger the same fan-out; both
 ``complete_task`` and ``fan_out_from_plan`` are idempotent and never overwrite
 work a human has already touched.
 """
@@ -295,7 +295,9 @@ class TaskRunner:
 
         task.status = TaskStatus.IN_PROGRESS
         try:
-            request = CampaignGenerationRequest.model_validate(campaign.brief)
+            payload = dict(campaign.brief)
+            payload.setdefault("campaign_template", campaign.template)
+            request = CampaignGenerationRequest.model_validate(payload)
             if task.kind == TaskKind.IDEATION:
                 result = await IdeationBot(client).run(request)
                 output = result.model_dump(mode="json")
