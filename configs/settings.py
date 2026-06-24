@@ -18,6 +18,7 @@ class AppSettings(BaseSettings):
     llm_provider: str = "mock"
     llm_timeout_seconds: float = Field(default=60, gt=0)
     web_origin: str = "http://localhost:3000"
+    database_url: str = "sqlite:///./reelmatrix.db"
 
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"

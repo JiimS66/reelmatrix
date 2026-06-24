@@ -6,6 +6,11 @@
 .env.*
 !.env.example
 
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Python environments and caches
 .venv/
 .uv-cache/
