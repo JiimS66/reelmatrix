@@ -110,20 +110,28 @@ export interface Atom {
   created_at: string;
 }
 
-export interface PerformanceRow {
-  task_id: string;
+export interface PostPerformance {
+  post_id: string;
   title: string;
-  channel: string;
-  utm_url: string;
+  url: string;
+  published_at: string;
   impressions: number;
   clicks: number;
   signups: number;
   source: string;
 }
 
+export interface PlatformPerformance {
+  platform: string;
+  impressions: number;
+  clicks: number;
+  signups: number;
+  posts: PostPerformance[];
+}
+
 export interface PerformanceData {
   campaign_id: string;
-  rows: PerformanceRow[];
+  platforms: PlatformPerformance[];
   totals: Record<string, number>;
   note: string;
 }
@@ -200,10 +208,10 @@ export const getPerformance = (memberId: string, campaignId: string) =>
 
 export const recordMetrics = (
   memberId: string,
-  taskId: string,
+  postId: string,
   body: { impressions: number; clicks: number; signups: number },
 ) =>
-  request<PerformanceData>(`/api/v1/team/tasks/${taskId}/metrics`, {
+  request<PerformanceData>(`/api/v1/team/posts/${postId}/metrics`, {
     method: "POST",
     memberId,
     body,

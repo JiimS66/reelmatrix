@@ -29,6 +29,7 @@ from core.db.models import (
     Member,
     MemberKind,
     MemberRole,
+    Post,
     Task,
     TaskEvent,
     TaskEventType,
@@ -38,6 +39,7 @@ from core.db.models import (
 )
 from core.content.atoms import atoms_from_asset
 from core.content.brand import forbidden_word_issues
+from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks
 from core.llm.base import BaseLLMClient
@@ -169,6 +171,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
             if task.execution_mode == ExecutionMode.AI_AUTO:
                 task.status = TaskStatus.DONE
                 harvest_atoms(session, task)
+                _publish_post(session, task)
             else:
                 task.status = TaskStatus.NEEDS_REVIEW
                 task.assignee_id = lead_id or task.assignee_id
@@ -218,6 +221,24 @@ def harvest_atoms(session: Session, task: Task) -> None:
         )
 
 
+def _publish_post(session: Session, task: Task) -> None:
+    """Record a published Post when an asset is approved (the metrics target)."""
+    campaign = session.get(Campaign, task.campaign_id)
+    if campaign is None:
+        return
+    channel = (task.params or {}).get("channel") or "web"
+    session.add(
+        Post(
+            tenant_id=task.tenant_id,
+            campaign_id=task.campaign_id,
+            asset_task_id=task.id,
+            platform=channel,
+            url=utm_url(campaign, task),
+            published_at=task.due_date or task.updated_at.date().isoformat(),
+        )
+    )
+
+
 def complete_task(session: Session, task: Task, *, actor_id: Optional[str] = None) -> None:
     """Mark a task done, audit it, and run kind-specific follow-ups.
 
@@ -232,6 +253,7 @@ def complete_task(session: Session, task: Task, *, actor_id: Optional[str] = Non
         fan_out_from_plan(session, task)
     elif task.kind == TaskKind.ASSET:
         harvest_atoms(session, task)
+        _publish_post(session, task)
     session.add(task)
 
 

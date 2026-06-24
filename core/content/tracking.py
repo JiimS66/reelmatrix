@@ -46,9 +46,9 @@ def utm_url(campaign: Campaign, task: Task) -> str:
     return f"{LANDING_BASE}/?{query}"
 
 
-def mock_metrics(task: Task) -> dict:
-    """Deterministic placeholder metrics derived from the task id."""
-    digest = int(sha256(task.id.encode()).hexdigest(), 16)
+def mock_metrics(seed_id: str) -> dict:
+    """Deterministic placeholder metrics derived from a stable id (e.g. post id)."""
+    digest = int(sha256(seed_id.encode()).hexdigest(), 16)
     impressions = 1200 + digest % 6000
     clicks = round(impressions * (0.02 + (digest % 50) / 1000.0))  # ~2-7% CTR
     signups = round(clicks * (0.04 + (digest % 30) / 1000.0))  # ~4-7% conversion

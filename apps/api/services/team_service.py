@@ -21,13 +21,14 @@ from core.db.models import (
     MemberRole,
     MetricSnapshot,
     Milestone,
+    Post,
     Task,
     TaskEvent,
     TaskEventType,
     TaskKind,
     TaskStatus,
 )
-from core.content.tracking import mock_metrics, utm_url
+from core.content.tracking import mock_metrics
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import complete_task, recompute_asset_checks
 
@@ -396,25 +397,34 @@ def list_atoms(
 def campaign_performance(
     session: Session, actor: Member, campaign_id: str
 ) -> tuple[Campaign, list[dict], dict]:
-    """Per-asset performance (UTM link + metrics) and campaign totals.
+    """Performance grouped by platform; each platform lists its published posts.
 
-    Uses the latest stored MetricSnapshot for an asset, else deterministic mock
-    metrics so the view is demoable before a real source is connected.
+    Metrics use the latest stored MetricSnapshot for a post, else deterministic
+    mock metrics so the view is demoable before a real source is connected.
     """
     campaign = _get_campaign(session, actor, campaign_id)
-    assets = list(
+    posts = list(
         session.exec(
-            select(Task)
-            .where(Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET)
-            .order_by(Task.sequence)
+            select(Post)
+            .where(Post.campaign_id == campaign.id)
+            .order_by(Post.platform, Post.published_at)
         ).all()
     )
-    rows: list[dict] = []
+    asset_titles = {
+        t.id: t.title
+        for t in session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).all()
+    }
+
+    platforms: dict[str, dict] = {}
     totals = {"impressions": 0, "clicks": 0, "signups": 0}
-    for task in assets:
+    for post in posts:
         snapshot = session.exec(
             select(MetricSnapshot)
-            .where(MetricSnapshot.task_id == task.id)
+            .where(MetricSnapshot.post_id == post.id)
             .order_by(MetricSnapshot.captured_at.desc())  # type: ignore[attr-defined]
         ).first()
         if snapshot is not None:
@@ -425,37 +435,51 @@ def campaign_performance(
                 "source": snapshot.source,
             }
         else:
-            metrics = mock_metrics(task)
-        rows.append(
+            metrics = mock_metrics(post.id)
+        group = platforms.setdefault(
+            post.platform,
             {
-                "task_id": task.id,
-                "title": task.title,
-                "channel": (task.params or {}).get("channel", ""),
-                "utm_url": utm_url(campaign, task),
+                "platform": post.platform,
+                "impressions": 0,
+                "clicks": 0,
+                "signups": 0,
+                "posts": [],
+            },
+        )
+        group["posts"].append(
+            {
+                "post_id": post.id,
+                "title": asset_titles.get(post.asset_task_id, "Post"),
+                "url": post.url,
+                "published_at": post.published_at,
                 **metrics,
             }
         )
-        for key in totals:
+        for key in ("impressions", "clicks", "signups"):
+            group[key] += metrics[key]
             totals[key] += metrics[key]
-    return campaign, rows, totals
+    return campaign, list(platforms.values()), totals
 
 
 def record_metrics(
     session: Session,
     actor: Member,
-    task_id: str,
+    post_id: str,
     *,
     impressions: int,
     clicks: int,
     signups: int,
 ) -> MetricSnapshot:
-    """Manually record a performance snapshot for an asset (lead only)."""
+    """Manually record a performance snapshot for a post (lead only)."""
     _require_lead(actor)
-    task = _get_task(session, actor, task_id)
+    post = session.get(Post, post_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found.")
+    _require_same_tenant(actor, post.tenant_id)
     snapshot = MetricSnapshot(
-        tenant_id=task.tenant_id,
-        campaign_id=task.campaign_id,
-        task_id=task.id,
+        tenant_id=post.tenant_id,
+        campaign_id=post.campaign_id,
+        post_id=post.id,
         source="manual",
         impressions=impressions,
         clicks=clicks,

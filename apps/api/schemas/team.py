@@ -177,19 +177,27 @@ class MetricsRequest(BaseModel):
     signups: int = 0
 
 
-class PerformanceRow(BaseModel):
-    task_id: str
+class PostPerformance(BaseModel):
+    post_id: str
     title: str
-    channel: str
-    utm_url: str
+    url: str
+    published_at: str
     impressions: int
     clicks: int
     signups: int
     source: str
 
 
+class PlatformPerformance(BaseModel):
+    platform: str
+    impressions: int
+    clicks: int
+    signups: int
+    posts: list[PostPerformance]
+
+
 class PerformanceData(BaseModel):
     campaign_id: str
-    rows: list[PerformanceRow]
+    platforms: list[PlatformPerformance]
     totals: dict[str, int]
     note: str

@@ -238,28 +238,32 @@ def test_review_assets_leaves_drafts_for_review() -> None:
     assert assets and all(t["status"] == "needs_review" for t in assets)
 
 
-def test_campaign_performance_returns_per_asset_metrics() -> None:
+def test_performance_groups_published_posts_by_platform() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # ai_auto -> assets done -> posts published
+    perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
+    assert len(perf["platforms"]) >= 1
+    plat = perf["platforms"][0]
+    post = plat["posts"][0]
+    assert "utm_source=" in post["url"]
+    assert post["impressions"] >= post["clicks"] >= post["signups"] >= 0
+    assert plat["signups"] == sum(p["signups"] for p in plat["posts"])
+    assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
+
+
+def test_record_metrics_overrides_a_post_mock() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]
     cid, _board = _run_campaign(app, lead)
     perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
-    assert len(perf["rows"]) >= 1
-    row = perf["rows"][0]
-    assert "utm_source=" in row["utm_url"]
-    assert row["impressions"] >= row["clicks"] >= row["signups"] >= 0
-    assert perf["totals"]["signups"] == sum(r["signups"] for r in perf["rows"])
-
-
-def test_record_metrics_overrides_the_mock() -> None:
-    app, members = _build()
-    lead = members["Adam (Lead)"]
-    cid, board = _run_campaign(app, lead)
-    asset = _task(board, "asset")
+    post = perf["platforms"][0]["posts"][0]
     updated = _req(
-        app, "POST", f"/api/v1/team/tasks/{asset['id']}/metrics", lead,
+        app, "POST", f"/api/v1/team/posts/{post['post_id']}/metrics", lead,
         json={"impressions": 9999, "clicks": 321, "signups": 42},
     ).json()
-    row = next(r for r in updated["rows"] if r["task_id"] == asset["id"])
+    rows = [p for pl in updated["platforms"] for p in pl["posts"]]
+    row = next(p for p in rows if p["post_id"] == post["post_id"])
     assert row["impressions"] == 9999
     assert row["signups"] == 42
     assert row["source"] == "manual"

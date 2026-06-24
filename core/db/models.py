@@ -221,13 +221,26 @@ class Milestone(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
-class MetricSnapshot(SQLModel, table=True):
-    """A point-in-time performance reading for a published asset task."""
+class Post(SQLModel, table=True):
+    """A published instance of an asset on a specific platform."""
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     tenant_id: str = Field(index=True, foreign_key="tenant.id")
     campaign_id: str = Field(index=True, foreign_key="campaign.id")
-    task_id: str = Field(index=True, foreign_key="task.id")
+    asset_task_id: str = Field(index=True, foreign_key="task.id")
+    platform: str
+    url: str
+    published_at: str  # ISO date
+    created_at: datetime = Field(default_factory=_now)
+
+
+class MetricSnapshot(SQLModel, table=True):
+    """A point-in-time performance reading for a published post."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    post_id: str = Field(index=True, foreign_key="post.id")
     source: str = "manual"  # manual | website | esp | github | ...
     impressions: int = 0
     clicks: int = 0

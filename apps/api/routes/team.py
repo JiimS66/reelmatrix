@@ -23,7 +23,7 @@ from apps.api.schemas.team import (
     MetricsRequest,
     MilestoneRead,
     PerformanceData,
-    PerformanceRow,
+    PlatformPerformance,
     ReviewRequest,
     ScheduleRead,
     SubmitRequest,
@@ -144,12 +144,12 @@ def get_schedule(
 def _performance_response(
     session: Session, actor: Member, campaign_id: str, *, note: str
 ) -> PerformanceData:
-    campaign, rows, totals = team_service.campaign_performance(
+    campaign, platforms, totals = team_service.campaign_performance(
         session, actor, campaign_id
     )
     return PerformanceData(
         campaign_id=campaign.id,
-        rows=[PerformanceRow(**row) for row in rows],
+        platforms=[PlatformPerformance(**p) for p in platforms],
         totals=totals,
         note=note,
     )
@@ -273,9 +273,9 @@ def add_comment(
     return CommentRead.model_validate(comment)
 
 
-@router.post("/tasks/{task_id}/metrics", response_model=PerformanceData)
+@router.post("/posts/{post_id}/metrics", response_model=PerformanceData)
 def record_metrics(
-    task_id: str,
+    post_id: str,
     payload: MetricsRequest,
     actor: Member = Depends(get_current_member),
     session: Session = Depends(get_session),
@@ -283,7 +283,7 @@ def record_metrics(
     snapshot = team_service.record_metrics(
         session,
         actor,
-        task_id,
+        post_id,
         impressions=payload.impressions,
         clicks=payload.clicks,
         signups=payload.signups,
