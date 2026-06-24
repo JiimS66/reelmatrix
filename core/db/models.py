@@ -105,6 +105,8 @@ class Campaign(SQLModel, table=True):
     template: str = "general"
     brief: dict = Field(sa_column=Column(JSON, nullable=False))
     status: str = "active"
+    event_name: Optional[str] = None
+    event_date: Optional[str] = None  # ISO date "YYYY-MM-DD" the campaign anchors on
     created_by: Optional[str] = Field(default=None, foreign_key="member.id")
     created_at: datetime = Field(default_factory=_now)
 
@@ -131,6 +133,8 @@ class Task(SQLModel, table=True):
     output: Optional[dict] = Field(default=None, sa_column=Column(JSON))
     params: dict = Field(default_factory=dict, sa_column=Column(JSON))
     checks: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    due_date: Optional[str] = None  # ISO date the task is scheduled for
+    phase: Optional[str] = None  # prep | warmup | buildup | prelaunch | launch | followup
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -200,4 +204,18 @@ class ContentAtom(SQLModel, table=True):
     tags: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     source_campaign_id: Optional[str] = Field(default=None, foreign_key="campaign.id")
     source_task_id: Optional[str] = Field(default=None, foreign_key="task.id")
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Milestone(SQLModel, table=True):
+    """A dated phase in a campaign's back-planned schedule (calendar backbone)."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    phase: str  # warmup | buildup | prelaunch | launch | followup
+    name: str
+    date: str  # ISO date
+    offset_days: int  # relative to the event date
+    objective: str = ""
     created_at: datetime = Field(default_factory=_now)

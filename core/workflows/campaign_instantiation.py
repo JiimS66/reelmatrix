@@ -20,6 +20,7 @@ from core.db.models import (
     Task,
     TaskKind,
 )
+from core.workflows.scheduler import generate_schedule
 
 DEFAULT_CHANNELS = ["LinkedIn", "Email", "Blog"]
 
@@ -59,6 +60,8 @@ def instantiate_campaign(
     brief: dict,
     template: str = "general",
     created_by: Optional[str] = None,
+    event_name: Optional[str] = None,
+    event_date: Optional[str] = None,
 ) -> Campaign:
     """Create a campaign plus its fixed task graph, returning the campaign.
 
@@ -71,6 +74,8 @@ def instantiate_campaign(
         template=template,
         brief=brief,
         created_by=created_by,
+        event_name=event_name,
+        event_date=event_date,
     )
     session.add(campaign)
 
@@ -131,5 +136,6 @@ def instantiate_campaign(
         )
     )
 
+    generate_schedule(session, campaign)
     session.commit()
     return campaign
