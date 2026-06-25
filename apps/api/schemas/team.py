@@ -450,6 +450,20 @@ class GrowthInsights(BaseModel):
     priors: list[str]
 
 
+class IncrementalityRow(BaseModel):
+    attribute_type: str
+    attribute_value: str
+    naive_conversions: int
+    incremental_conversions: int
+    multiplier: float
+    lift_pct: float
+
+
+class IncrementalityResult(BaseModel):
+    tests: list[IncrementalityRow]
+    insights: GrowthInsights
+
+
 class ExperimentVariantRead(BaseModel):
     key: str
     attributes: dict

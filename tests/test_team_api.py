@@ -442,6 +442,26 @@ def test_growth_insights_learn_from_published_outcomes() -> None:
     assert _req(app, "GET", "/api/v1/team/insights", sam).status_code == 403
 
 
+def test_incrementality_debiases_the_flywheel() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    rows = [
+        {"title": "The only way to verify AI code", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 90}
+        for _ in range(3)
+    ]
+    _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows})
+
+    res = _req(app, "POST", "/api/v1/team/insights/incrementality", lead).json()
+    assert res["tests"]
+    bold = next((t for t in res["tests"] if t["attribute_value"] == "bold_claim"), None)
+    assert bold and bold["multiplier"] < 1.0  # the over-claimer is de-biased
+    assert _req(
+        app, "POST", "/api/v1/team/insights/incrementality", sam
+    ).status_code == 403
+
+
 def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

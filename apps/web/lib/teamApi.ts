@@ -318,6 +318,27 @@ export const learnInsights = (memberId: string) =>
     memberId,
   });
 
+export interface IncrementalityRow {
+  attribute_type: string;
+  attribute_value: string;
+  naive_conversions: number;
+  incremental_conversions: number;
+  multiplier: number;
+  lift_pct: number;
+}
+
+export interface IncrementalityResult {
+  tests: IncrementalityRow[];
+  insights: GrowthInsights;
+}
+
+/** Phase 11 — measure causal lift + de-bias the flywheel (correlation → causation). */
+export const runIncrementality = (memberId: string) =>
+  request<IncrementalityResult>("/api/v1/team/insights/incrementality", {
+    method: "POST",
+    memberId,
+  });
+
 export interface ExperimentVariant {
   key: string;
   attributes: Record<string, string>;

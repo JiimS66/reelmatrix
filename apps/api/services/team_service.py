@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 
 from core.db.models import (
     Annotation,
+    AttributeOutcome,
     BrandProfile,
     BrandTerm,
     Campaign,
@@ -27,6 +28,7 @@ from core.db.models import (
     EpisodicNote,
     Experiment,
     ExperimentVariant,
+    IncrementalityTest,
     ExecutionMode,
     Member,
     MemberKind,
@@ -51,6 +53,7 @@ from core.content.tracking import mock_metrics
 from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
 from core.growth.experiments import design_variants, simulated_outcome
+from core.growth.incrementality import measure_lift
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.content.repurpose import create_repurpose_provider
 from core.ingest.factory import create_import_provider
@@ -1275,6 +1278,49 @@ def relearn_outcomes(session: Session, actor: Member) -> dict:
     _require_lead(actor)
     learn_outcomes(session, actor.tenant_id)
     return get_growth_insights(session, actor)
+
+
+def run_incrementality(session: Session, actor: Member) -> dict:
+    """Phase 11 — measure causal lift per attribute (mock GeoHoldout), store the de-bias
+    multipliers, and re-learn so the flywheel reflects CAUSATION not just correlation. A
+    high-converting attribute with low incrementality is shrunk toward baseline. Lead only."""
+    _require_lead(actor)
+    for t in session.exec(
+        select(IncrementalityTest).where(IncrementalityTest.tenant_id == actor.tenant_id)
+    ).all():
+        session.delete(t)
+    session.commit()
+    learn_outcomes(session, actor.tenant_id)  # naive baseline (no multipliers)
+    naive_rows = session.exec(
+        select(AttributeOutcome).where(
+            AttributeOutcome.tenant_id == actor.tenant_id,
+            AttributeOutcome.channel == "",
+            AttributeOutcome.segment == "",
+        )
+    ).all()
+    results = []
+    for r in naive_rows:
+        readout = measure_lift(r.attribute_value, r.conversions)
+        session.add(
+            IncrementalityTest(
+                tenant_id=actor.tenant_id, attribute_type=r.attribute_type,
+                attribute_value=r.attribute_value, naive_conversions=r.conversions,
+                incremental_conversions=readout["incremental_conversions"],
+                multiplier=readout["multiplier"], lift_pct=readout["lift_pct"],
+            )
+        )
+        results.append(
+            {
+                "attribute_type": r.attribute_type, "attribute_value": r.attribute_value,
+                "naive_conversions": r.conversions,
+                "incremental_conversions": readout["incremental_conversions"],
+                "multiplier": readout["multiplier"], "lift_pct": readout["lift_pct"],
+            }
+        )
+    session.commit()
+    learn_outcomes(session, actor.tenant_id)  # de-biased re-learn
+    results.sort(key=lambda x: x["multiplier"])  # most over-claimed first
+    return {"tests": results, "insights": get_growth_insights(session, actor)}
 
 
 # --- Phase 5b: the experiment ledger (variants → stats → winning patterns) ---

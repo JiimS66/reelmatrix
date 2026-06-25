@@ -124,3 +124,37 @@ def test_bayesian_stats_detects_a_clear_winner() -> None:
     variant = SimpleNamespace(impressions=2000, conversions=180)  # 9%
     assert stats.chance_to_beat_control(control, variant) > 0.95
     assert stats.chance_to_beat_control(variant, control) < 0.05
+
+
+def test_measure_lift_yields_debias_multiplier() -> None:
+    from core.growth.incrementality import measure_lift
+
+    over = measure_lift("bold_claim", 100)
+    assert over["multiplier"] < 1.0 and over["incremental_conversions"] == 55
+    assert measure_lift("curiosity", 100)["multiplier"] > 1.0
+    assert measure_lift("unknown_attr", 100)["multiplier"] == 1.0  # neutral default
+
+
+def test_flywheel_debiases_with_incrementality() -> None:
+    from core.db.models import IncrementalityTest
+
+    session = _session()
+    for i in range(3):
+        _add_post(session, i, title="The only way to ship AI", signups=80)  # bold_claim
+    learn_outcomes(session, TENANT)
+
+    def _bold(s):
+        return next(
+            r for r in s.exec(select(AttributeOutcome)).all()
+            if r.attribute_type == "hook_type" and r.attribute_value == "bold_claim"
+            and r.channel == "" and r.segment == ""
+        )
+
+    naive_conv = _bold(session).conversions
+    session.add(IncrementalityTest(
+        tenant_id=TENANT, attribute_type="hook_type",
+        attribute_value="bold_claim", multiplier=0.5,
+    ))
+    session.commit()
+    learn_outcomes(session, TENANT)
+    assert _bold(session).conversions < naive_conv  # de-biased shrinks the over-claimer

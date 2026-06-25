@@ -65,6 +65,7 @@ from apps.api.schemas.team import (
     FunnelCoverage,
     GapRequest,
     GrowthInsights,
+    IncrementalityResult,
     MarketIntelRead,
     NarrativeRead,
     NarrativeRequest,
@@ -442,6 +443,15 @@ def learn_growth_insights(
 ) -> GrowthInsights:
     """Rebuild the attribute posteriors from current post outcomes, then return them."""
     return GrowthInsights(**team_service.relearn_outcomes(session, actor))
+
+
+@router.post("/insights/incrementality", response_model=IncrementalityResult)
+def run_incrementality(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> IncrementalityResult:
+    """Measure causal lift + de-bias the flywheel (correlation → causation)."""
+    return IncrementalityResult(**team_service.run_incrementality(session, actor))
 
 
 @router.get(

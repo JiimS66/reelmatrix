@@ -18,7 +18,14 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from core.content.tracking import mock_metrics
-from core.db.models import AttributeOutcome, MetricSnapshot, Post, Task, WinningPattern
+from core.db.models import (
+    AttributeOutcome,
+    IncrementalityTest,
+    MetricSnapshot,
+    Post,
+    Task,
+    WinningPattern,
+)
 from core.growth.attributes import ATTRIBUTE_TYPES, extract_attributes
 
 # Cold-start guard: below this many posts in a slice, look-ups fall back to a broader
@@ -47,8 +54,16 @@ def learn_outcomes(session: Session, tenant_id: str) -> int:
     (channel, segment), (channel, ""), ("", "") — so look-ups can fall back. Returns the
     number of posterior rows written."""
     posts = list(session.exec(select(Post).where(Post.tenant_id == tenant_id)).all())
+    # Causal de-bias (Phase 11): scale an attribute's wins by its measured lift multiplier
+    # (default 1.0 → unchanged until an IncrementalityTest exists).
+    multipliers = {
+        t.attribute_value: t.multiplier
+        for t in session.exec(
+            select(IncrementalityTest).where(IncrementalityTest.tenant_id == tenant_id)
+        ).all()
+    }
     # (attr_type, attr_value, channel, segment) -> [impressions, conversions, n_posts]
-    buckets: dict[tuple[str, str, str, str], list[int]] = defaultdict(lambda: [0, 0, 0])
+    buckets: dict[tuple[str, str, str, str], list[float]] = defaultdict(lambda: [0.0, 0.0, 0])
     for post in posts:
         task = session.get(Task, post.asset_task_id)
         if task is None or not task.output:
@@ -61,10 +76,11 @@ def learn_outcomes(session: Session, tenant_id: str) -> int:
         channel = str(params.get("channel") or "")
         segment = str(params.get("segment") or "")
         for atype, avalue in attrs.items():
+            conv_eff = conversions * multipliers.get(avalue, 1.0)  # de-biased wins
             for ch, seg in {(channel, segment), (channel, ""), ("", "")}:
                 bucket = buckets[(atype, avalue, ch, seg)]
                 bucket[0] += impressions
-                bucket[1] += conversions
+                bucket[1] += conv_eff
                 bucket[2] += 1
 
     # Replace the tenant's rows (idempotent rebuild).
@@ -81,11 +97,11 @@ def learn_outcomes(session: Session, tenant_id: str) -> int:
                 attribute_value=avalue,
                 channel=ch,
                 segment=seg,
-                impressions=impressions,
-                conversions=conversions,
-                n_posts=n,
+                impressions=int(impressions),
+                conversions=int(round(conversions)),
+                n_posts=int(n),
                 alpha=1.0 + conversions,
-                beta=1.0 + max(0, impressions - conversions),
+                beta=1.0 + max(0.0, impressions - conversions),
                 updated_at=now,
             )
         )

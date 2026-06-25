@@ -432,6 +432,24 @@ class WinningPattern(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class IncrementalityTest(SQLModel, table=True):
+    """Phase 11 — a causal lift measurement (mock GeoHoldout; GeoLift/CausalImpact later).
+    The flywheel learns CORRELATION; this measures the COUNTERFACTUAL and yields a
+    multiplier that de-biases the Beta update — a high-converting attribute with LOW
+    incrementality (just shown to high-intent audiences) gets shrunk toward baseline."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    attribute_type: str
+    attribute_value: str
+    naive_conversions: int = 0
+    incremental_conversions: int = 0
+    multiplier: float = 1.0  # incremental / naive — scales the attribute's win pseudo-count
+    lift_pct: float = 0.0
+    status: str = "measured"
+    created_at: datetime = Field(default_factory=_now)
+
+
 class DiscoveredSegmentCandidate(SQLModel, table=True):
     """A data-surfaced audience cluster proposed for promotion to a tracked ICP segment
     (Phase 6). Mock discovery now (a high-converting sub-cluster of a validated segment);
