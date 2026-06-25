@@ -683,6 +683,47 @@ def test_outbound_enriches_personalizes_and_guards() -> None:
     ).status_code == 403
 
 
+def test_import_historical_warm_starts_the_flywheel() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    rows = [
+        {"title": "Are you shipping AI code blind?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 80},
+        {"title": "Are you still guessing on quality?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 75},
+        {"title": "Will your AI code hold up?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 70},
+    ]
+    res = _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows}).json()
+    assert res["imported"] == 3
+    # The flywheel warm-started from history — no cold start.
+    assert any(
+        a["attribute_type"] == "hook_type" and a["attribute_value"] == "question"
+        for a in res["insights"]["attributes"]
+    )
+    assert _req(
+        app, "POST", "/api/v1/team/import/historical", sam, json={"rows": []}
+    ).status_code == 403
+
+
+def test_ingest_brand_knowledge_applies_to_brand() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    text = (
+        "TestSprite verifies AI-generated code before it ships. Trust and Verification "
+        "matter for technical teams shipping fast."
+    )
+    res = _req(
+        app, "POST", "/api/v1/team/import/brand-knowledge", lead, json={"text": text}
+    ).json()
+    assert res["applied"] is True and res["draft"]["value_proposition"]
+    narrative = _req(app, "GET", "/api/v1/team/brand/narrative", lead).json()
+    assert narrative["value_proposition"] == res["draft"]["value_proposition"]
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

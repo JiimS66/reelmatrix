@@ -618,3 +618,28 @@ class ProspectRead(BaseModel):
 class AddProspectRequest(BaseModel):
     name: str
     domain: str = ""
+
+
+class ImportHistoricalRequest(BaseModel):
+    rows: list[dict]
+
+
+class ImportResult(BaseModel):
+    imported: int
+    insights: GrowthInsights
+
+
+class BrandKnowledgeRequest(BaseModel):
+    text: str
+
+
+class BrandDraftRead(BaseModel):
+    voice: str
+    value_proposition: str
+    messaging_pillars: list[dict]
+    tone_rules: list[str]
+
+
+class BrandKnowledgeResult(BaseModel):
+    draft: BrandDraftRead
+    applied: bool

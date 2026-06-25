@@ -51,6 +51,7 @@ from core.trends.safety import angle_safety
 from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.content.repurpose import create_repurpose_provider
+from core.ingest.factory import create_import_provider
 from core.growth.segments import discover_segments, score_segments
 from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
@@ -1965,3 +1966,112 @@ def send_outbound(session: Session, actor: Member, prospect_id: str) -> dict:
     session.add(p)
     session.commit()
     return {"prospects": list_prospects(session, actor, p.campaign_id)}
+
+
+# --- Enterprise onboarding: warm-start from the customer's existing world ---
+
+_IMPORT_CAMPAIGN_NAME = "Imported history"
+
+
+def _import_campaign(session: Session, actor: Member) -> Campaign:
+    existing = session.exec(
+        select(Campaign).where(
+            Campaign.tenant_id == actor.tenant_id, Campaign.template == "import"
+        )
+    ).first()
+    if existing is not None:
+        return existing
+    campaign = Campaign(
+        tenant_id=actor.tenant_id, name=_IMPORT_CAMPAIGN_NAME, template="import",
+        brief={"product_name": "Imported content"},
+        created_by=actor.id,
+    )
+    session.add(campaign)
+    session.commit()
+    session.refresh(campaign)
+    return campaign
+
+
+def import_historical(session: Session, actor: Member, rows: list[dict]) -> dict:
+    """Turn a customer's past content + performance into COMPLETED, MEASURED posts, so the
+    existing flywheel (learn_outcomes) and ICP (score_segments) warm-start with real priors
+    instead of cold-starting. Lead only."""
+    _require_lead(actor)
+    campaign = _import_campaign(session, actor)
+    posts = create_import_provider().parse_historical(rows or [])
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == campaign.id)
+        ).all()),
+        default=0,
+    )
+    for i, hp in enumerate(posts):
+        funnel = _FUNNEL_STAGES[i % len(_FUNNEL_STAGES)]
+        task = Task(
+            tenant_id=actor.tenant_id, campaign_id=campaign.id, kind=TaskKind.ASSET,
+            title=(hp.title[:60] or f"Imported {hp.channel}"),
+            status=TaskStatus.DONE, execution_mode=ExecutionMode.HUMAN_ONLY,
+            output={
+                "asset_type": "post", "channel": hp.channel, "title": hp.title,
+                "content": hp.content, "call_to_action": hp.call_to_action, "notes": [],
+            },
+            params={
+                "channel": hp.channel, "segment": hp.segment,
+                "funnel_stage": funnel, "provenance": "import",
+            },
+            sequence=last + 1 + i,
+        )
+        session.add(task)
+        post = Post(
+            tenant_id=actor.tenant_id, campaign_id=campaign.id, asset_task_id=task.id,
+            platform=hp.channel or "imported", url=f"https://imported/{task.id[:8]}",
+            published_at=hp.published_at or task.created_at.date().isoformat(),
+            publish_status="published",
+        )
+        session.add(post)
+        session.add(
+            MetricSnapshot(
+                tenant_id=actor.tenant_id, campaign_id=campaign.id, post_id=post.id,
+                source="import", impressions=hp.impressions, clicks=hp.clicks,
+                signups=hp.conversions,
+            )
+        )
+    session.commit()
+    learn_outcomes(session, actor.tenant_id)  # warm-start the flywheel from history
+    return {"imported": len(posts), "insights": get_growth_insights(session, actor)}
+
+
+def ingest_brand_knowledge(session: Session, actor: Member, *, text: str) -> dict:
+    """Extract structured brand knowledge from docs/site text and apply it to the brand
+    (voice / value-prop / pillars / tone). Lead only."""
+    _require_lead(actor)
+    draft = create_import_provider().extract_brand(text or "")
+    brand = get_brand(session, actor)
+    if brand is None:
+        brand = BrandProfile(tenant_id=actor.tenant_id)
+        session.add(brand)
+    if draft.voice:
+        brand.voice = draft.voice
+    if draft.tone_rules:
+        brand.tone_rules = draft.tone_rules
+    if draft.forbidden_words:
+        brand.forbidden_words = draft.forbidden_words
+    if draft.value_proposition:
+        brand.value_proposition = draft.value_proposition
+    if draft.messaging_pillars:
+        brand.messaging_pillars = draft.messaging_pillars
+    session.add(brand)
+    session.commit()
+    for seg in draft.segments:
+        upsert_segment(
+            session, actor, name=seg.get("name", ""), description=seg.get("description", ""),
+            profile="", platforms=seg.get("platforms", []), pain_points=seg.get("pain_points", []),
+            value_props=[], objections=[], reach_tactics=[],
+        )
+    return {
+        "draft": {
+            "voice": draft.voice, "value_proposition": draft.value_proposition,
+            "messaging_pillars": draft.messaging_pillars, "tone_rules": draft.tone_rules,
+        },
+        "applied": True,
+    }

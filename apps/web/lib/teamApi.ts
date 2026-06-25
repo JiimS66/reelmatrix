@@ -599,6 +599,40 @@ export const sendProspect = (memberId: string, prospectId: string) =>
     memberId,
   });
 
+export interface ImportResult {
+  imported: number;
+  insights: GrowthInsights;
+}
+
+/** Warm-start: import historical content+performance → flywheel/ICP get real priors. */
+export const importHistorical = (
+  memberId: string,
+  rows: Record<string, unknown>[],
+) =>
+  request<ImportResult>("/api/v1/team/import/historical", {
+    method: "POST",
+    memberId,
+    body: { rows },
+  });
+
+export interface BrandKnowledgeResult {
+  draft: {
+    voice: string;
+    value_proposition: string;
+    messaging_pillars: { name: string }[];
+    tone_rules: string[];
+  };
+  applied: boolean;
+}
+
+/** Extract structured brand knowledge from docs/site text → applied to the brand. */
+export const ingestBrandKnowledge = (memberId: string, text: string) =>
+  request<BrandKnowledgeResult>("/api/v1/team/import/brand-knowledge", {
+    method: "POST",
+    memberId,
+    body: { text },
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

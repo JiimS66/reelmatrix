@@ -6,6 +6,7 @@ import { CalendarView } from "@/components/workspace/CalendarView";
 import { BrandHub } from "@/components/workspace/BrandHub";
 import { BrandNarrativeCard } from "@/components/workspace/BrandNarrativeCard";
 import { IcpMarketPanel } from "@/components/workspace/IcpMarketPanel";
+import { OnboardingPanel } from "@/components/workspace/OnboardingPanel";
 import { PillarFunnelPanel } from "@/components/workspace/PillarFunnelPanel";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
@@ -542,6 +543,11 @@ export default function Workspace() {
           )
         ) : view === "brand" ? (
           <div className="space-y-5">
+            <OnboardingPanel
+              memberId={currentId}
+              canManage={!!isLead}
+              onChanged={onChanged}
+            />
             <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
             <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
             <BrandHub

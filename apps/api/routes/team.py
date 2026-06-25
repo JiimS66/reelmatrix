@@ -51,6 +51,10 @@ from apps.api.schemas.team import (
     ClipDraftRequest,
     ClipsRead,
     CreatePillarRequest,
+    BrandKnowledgeRequest,
+    BrandKnowledgeResult,
+    ImportHistoricalRequest,
+    ImportResult,
     AddProspectRequest,
     PaidPlan,
     PolicyVerdictRead,
@@ -726,6 +730,26 @@ def send_outbound_route(
         ProspectRead(**p)
         for p in team_service.send_outbound(session, actor, prospect_id)["prospects"]
     ]
+
+
+@router.post("/import/historical", response_model=ImportResult)
+def import_historical_route(
+    payload: ImportHistoricalRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ImportResult:
+    return ImportResult(**team_service.import_historical(session, actor, payload.rows))
+
+
+@router.post("/import/brand-knowledge", response_model=BrandKnowledgeResult)
+def import_brand_knowledge_route(
+    payload: BrandKnowledgeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandKnowledgeResult:
+    return BrandKnowledgeResult(
+        **team_service.ingest_brand_knowledge(session, actor, text=payload.text)
+    )
 
 
 @router.get("/brand", response_model=BrandRead)
