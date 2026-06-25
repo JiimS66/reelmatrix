@@ -11,6 +11,7 @@ import { PillarFunnelPanel } from "@/components/workspace/PillarFunnelPanel";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { AgentInbox } from "@/components/workspace/AgentInbox";
+import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
@@ -711,6 +712,16 @@ export default function Workspace() {
           </div>
         )}
       </main>
+      <CommandPalette
+        commands={(
+          ["overview", "plan", "create", "review", "results", "brand", "team"] as View[]
+        ).map((v) => ({
+          id: v,
+          group: "Go to",
+          label: v.charAt(0).toUpperCase() + v.slice(1),
+          run: () => setView(v),
+        }))}
+      />
     </div>
   );
 }
