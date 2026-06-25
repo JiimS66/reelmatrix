@@ -25,6 +25,7 @@ import {
   createCampaign,
   getBoard,
   getInbox,
+  getFleet,
   getOrg,
   getPerformance,
   getSchedule,
@@ -41,6 +42,7 @@ import {
   TESTSPRITE_BRIEF,
   type Atom,
   type Board,
+  type FleetAgent,
   type Member,
   type OrgData,
   type PerformanceData,
@@ -73,6 +75,7 @@ export default function Workspace() {
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
   const [org, setOrg] = useState<OrgData | null>(null);
+  const [fleet, setFleet] = useState<FleetAgent[]>([]);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -136,6 +139,7 @@ export default function Workspace() {
     }
     if (view === "team") {
       getOrg(currentId).then(setOrg).catch((e) => setError(errMessage(e)));
+      getFleet(currentId).then(setFleet).catch((e) => setError(errMessage(e)));
     }
     if (view === "performance" && board) {
       getPerformance(currentId, board.campaign.id)
@@ -345,11 +349,13 @@ export default function Workspace() {
           org ? (
             <TeamView
               org={org}
+              fleet={fleet}
               currentMemberId={currentId}
               isLead={!!isLead}
               onChanged={async () => {
                 try {
                   setOrg(await getOrg(currentId));
+                  setFleet(await getFleet(currentId));
                 } catch (e) {
                   setError(errMessage(e));
                 }

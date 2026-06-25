@@ -5,21 +5,23 @@ import { useState } from "react";
 import {
   createOrgMember,
   updateOrgMember,
+  type FleetAgent,
   type OrgData,
   type OrgMember,
 } from "@/lib/teamApi";
 
-import { KIND_LABEL } from "./primitives";
+import { KIND_LABEL, scoreBand } from "./primitives";
 
 interface Props {
   org: OrgData;
+  fleet: FleetAgent[];
   currentMemberId: string;
   isLead: boolean;
   onChanged: () => void | Promise<void>;
   onError: (message: string) => void;
 }
 
-export function TeamView({ org, currentMemberId, isLead, onChanged, onError }: Props) {
+export function TeamView({ org, fleet, currentMemberId, isLead, onChanged, onError }: Props) {
   const [hiring, setHiring] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -124,6 +126,72 @@ export function TeamView({ org, currentMemberId, isLead, onChanged, onError }: P
           );
         })}
       </div>
+
+      <FleetPanel fleet={fleet} roleTitle={roleTitle} />
+    </div>
+  );
+}
+
+function FleetPanel({
+  fleet,
+  roleTitle,
+}: {
+  fleet: FleetAgent[];
+  roleTitle: (key: string | null) => string;
+}) {
+  const active = fleet.filter((a) => a.runs > 0 || a.tasks_owned > 0);
+  if (active.length === 0) return null;
+  return (
+    <div className="surface overflow-hidden">
+      <div className="border-b border-ink/10 px-4 py-2.5">
+        <p className="tlabel">AI fleet</p>
+        <p className="mt-0.5 text-sm text-ink/60">
+          What each digital employee has done — LLM calls, work owned, average content
+          score, and self-corrections.
+        </p>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-ink/5 text-left font-mono text-[11px] text-ink/45">
+            <th className="px-4 py-1.5 font-normal">Agent</th>
+            <th className="px-3 py-1.5 text-right font-normal">Runs</th>
+            <th className="px-3 py-1.5 text-right font-normal">Tasks</th>
+            <th className="px-3 py-1.5 text-right font-normal">Avg score</th>
+            <th className="px-3 py-1.5 text-right font-normal">Self-corr.</th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((a) => (
+            <tr key={a.member_id} className="border-b border-ink/5 last:border-0">
+              <td className="px-4 py-2">
+                <p className="font-medium text-ink">{a.display_name}</p>
+                <p className="font-mono text-[11px] text-ink/45">
+                  {roleTitle(a.role)} · {a.provider}
+                  {a.model ? ` · ${a.model}` : ""}
+                </p>
+              </td>
+              <td className="px-3 py-2 text-right font-mono text-[12px]">{a.runs}</td>
+              <td className="px-3 py-2 text-right font-mono text-[12px]">{a.tasks_owned}</td>
+              <td className="px-3 py-2 text-right">
+                {a.avg_score === null ? (
+                  <span className="font-mono text-[12px] text-ink/35">—</span>
+                ) : (
+                  <span
+                    className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${scoreBand(
+                      a.avg_score,
+                    )}`}
+                  >
+                    {a.avg_score}
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right font-mono text-[12px]">
+                {a.self_corrections}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

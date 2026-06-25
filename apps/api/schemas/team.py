@@ -24,6 +24,18 @@ class MemberRead(BaseModel):
     display_name: str
 
 
+class FleetAgent(BaseModel):
+    member_id: str
+    display_name: str
+    role: str
+    provider: str
+    model: Optional[str]
+    runs: int
+    tasks_owned: int
+    avg_score: Optional[int]
+    self_corrections: int
+
+
 class TaskRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

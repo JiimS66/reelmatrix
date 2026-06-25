@@ -246,6 +246,21 @@ export const getPerformance = (memberId: string, campaignId: string) =>
     { memberId },
   );
 
+export interface FleetAgent {
+  member_id: string;
+  display_name: string;
+  role: string;
+  provider: string;
+  model: string | null;
+  runs: number;
+  tasks_owned: number;
+  avg_score: number | null;
+  self_corrections: number;
+}
+
+export const getFleet = (memberId: string) =>
+  request<FleetAgent[]>("/api/v1/team/fleet", { memberId });
+
 export const syncAnalytics = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/analytics/sync`,

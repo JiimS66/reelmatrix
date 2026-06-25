@@ -5,6 +5,7 @@ is scoped to the acting member's tenant. The runner (AI execution) is invoked
 from the route layer because it is async; this module stays synchronous.
 """
 
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -28,8 +29,10 @@ from core.db.models import (
     TaskEventType,
     TaskKind,
     TaskStatus,
+    UsageEvent,
 )
 from core.agents.roles import ROLES
+from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import complete_task, recompute_asset_checks
@@ -186,6 +189,60 @@ def list_all_members(session: Session) -> list[Member]:
     Unauthenticated, like the X-Member-Id stub — remove with real auth.
     """
     return list(session.exec(select(Member)).all())
+
+
+def agent_fleet(session: Session, actor: Member) -> list[dict]:
+    """Per-AI-employee observability from the data already captured: LLM calls
+    (UsageEvent), tasks owned, average content score, and self-correction passes.
+    Productizes the cross-model audit into a fleet view the lead can watch."""
+    members = session.exec(
+        select(Member).where(
+            Member.tenant_id == actor.tenant_id, Member.kind == MemberKind.AI
+        )
+    ).all()
+    usage = session.exec(
+        select(UsageEvent).where(UsageEvent.tenant_id == actor.tenant_id)
+    ).all()
+    tasks = session.exec(
+        select(Task).where(Task.tenant_id == actor.tenant_id)
+    ).all()
+    corrections = session.exec(
+        select(TaskEvent).where(
+            TaskEvent.tenant_id == actor.tenant_id,
+            TaskEvent.type == TaskEventType.SELF_CORRECTED,
+        )
+    ).all()
+    runs_by = Counter(u.member_id for u in usage if u.member_id)
+    corrections_by: Counter = Counter()
+    for event in corrections:
+        passes = (event.payload or {}).get("passes", 1) if event.payload else 1
+        if event.actor_id:
+            corrections_by[event.actor_id] += passes
+
+    fleet: list[dict] = []
+    for member in members:
+        owned = [t for t in tasks if t.assignee_id == member.id]
+        scores = [
+            score["overall"]
+            for t in owned
+            if (score := content_score(t.checks)) is not None
+        ]
+        config = member.agent_config or {}
+        fleet.append(
+            {
+                "member_id": member.id,
+                "display_name": member.display_name,
+                "role": config.get("role") or config.get("agent_kind") or "",
+                "provider": config.get("provider", "mock"),
+                "model": config.get("model"),
+                "runs": runs_by.get(member.id, 0),
+                "tasks_owned": len(owned),
+                "avg_score": round(sum(scores) / len(scores)) if scores else None,
+                "self_corrections": corrections_by.get(member.id, 0),
+            }
+        )
+    fleet.sort(key=lambda row: row["runs"], reverse=True)
+    return fleet
 
 
 # --- Org configuration (the per-tenant digital-employee roster) ---

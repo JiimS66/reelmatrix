@@ -275,6 +275,22 @@ def test_performance_groups_published_posts_by_platform() -> None:
     assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
 
 
+def test_fleet_reports_per_agent_observability() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _run_campaign(app, lead)  # ideation/planning/3 posts run; the auditor judges each
+
+    fleet = _req(app, "GET", "/api/v1/team/fleet", lead).json()
+    assert fleet
+    # The copywriter owns the post tasks, ran the LLM, and has an average score.
+    writer = next(f for f in fleet if f["role"] == "copywriter")
+    assert writer["runs"] >= 1 and writer["tasks_owned"] >= 1
+    assert writer["avg_score"] is not None
+    # The auditor ran (LLM calls) but owns no task kinds (it is runner-invoked).
+    auditor = next(f for f in fleet if f["role"] == "auditor")
+    assert auditor["runs"] >= 1 and auditor["tasks_owned"] == 0
+
+
 def test_publish_marks_posts_published_with_permalinks() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

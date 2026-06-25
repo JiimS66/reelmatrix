@@ -21,6 +21,7 @@ from apps.api.schemas.team import (
     CreateOrgMemberRequest,
     EditRequest,
     EventRead,
+    FleetAgent,
     MemberRead,
     MetricsRequest,
     MilestoneRead,
@@ -125,6 +126,14 @@ def list_members(
 ) -> list[MemberRead]:
     # Dev bootstrap (no auth): lets the stub UI pick who to act as.
     return [MemberRead.model_validate(m) for m in team_service.list_all_members(session)]
+
+
+@router.get("/fleet", response_model=list[FleetAgent])
+def get_fleet(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[FleetAgent]:
+    return [FleetAgent(**row) for row in team_service.agent_fleet(session, actor)]
 
 
 @router.get("/org", response_model=OrgRead)
