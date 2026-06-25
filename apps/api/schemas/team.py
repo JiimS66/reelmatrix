@@ -569,3 +569,24 @@ class ClipsRead(BaseModel):
 
 class ClipDraftRequest(BaseModel):
     hook_sentence: str
+
+
+class ReliabilityRow(BaseModel):
+    member_id: str
+    display_name: str
+    role: str
+    runs: int
+    reliability: int
+    recommended_mode: str
+
+
+class PolicyViolation(BaseModel):
+    rule: str
+    severity: str
+    message: str
+    fix: str
+
+
+class PolicyVerdictRead(BaseModel):
+    allow: bool
+    violations: list[PolicyViolation]

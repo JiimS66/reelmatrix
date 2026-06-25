@@ -530,6 +530,19 @@ export const draftShort = (
     body: { hook_sentence: hookSentence },
   });
 
+export interface ReliabilityRow {
+  member_id: string;
+  display_name: string;
+  role: string;
+  runs: number;
+  reliability: number;
+  recommended_mode: string;
+}
+
+/** Phase 9 — per-AI-employee reliability + the autonomy level it has earned. */
+export const getReliability = (memberId: string) =>
+  request<ReliabilityRow[]>("/api/v1/team/reliability", { memberId });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

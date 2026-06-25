@@ -609,6 +609,41 @@ def test_pillar_clips_rank_and_draft_a_short() -> None:
     assert res["task_id"]
 
 
+def test_policy_gate_blocks_superlatives_without_hurting_score() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    # The clean mock post passes the gate, and policy doesn't dent its content score.
+    verdict = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}/policy", lead).json()
+    assert verdict["allow"] is True and verdict["violations"] == []
+    assert asset["score"]["overall"] == 100  # advisory gate, excluded from the score
+
+    # Editing in absolute superlatives trips a BLOCK and surfaces as a policy check.
+    edited = {**asset["output"], "content": "We are the best #1 tool, guaranteed results."}
+    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead, json={"output": edited})
+    blocked = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}/policy", lead).json()
+    assert blocked["allow"] is False
+    assert any(v["severity"] == "block" for v in blocked["violations"])
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}", lead).json()
+    assert detail["task"]["checks"]["policy"]
+
+
+def test_reliability_scorecard_grades_autonomy() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)
+    rel = _req(app, "GET", "/api/v1/team/reliability", lead).json()
+    assert rel and all(
+        "recommended_mode" in r and "reliability" in r and "runs" in r for r in rel
+    )
+    assert all(
+        r["recommended_mode"] in ("ai_auto", "ai_draft_human_review", "human_only")
+        for r in rel
+    )
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

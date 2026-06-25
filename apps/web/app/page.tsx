@@ -15,6 +15,7 @@ import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
+import { ReliabilityCard } from "@/components/workspace/ReliabilityCard";
 import { TeamView } from "@/components/workspace/TeamView";
 import {
   AssigneeChip,
@@ -516,6 +517,8 @@ export default function Workspace() {
               onError={(m) => setError(m)}
             />
           ) : org ? (
+            <div className="space-y-5">
+            <ReliabilityCard memberId={currentId} />
             <TeamView
               org={org}
               fleet={fleet}
@@ -532,6 +535,7 @@ export default function Workspace() {
               }}
               onError={(m) => setError(m)}
             />
+            </div>
           ) : (
             <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
           )

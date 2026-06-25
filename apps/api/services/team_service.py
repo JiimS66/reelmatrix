@@ -55,6 +55,7 @@ from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
 from core.media.clips import create_clip_provider
 from core.media.video import create_video_provider
+from core.policy.gate import policy_issues
 from core.workflows.campaign_instantiation import (
     assign_segment,
     instantiate_campaign,
@@ -1792,3 +1793,49 @@ async def draft_short_from_clip(
     session.commit()
     await TaskRunner(session, client_for_provider).run_ready_tasks(pillar.campaign_id)
     return {"task_id": task.id}
+
+
+# --- Phase 9: governance — adaptive autonomy + the compliance gate ---
+
+
+def reliability_scorecard(session: Session, actor: Member) -> list[dict]:
+    """Per-AI-employee reliability + the autonomy it has EARNED. Graduated autonomy:
+    proven reliability widens autonomy, weak/unproven narrows it (Agentforce/Copilot
+    confidence-gating). Reuses the fleet stats already captured — automation level should
+    be the OUTPUT of a policy, not a static field."""
+    out = []
+    for f in agent_fleet(session, actor):
+        runs = f.get("runs", 0)
+        avg = f.get("avg_score") or 0
+        corrections = f.get("self_corrections", 0)
+        if runs < 3:  # unproven → stay review-gated
+            score, mode = 0, "ai_draft_human_review"
+        else:
+            rate = corrections / max(1, runs)
+            score = max(0, min(100, round(avg - rate * 20)))
+            mode = (
+                "ai_auto" if score >= 85
+                else "ai_draft_human_review" if score >= 60
+                else "human_only"
+            )
+        out.append({
+            "member_id": f["member_id"], "display_name": f["display_name"],
+            "role": f.get("role", ""), "runs": runs, "reliability": score,
+            "recommended_mode": mode,
+        })
+    return out
+
+
+def policy_check(session: Session, actor: Member, task_id: str) -> dict:
+    """Run the all-outbound compliance gate over a task's current output — returns the
+    decision object {allow, violations} (the kill-switch is one rule in the pack)."""
+    task = _get_task(session, actor, task_id)
+    output = task.output or {}
+    text = " ".join(
+        str(output.get(k, "")) for k in ("title", "content", "call_to_action")
+    )
+    issues = policy_issues(text, channel=(task.params or {}).get("channel", ""))
+    return {
+        "allow": not any(i["severity"] == "block" for i in issues),
+        "violations": issues,
+    }

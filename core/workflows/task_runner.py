@@ -50,6 +50,7 @@ from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
 from core.content.terminology import term_issues
 from core.growth.learner import learned_priors
+from core.policy.gate import policy_issues
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
 from core.media.base import VisionProvider
@@ -81,8 +82,18 @@ def role_for(task: Task, member: Optional[Member]) -> str:
 _MAX_ASSET_REVISIONS = 2
 
 
+# Advisory groups are judges/gates, not self-correction targets: the cross-model audit,
+# the visual critic, and the compliance gate don't drive automatic re-renders (a policy
+# violation needs a human call, not a retry loop).
+_ADVISORY_CHECKS = ("audit", "brand_fit", "policy")
+
+
 def _issue_count(checks: dict) -> int:
-    return sum(len(issues) for issues in checks.values())
+    return sum(
+        len(issues)
+        for name, issues in checks.items()
+        if name not in _ADVISORY_CHECKS
+    )
 
 
 def _revision_notes(checks: dict) -> list[str]:
@@ -183,6 +194,14 @@ def asset_checks(
         "brand": forbidden_word_issues(asset, forbidden),
         "consistency": unsourced_stat_issues(asset, approved_text),
         "terminology": term_issues(asset, terms or []),
+        # The all-outbound compliance gate (Phase 9): ad-law superlatives, PII,
+        # brand-safety/tragedy, missing disclosure. block-severity ⇒ not publishable.
+        "policy": policy_issues(
+            " ".join(
+                str(asset.get(k, "")) for k in ("title", "content", "call_to_action")
+            ),
+            channel=channel,
+        ),
     }
 
 

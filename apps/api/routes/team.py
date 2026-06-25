@@ -51,6 +51,8 @@ from apps.api.schemas.team import (
     ClipDraftRequest,
     ClipsRead,
     CreatePillarRequest,
+    PolicyVerdictRead,
+    ReliabilityRow,
     FunnelCoverage,
     GapRequest,
     GrowthInsights,
@@ -643,6 +645,26 @@ async def draft_short(
     return await team_service.draft_short_from_clip(
         session, actor, pillar_id, hook_sentence=payload.hook_sentence
     )
+
+
+@router.get("/reliability", response_model=list[ReliabilityRow])
+def reliability_scorecard(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ReliabilityRow]:
+    """Per-AI-employee reliability + the autonomy level it has earned."""
+    return [
+        ReliabilityRow(**r) for r in team_service.reliability_scorecard(session, actor)
+    ]
+
+
+@router.get("/tasks/{task_id}/policy", response_model=PolicyVerdictRead)
+def policy_check(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PolicyVerdictRead:
+    return PolicyVerdictRead(**team_service.policy_check(session, actor, task_id))
 
 
 @router.get("/brand", response_model=BrandRead)
