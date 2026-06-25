@@ -522,6 +522,17 @@ def test_identity_resolve_endpoint_stitches_profiles() -> None:
     ).status_code == 403
 
 
+def test_eval_run_scores_against_real_gates() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    res = _req(app, "POST", "/api/v1/team/evals/run", lead).json()
+    assert res["n_cases"] == 4
+    # the seeded superlative case fails the policy grader → not everything passes.
+    assert any(not c["passed"] for c in res["cases"])
+    assert 0 < res["overall"] < 1
+    assert _req(app, "POST", "/api/v1/team/evals/run", sam).status_code == 403
+
+
 def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

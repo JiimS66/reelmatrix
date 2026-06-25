@@ -505,6 +505,22 @@ class IdentityResult(BaseModel):
     profiles: list[UnifiedProfileRead]
 
 
+class EvalCaseResult(BaseModel):
+    name: str
+    expectation: str
+    score: float
+    passed: bool
+    reason: str
+
+
+class EvalRunResult(BaseModel):
+    suite: str
+    overall: float
+    passed: bool
+    n_cases: int
+    cases: list[EvalCaseResult]
+
+
 class ExperimentVariantRead(BaseModel):
     key: str
     attributes: dict

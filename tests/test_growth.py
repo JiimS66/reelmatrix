@@ -197,3 +197,15 @@ def test_identity_resolution_stitches_shared_ids() -> None:
     assert dana["traits"].get("company") == "Acme"
     # blocked/empty values don't runaway-merge.
     assert len(resolve_identities([{"email": "", "anon_id": "x"}, {"email": "", "anon_id": "y"}])) == 2
+
+
+def test_eval_grader_uses_real_gates() -> None:
+    from core.evals.grader import grade_case
+
+    assert grade_case("We help teams ship code.", "no_policy_block")["passed"] is True
+    assert grade_case(
+        "We are the best #1 tool, guaranteed results.", "no_policy_block"
+    )["passed"] is False
+    assert grade_case(
+        "Slow? 80% improve, according to our study.", "geo_citable"
+    )["score"] >= 0.5

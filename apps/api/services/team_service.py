@@ -26,6 +26,9 @@ from core.db.models import (
     DirectMessage,
     DiscoveredSegmentCandidate,
     EpisodicNote,
+    EvalCase,
+    EvalRun,
+    EvalSuite,
     Experiment,
     ExperimentVariant,
     IncrementalityTest,
@@ -57,6 +60,7 @@ from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.incrementality import measure_lift
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.content.repurpose import create_repurpose_provider
+from core.evals.grader import DEFAULT_CASES, grade_case
 from core.identity.resolver import resolve_identities as _resolve_identities
 from core.ingest.factory import create_import_provider
 from core.privacy.factory import create_egress_gate
@@ -2078,6 +2082,55 @@ def resolve_identities(session: Session, actor: Member, records: list[dict]) -> 
     only. Pure resolution today; a warehouse-native CDP swaps in behind this later."""
     _require_lead(actor)
     return {"profiles": _resolve_identities(records or [])}
+
+
+# --- Phase 12: LLMOps — systematic evaluation gating quality ---
+
+
+def _ensure_eval_suite(session: Session, tenant_id: str) -> EvalSuite:
+    suite = session.exec(
+        select(EvalSuite).where(EvalSuite.tenant_id == tenant_id)
+    ).first()
+    if suite is None:
+        suite = EvalSuite(tenant_id=tenant_id, name="Content quality & compliance")
+        session.add(suite)
+        session.commit()
+        session.refresh(suite)
+        for name, inp, exp in DEFAULT_CASES:
+            session.add(EvalCase(
+                tenant_id=tenant_id, suite_id=suite.id, name=name,
+                input_text=inp, expectation=exp,
+            ))
+        session.commit()
+    return suite
+
+
+def run_evals(session: Session, actor: Member) -> dict:
+    """Score the suite (graders reuse the real policy/GEO gates), record an EvalRun (the
+    regression-gate record), and return per-case results. Lead only."""
+    _require_lead(actor)
+    suite = _ensure_eval_suite(session, actor.tenant_id)
+    cases = session.exec(
+        select(EvalCase).where(EvalCase.suite_id == suite.id)
+    ).all()
+    results = []
+    for c in cases:
+        g = grade_case(c.input_text, c.expectation)
+        results.append({
+            "name": c.name, "expectation": c.expectation,
+            "score": g["score"], "passed": g["passed"], "reason": g["reason"],
+        })
+    overall = round(sum(r["score"] for r in results) / len(results), 3) if results else 0.0
+    passed = overall >= 0.7
+    session.add(EvalRun(
+        tenant_id=actor.tenant_id, suite_id=suite.id, overall=overall,
+        passed=passed, n_cases=len(results),
+    ))
+    session.commit()
+    return {
+        "suite": suite.name, "overall": overall, "passed": passed,
+        "n_cases": len(results), "cases": results,
+    }
 
 
 def _prospect_dict(p: OutboundProspect) -> dict:

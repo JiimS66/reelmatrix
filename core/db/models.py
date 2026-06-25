@@ -526,3 +526,35 @@ class PlannedAction(SQLModel, table=True):
     status: str = "proposed"  # proposed | accepted | ignored
     payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
+
+
+class EvalSuite(SQLModel, table=True):
+    """Phase 12 — LLMOps: a named set of eval cases gating an agent/capability's quality."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    name: str
+    created_at: datetime = Field(default_factory=_now)
+
+
+class EvalCase(SQLModel, table=True):
+    """One eval example: an input + the expectation a grader checks."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    suite_id: str = Field(index=True, foreign_key="evalsuite.id")
+    name: str
+    input_text: str
+    expectation: str  # no_policy_block | geo_citable
+
+
+class EvalRun(SQLModel, table=True):
+    """A scored run of a suite — the regression-gate record (overall score + pass/fail)."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    suite_id: str = Field(index=True, foreign_key="evalsuite.id")
+    overall: float = 0.0
+    passed: bool = False
+    n_cases: int = 0
+    created_at: datetime = Field(default_factory=_now)

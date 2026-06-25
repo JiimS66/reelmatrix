@@ -67,6 +67,7 @@ from apps.api.schemas.team import (
     GrowthInsights,
     BudgetPlan,
     BudgetRequest,
+    EvalRunResult,
     IdentityResolveRequest,
     IdentityResult,
     IncrementalityResult,
@@ -512,6 +513,15 @@ def resolve_identities_route(
 ) -> IdentityResult:
     """Stitch fragmented records into unified profiles (deterministic union-find)."""
     return IdentityResult(**team_service.resolve_identities(session, actor, payload.records))
+
+
+@router.post("/evals/run", response_model=EvalRunResult)
+def run_evals_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> EvalRunResult:
+    """Score the eval suite (real policy/GEO graders) and record a regression-gate run."""
+    return EvalRunResult(**team_service.run_evals(session, actor))
 
 
 @router.get(

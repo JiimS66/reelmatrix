@@ -388,6 +388,26 @@ export const optimizeBudget = (memberId: string, total: number) =>
     body: { total },
   });
 
+export interface EvalCaseResult {
+  name: string;
+  expectation: string;
+  score: number;
+  passed: boolean;
+  reason: string;
+}
+
+export interface EvalRunResult {
+  suite: string;
+  overall: number;
+  passed: boolean;
+  n_cases: number;
+  cases: EvalCaseResult[];
+}
+
+/** Phase 12 — run the eval suite (real policy/GEO graders) as a quality regression gate. */
+export const runEvals = (memberId: string) =>
+  request<EvalRunResult>("/api/v1/team/evals/run", { method: "POST", memberId });
+
 export interface ExperimentVariant {
   key: string;
   attributes: Record<string, string>;
