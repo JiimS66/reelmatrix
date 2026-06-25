@@ -6,8 +6,11 @@ import {
   atomizePillar,
   createPillar,
   draftFunnelGap,
+  draftShort,
+  getClips,
   getFunnelCoverage,
   getPillars,
+  type Clip,
   type FunnelCoverage,
   type Pillar,
 } from "@/lib/teamApi";
@@ -30,6 +33,7 @@ export function PillarFunnelPanel({
   const [title, setTitle] = useState("");
   const [source, setSource] = useState("");
   const [busy, setBusy] = useState(false);
+  const [clips, setClips] = useState<{ pillarId: string; items: Clip[] } | null>(null);
 
   async function refresh() {
     try {
@@ -78,6 +82,23 @@ export function PillarFunnelPanel({
     try {
       await atomizePillar(memberId, pid, ["LinkedIn", "Email", "X / Twitter"]);
       await refresh();
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function showClips(pid: string) {
+    try {
+      const c = await getClips(memberId, pid);
+      setClips({ pillarId: pid, items: c.clips });
+    } catch {
+      /* surfaced elsewhere */
+    }
+  }
+  async function draftFromClip(pid: string, hook: string) {
+    setBusy(true);
+    try {
+      await draftShort(memberId, pid, hook);
       onChanged();
     } finally {
       setBusy(false);
@@ -167,20 +188,53 @@ export function PillarFunnelPanel({
             {pillars.map((p) => (
               <li
                 key={p.id}
-                className="flex items-center gap-2 rounded-lg border border-ink/10 bg-canvas px-3 py-1.5 text-sm"
+                className="rounded-lg border border-ink/10 bg-canvas px-3 py-1.5"
               >
-                <span className="flex-1 truncate text-ink">{p.title}</span>
-                <span className="font-mono text-[10px] text-ink/45">
-                  {p.derivatives} posts
-                </span>
-                {canManage && (
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="flex-1 truncate text-ink">{p.title}</span>
+                  <span className="font-mono text-[10px] text-ink/45">
+                    {p.derivatives} posts
+                  </span>
                   <button
                     className="btn-line px-2 py-0.5 text-[11px]"
                     disabled={busy}
-                    onClick={() => atomize(p.id)}
+                    onClick={() => showClips(p.id)}
                   >
-                    Atomize
+                    Clips
                   </button>
+                  {canManage && (
+                    <button
+                      className="btn-line px-2 py-0.5 text-[11px]"
+                      disabled={busy}
+                      onClick={() => atomize(p.id)}
+                    >
+                      Atomize
+                    </button>
+                  )}
+                </div>
+                {clips?.pillarId === p.id && clips.items.length > 0 && (
+                  <ul className="mt-2 space-y-1 border-t border-ink/10 pt-2">
+                    {clips.items.map((c, i) => (
+                      <li key={i} className="flex items-center gap-2 text-[12px]">
+                        <span className="font-mono text-forest">{c.clip_score}</span>
+                        <span
+                          className="flex-1 truncate text-ink/70"
+                          title={c.reason}
+                        >
+                          {c.hook_sentence}
+                        </span>
+                        {canManage && (
+                          <button
+                            className="btn-line px-1.5 py-0.5 text-[10px]"
+                            disabled={busy}
+                            onClick={() => draftFromClip(p.id, c.hook_sentence)}
+                          >
+                            Draft short
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}

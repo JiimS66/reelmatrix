@@ -552,3 +552,20 @@ class CreatePillarRequest(BaseModel):
 
 class AtomizeRequest(BaseModel):
     channels: list[str] = []
+
+
+class ClipRead(BaseModel):
+    hook_sentence: str
+    clip_score: int
+    reason: str
+    start: int
+    end: int
+
+
+class ClipsRead(BaseModel):
+    pillar_id: str
+    clips: list[ClipRead]
+
+
+class ClipDraftRequest(BaseModel):
+    hook_sentence: str

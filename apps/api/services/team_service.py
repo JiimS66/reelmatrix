@@ -53,6 +53,8 @@ from core.content.repurpose import create_repurpose_provider
 from core.growth.segments import discover_segments, score_segments
 from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
+from core.media.clips import create_clip_provider
+from core.media.video import create_video_provider
 from core.workflows.campaign_instantiation import (
     assign_segment,
     instantiate_campaign,
@@ -1704,3 +1706,89 @@ async def atomize_pillar(
     session.commit()
     await TaskRunner(session, client_for_provider).run_ready_tasks(pillar.campaign_id)
     return {"pillar_id": pillar.id, "derivatives": len(derivs)}
+
+
+# --- Phase 8: short-video generation + long-to-short clips ---
+
+
+async def attach_video(
+    session: Session, actor: Member, task: Task, *, video_provider: str = "mock"
+) -> Task:
+    """Script a post into a VideoSpec and render it (mock), attaching the result to the
+    post's visual — copy + image + video as one deliverable. Caller has already guarded."""
+    output = dict(task.output or {})
+    provider = create_video_provider(video_provider)
+    scenes = provider.script(
+        topic=output.get("title", ""), copy=output.get("content", ""),
+        channel=(task.params or {}).get("channel", ""),
+    )
+    manifest = await provider.render(scenes)
+    visual = dict(output.get("visual") or {})
+    visual["video_ref"] = manifest["video_ref"]
+    visual["video_spec"] = manifest["scenes"]
+    visual["video_duration"] = manifest["duration"]
+    output["visual"] = visual
+    task.output = output
+    task.updated_at = datetime.now(timezone.utc)
+    snapshot_version(session, task, source="video", member_id=actor.id)
+    _record_event(session, task, TaskEventType.EDITED, actor_id=actor.id, payload={"video": True})
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+def rank_clips(session: Session, actor: Member, pillar_id: str) -> dict:
+    """Rank candidate short clips from a pillar's transcript (score + reason + hook)."""
+    pillar = session.get(PillarAsset, pillar_id)
+    if pillar is None or pillar.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Pillar not found.")
+    clips = create_clip_provider().rank(pillar.source_text)
+    return {
+        "pillar_id": pillar.id,
+        "clips": [
+            {
+                "hook_sentence": c.hook_sentence, "clip_score": c.clip_score,
+                "reason": c.reason, "start": c.start, "end": c.end,
+            }
+            for c in clips
+        ],
+    }
+
+
+async def draft_short_from_clip(
+    session: Session, actor: Member, pillar_id: str, *, hook_sentence: str, client_for_provider=None
+) -> dict:
+    """Turn a chosen clip into a tracked short-video asset task (AI-drafted, review-gated)."""
+    _require_lead(actor)
+    pillar = session.get(PillarAsset, pillar_id)
+    if pillar is None or pillar.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Pillar not found.")
+    if not (hook_sentence or "").strip():
+        raise HTTPException(status_code=400, detail="hook cannot be empty.")
+    planning = _planning_task(session, pillar.campaign_id)
+    routes = route_assignees(session, actor.tenant_id)
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == pillar.campaign_id)
+        ).all()),
+        default=0,
+    )
+    task = Task(
+        tenant_id=actor.tenant_id, campaign_id=pillar.campaign_id, kind=TaskKind.ASSET,
+        title=f"Short: {hook_sentence.strip()[:40]}",
+        execution_mode=ExecutionMode.AI_DRAFT_HUMAN_REVIEW,
+        depends_on=[planning.id] if planning is not None else [],
+        assignee_id=routes.get(TaskKind.ASSET.value),
+        params={
+            "channel": "Short Video", "funnel_stage": "TOFU",
+            "desired_action": _FUNNEL_ACTION["TOFU"], "angle": hook_sentence.strip(),
+            "provenance": "clip",
+        },
+        pillar_id=pillar.id, phase="followup", sequence=last + 1,
+    )
+    session.add(task)
+    _record_event(session, task, TaskEventType.CREATED, actor_id=actor.id, payload={"clip": True})
+    session.commit()
+    await TaskRunner(session, client_for_provider).run_ready_tasks(pillar.campaign_id)
+    return {"task_id": task.id}

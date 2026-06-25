@@ -7,6 +7,7 @@ import {
   addComment,
   assignTask,
   editTask,
+  generateVideo,
   improvePost,
   lockTask,
   resolveAnnotation,
@@ -165,6 +166,7 @@ export function TaskDetailPanel({
     if (comment.trim()) run(() => addComment(currentMemberId, task.id, comment.trim()));
   };
   const onSyncVisual = () => run(() => syncVisual(currentMemberId, task.id));
+  const onGenerateVideo = () => run(() => generateVideo(currentMemberId, task.id));
   const onImprove = () => run(() => improvePost(currentMemberId, task.id));
   const onLock = (locked: boolean) => run(() => lockTask(currentMemberId, task.id, locked));
   const onAddAnnotation = () => {
@@ -231,16 +233,30 @@ export function TaskDetailPanel({
               <div className="flex items-center justify-between gap-2">
                 <p className="tlabel">Visual</p>
                 {can("edit") && (
-                  <button
-                    className="btn-line px-2.5 py-1 text-xs"
-                    disabled={busy}
-                    onClick={onSyncVisual}
-                  >
-                    {busy ? "…" : "↻ Sync visual to copy"}
-                  </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      className="btn-line px-2.5 py-1 text-xs"
+                      disabled={busy}
+                      onClick={onSyncVisual}
+                    >
+                      {busy ? "…" : "↻ Sync visual"}
+                    </button>
+                    <button
+                      className="btn-line px-2.5 py-1 text-xs"
+                      disabled={busy}
+                      onClick={onGenerateVideo}
+                    >
+                      ▶ Generate video
+                    </button>
+                  </div>
                 )}
               </div>
               {visual && <VisualPreview output={visual} />}
+              {videoUrl.includes("mock-video") && (
+                <p className="mt-1.5 font-mono text-[11px] text-forest">
+                  🎬 reel rendered — scripted into scenes
+                </p>
+              )}
               <div className="mt-2 space-y-1.5">
                 <input
                   className="field"

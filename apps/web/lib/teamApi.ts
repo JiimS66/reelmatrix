@@ -499,6 +499,37 @@ export const atomizePillar = (
     { method: "POST", memberId, body: { channels } },
   );
 
+/** Phase 8 — script a post into a short-video spec + mock render (attached to visual). */
+export const generateVideo = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/video`, { method: "POST", memberId });
+
+export interface Clip {
+  hook_sentence: string;
+  clip_score: number;
+  reason: string;
+  start: number;
+  end: number;
+}
+
+export interface Clips {
+  pillar_id: string;
+  clips: Clip[];
+}
+
+export const getClips = (memberId: string, pillarId: string) =>
+  request<Clips>(`/api/v1/team/pillars/${pillarId}/clips`, { memberId });
+
+export const draftShort = (
+  memberId: string,
+  pillarId: string,
+  hookSentence: string,
+) =>
+  request<{ task_id: string }>(`/api/v1/team/pillars/${pillarId}/clips/draft`, {
+    method: "POST",
+    memberId,
+    body: { hook_sentence: hookSentence },
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

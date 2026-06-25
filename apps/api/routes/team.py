@@ -48,6 +48,8 @@ from apps.api.schemas.team import (
     DesignExperimentRequest,
     ExperimentRead,
     AtomizeRequest,
+    ClipDraftRequest,
+    ClipsRead,
     CreatePillarRequest,
     FunnelCoverage,
     GapRequest,
@@ -608,6 +610,38 @@ async def atomize_pillar_route(
 ) -> dict:
     return await team_service.atomize_pillar(
         session, actor, pillar_id, channels=payload.channels
+    )
+
+
+@router.post("/tasks/{task_id}/video", response_model=TaskRead)
+async def generate_video(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await team_service.attach_video(session, actor, task)
+    return TaskRead.model_validate(task)
+
+
+@router.get("/pillars/{pillar_id}/clips", response_model=ClipsRead)
+def get_clips(
+    pillar_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ClipsRead:
+    return ClipsRead(**team_service.rank_clips(session, actor, pillar_id))
+
+
+@router.post("/pillars/{pillar_id}/clips/draft")
+async def draft_short(
+    pillar_id: str,
+    payload: ClipDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.draft_short_from_clip(
+        session, actor, pillar_id, hook_sentence=payload.hook_sentence
     )
 
 

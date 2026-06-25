@@ -572,6 +572,43 @@ def test_pillar_atomizes_into_linked_derivatives() -> None:
     assert after[0]["derivatives"] == 3  # spokes link back to the hub
 
 
+def test_post_generates_a_video_spec() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    res = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/video", lead).json()
+    visual = res["output"]["visual"]
+    assert visual["video_ref"].startswith("mock-video://")
+    assert len(visual["video_spec"]) >= 1
+    assert visual["video_spec"][0]["caption"]  # scenes carry captions/voiceover
+
+
+def test_pillar_clips_rank_and_draft_a_short() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+    pillars = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/pillars", lead,
+        json={"title": "AI testing",
+              "source_text": "Are you shipping AI code blind? 80% of teams skip "
+                             "verification. Stop guessing and verify every change."},
+    ).json()
+    pid = pillars[0]["id"]
+
+    clips = _req(app, "GET", f"/api/v1/team/pillars/{pid}/clips", lead).json()
+    assert clips["clips"]
+    assert all("clip_score" in c and "reason" in c for c in clips["clips"])
+    assert clips["clips"][0]["clip_score"] >= clips["clips"][-1]["clip_score"]  # best-first
+
+    res = _req(
+        app, "POST", f"/api/v1/team/pillars/{pid}/clips/draft", lead,
+        json={"hook_sentence": clips["clips"][0]["hook_sentence"]},
+    ).json()
+    assert res["task_id"]
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
