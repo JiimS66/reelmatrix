@@ -463,15 +463,17 @@ export default function Workspace() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-6xl px-5 py-7">
+      <main className="mx-auto max-w-7xl px-5 py-7">
         <header className="mb-6">
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
             {current ? `${current.display_name}'s workspace` : "Workspace"}
           </h1>
         </header>
 
-        {/* Tabs — the marketing workflow */}
-        <nav className="mb-5 flex flex-wrap gap-1.5">
+        <div className="flex gap-6">
+          <aside className="w-44 shrink-0">
+            {/* Sidebar — the marketing workflow */}
+            <nav className="flex flex-col gap-1">
           {(
             ["overview", "plan", "create", "review", "results", "brand", "team"] as View[]
           ).map((v) => (
@@ -482,10 +484,10 @@ export default function Workspace() {
                 setSelectedId(null);
                 setEmployeeId(null);
               }}
-              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[12px] transition ${
+              className={`flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-left text-[13px] transition ${
                 view === v
                   ? "bg-ink text-white"
-                  : "border border-ink/10 bg-white text-ink/70 hover:text-ink"
+                  : "text-ink/70 hover:bg-ink/5 hover:text-ink"
               }`}
             >
               {VIEW_LABEL[v]}
@@ -500,8 +502,10 @@ export default function Workspace() {
               )}
             </button>
           ))}
-        </nav>
+            </nav>
+          </aside>
 
+          <div className="min-w-0 flex-1">
         {error && (
           <div
             role="alert"
@@ -711,6 +715,8 @@ export default function Workspace() {
           />
           </div>
         )}
+          </div>
+        </div>
       </main>
       <CommandPalette
         commands={(

@@ -1,11 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import {
+  Bar,
+  BarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import { optimizeBudget, type BudgetPlan } from "@/lib/teamApi";
 
 /** Phase 16 — global budget allocation across channels by marginal ROI (equimarginal
- * principle, mock response curves). */
+ * principle, mock response curves). Visualized with Recharts (Phase 15 dataviz). */
 export function BudgetOptimizerPanel({
   memberId,
   canManage,
@@ -45,17 +53,31 @@ export function BudgetOptimizerPanel({
         </button>
       </div>
       {plan && (
-        <ul className="mt-3 space-y-1">
-          {plan.allocation.map((r, i) => (
-            <li key={i} className="flex items-center gap-2 text-[12px]">
-              <span className="flex-1 truncate text-ink/70">{r.channel}</span>
-              <span className="font-mono text-forest">${r.allocated}</span>
-              <span className="w-20 text-right font-mono text-[10px] text-ink/40">
-                mROI {r.marginal_roi}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3">
+          <ResponsiveContainer width="100%" height={150}>
+            <BarChart
+              data={plan.allocation}
+              layout="vertical"
+              margin={{ left: 8, right: 12, top: 4, bottom: 4 }}
+            >
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="channel"
+                width={92}
+                tick={{ fontSize: 11, fill: "#10211b" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <Tooltip
+                cursor={{ fill: "rgba(63,110,31,0.06)" }}
+                formatter={(value) => [`$${value}`, "allocated"]}
+                contentStyle={{ fontSize: 12, borderRadius: 8 }}
+              />
+              <Bar dataKey="allocated" fill="#3f6e1f" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       )}
     </div>
   );
