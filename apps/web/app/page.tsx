@@ -200,7 +200,7 @@ export default function Workspace() {
         .then(setTrends)
         .catch((e) => setError(errMessage(e)));
     }
-    if (view === "review") refreshQueue();
+    refreshQueue(); // keep the sidebar "Needs you" count live across all views
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, currentId, board?.campaign.id]);
 
@@ -472,6 +472,20 @@ export default function Workspace() {
 
         <div className="flex gap-6">
           <aside className="w-44 shrink-0">
+            {!!isLead && reviewQueue.length > 0 && (
+              <button
+                onClick={() => {
+                  setView("review");
+                  setSelectedId(null);
+                }}
+                className="mb-3 w-full rounded-lg border border-forest/25 bg-forest/10 px-3 py-2 text-left transition hover:bg-forest/15"
+              >
+                <p className="tlabel text-forest/80">Needs you</p>
+                <p className="font-mono text-xl font-semibold leading-tight text-forest">
+                  {reviewQueue.length}
+                </p>
+              </button>
+            )}
             {/* Sidebar — the marketing workflow */}
             <nav className="flex flex-col gap-1">
           {(
