@@ -200,6 +200,29 @@ def recompute_asset_checks(session: Session, task: Task) -> dict:
     return checks_for_output(session, task, task.output or {})
 
 
+def _seed_claim_checks(session: Session, planning_task: Task, plan: dict) -> list[dict]:
+    """The claim-check starts from the brand's known proof points (source-backed) plus
+    the plan's claims — so the fact-checker reviews real claims, not an empty list."""
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == planning_task.tenant_id)
+    ).first()
+    claims: list[dict] = []
+    seen: set[str] = set()
+    for point in (brand.proof_points if brand is not None else []):
+        text = str(point.get("claim") or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            claims.append(
+                {"claim": text, "status": "source_backed", "source": point.get("source")}
+            )
+    for check in plan.get("claim_checks") or []:
+        text = str(check.get("claim") or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            claims.append(check)
+    return claims
+
+
 def fan_out_from_plan(session: Session, planning_task: Task) -> None:
     """Seed the downstream claim-check task from a finished plan.
 
@@ -219,7 +242,7 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
         if planning_task.id not in (task.depends_on or []):
             continue
         if task.kind == TaskKind.CLAIM_CHECK and task.output is None:
-            task.output = {"claim_checks": plan.get("claim_checks") or []}
+            task.output = {"claim_checks": _seed_claim_checks(session, planning_task, plan)}
             task.updated_at = _now()
             _record_event(
                 session, task, TaskEventType.SUBMITTED, payload={"source": "planning_fan_out"}
