@@ -16,6 +16,7 @@ import {
   type TaskDetail,
 } from "@/lib/teamApi";
 
+import { ClaimCheckView, type Claim } from "./ClaimCheckView";
 import {
   AssigneeChip,
   CHECK_LABEL,
@@ -48,6 +49,7 @@ export function TaskDetailPanel({
   const task = detail.task;
   const isAsset = task.kind === "asset";
   const isVisual = task.kind === "visual";
+  const isClaimCheck = task.kind === "claim_check";
   const output = (task.output ?? {}) as Record<string, unknown>;
 
   const [title, setTitle] = useState("");
@@ -75,6 +77,25 @@ export function TaskDetailPanel({
   }, [task.id]);
 
   const can = (action: string) => detail.available_actions.includes(action);
+
+  const claimChecks: Claim[] = (() => {
+    try {
+      const parsed = JSON.parse(jsonText);
+      return Array.isArray(parsed?.claim_checks) ? parsed.claim_checks : [];
+    } catch {
+      return [];
+    }
+  })();
+  function setClaims(next: Claim[]) {
+    let base: Record<string, unknown> = {};
+    try {
+      base = JSON.parse(jsonText);
+    } catch {
+      /* keep {} */
+    }
+    setJsonText(JSON.stringify({ ...base, claim_checks: next }, null, 2));
+  }
+  const canEditClaims = can("edit") || can("submit");
 
   function buildOutput(): Record<string, unknown> | null {
     if (isAsset) {
@@ -159,7 +180,7 @@ export function TaskDetailPanel({
 
       {/* Output editor */}
       <section className="space-y-2">
-        <p className="tlabel">Output</p>
+        <p className="tlabel">{isClaimCheck ? "Claim check — the truth rail" : "Output"}</p>
         {isAsset ? (
           <div className="space-y-2">
             <input
@@ -190,6 +211,13 @@ export function TaskDetailPanel({
               onChange={(e) => setJsonText(e.target.value)}
             />
           </div>
+        ) : isClaimCheck ? (
+          <ClaimCheckView
+            claims={claimChecks}
+            onChange={setClaims}
+            currentMemberId={currentMemberId}
+            readOnly={!canEditClaims}
+          />
         ) : (
           <textarea
             className="field min-h-56 resize-y font-mono text-[12px] leading-5"

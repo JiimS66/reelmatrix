@@ -415,6 +415,17 @@ export interface BrandTermItem {
   note: string;
 }
 
+export interface BrandProfile {
+  voice: string;
+  tone_rules: string[];
+  forbidden_words: string[];
+  approved_phrases: string[];
+  proof_points: Array<{ claim?: string; source?: string | null }>;
+}
+
+export const getBrand = (memberId: string) =>
+  request<BrandProfile>("/api/v1/team/brand", { memberId });
+
 export const listTerms = (memberId: string) =>
   request<BrandTermItem[]>("/api/v1/team/terms", { memberId });
 

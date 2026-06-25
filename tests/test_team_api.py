@@ -277,6 +277,15 @@ def test_performance_groups_published_posts_by_platform() -> None:
     assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
 
 
+def test_brand_endpoint_exposes_proof_points() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+    assert brand["voice"]
+    # The fact-check reference: seeded approved proof points with sources.
+    assert any("TestSprite" in str(p.get("claim", "")) for p in brand["proof_points"])
+
+
 def test_member_profile_and_direct_chat() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

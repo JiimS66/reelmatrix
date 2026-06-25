@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from core.db.models import (
     Annotation,
+    BrandProfile,
     BrandTerm,
     Campaign,
     Comment,
@@ -803,6 +804,14 @@ def add_comment(session: Session, actor: Member, task_id: str, *, body: str) -> 
     _record_event(session, task, TaskEventType.COMMENTED, actor_id=actor.id)
     session.commit()
     return comment
+
+
+def get_brand(session: Session, actor: Member) -> Optional[BrandProfile]:
+    """The tenant's brand profile (voice, proof points, etc.) — the fact-check
+    reference. Readable by any member."""
+    return session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == actor.tenant_id)
+    ).first()
 
 
 _TERM_TYPES = ("approved", "avoid", "use_carefully")

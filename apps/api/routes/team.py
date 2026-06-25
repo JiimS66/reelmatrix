@@ -16,6 +16,7 @@ from apps.api.schemas.team import (
     AssignRequest,
     AtomRead,
     BoardRead,
+    BrandRead,
     CampaignRead,
     CommentRead,
     CommentRequest,
@@ -357,6 +358,23 @@ def get_todo(
         TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
         for name, task in team_service.get_todo(session, actor)
     ]
+
+
+@router.get("/brand", response_model=BrandRead)
+def get_brand(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    brand = team_service.get_brand(session, actor)
+    if brand is None:
+        return BrandRead()
+    return BrandRead(
+        voice=brand.voice,
+        tone_rules=brand.tone_rules,
+        forbidden_words=brand.forbidden_words,
+        approved_phrases=brand.approved_phrases,
+        proof_points=brand.proof_points,
+    )
 
 
 @router.get("/terms", response_model=list[TermRead])

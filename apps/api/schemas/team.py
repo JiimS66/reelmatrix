@@ -121,6 +121,14 @@ class TermRequest(BaseModel):
     note: str = ""
 
 
+class BrandRead(BaseModel):
+    voice: str = ""
+    tone_rules: list[str] = []
+    forbidden_words: list[str] = []
+    approved_phrases: list[str] = []
+    proof_points: list[dict] = []  # [{claim, source}]
+
+
 class CampaignRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
