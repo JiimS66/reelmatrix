@@ -30,6 +30,21 @@ class BrandProofPoint(StrictSchema):
     source: Optional[NonEmptyStr] = None
 
 
+class IcpSegment(StrictSchema):
+    """An audience segment in the brand's ICP: who they are, where they are, what
+    hurts, and how to reach them. A campaign targets a subset; each post is routed
+    to one segment so the copy and visual are tailored to its pain points."""
+
+    name: NonEmptyStr
+    description: Optional[NonEmptyStr] = None
+    profile: Optional[NonEmptyStr] = None  # firmographics: industry / size / role / region
+    platforms: List[NonEmptyStr] = Field(default_factory=list)
+    pain_points: List[NonEmptyStr] = Field(default_factory=list)
+    value_props: List[NonEmptyStr] = Field(default_factory=list)  # the positive "so what"
+    objections: List[NonEmptyStr] = Field(default_factory=list)
+    reach_tactics: List[NonEmptyStr] = Field(default_factory=list)
+
+
 class BrandContext(StrictSchema):
     target_personas: Optional[List[NonEmptyStr]] = None
     proof_points: Optional[List[BrandProofPoint]] = None
@@ -37,6 +52,7 @@ class BrandContext(StrictSchema):
     competitors: Optional[List[NonEmptyStr]] = None
     tone_rules: Optional[List[NonEmptyStr]] = None
     source_links: Optional[List[NonEmptyStr]] = None
+    segments: Optional[List[IcpSegment]] = None
 
 
 class CampaignGenerationRequest(StrictSchema):

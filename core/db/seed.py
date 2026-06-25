@@ -45,6 +45,40 @@ BRAND = {
             "source": "https://www.geekwire.com/",
         }
     ],
+    "segments": [
+        {
+            "name": "Engineering leaders",
+            "description": "VPEng/Eng managers adopting coding agents at scale",
+            "profile": "B2B · Series-A/B SaaS · 50–250 eng · VP Eng / Eng Manager",
+            "platforms": ["LinkedIn", "Email"],
+            "pain_points": [
+                "AI-generated code ships without a verification gate",
+                "No way to prove agent-written changes still work",
+            ],
+            "value_props": [
+                "A verification loop your agents can actually run",
+                "Ship AI code with proof, not hope",
+            ],
+            "objections": ["We already have CI", "Another tool to babysit"],
+            "reach_tactics": ["Thought-leadership on code safety", "Outbound to eng leads"],
+        },
+        {
+            "name": "AI-native developers",
+            "description": "Builders using Cursor/Claude Code/Codex daily",
+            "profile": "IC developers · early adopters · agentic coding workflows",
+            "platforms": ["X / Twitter", "Community", "Landing Page"],
+            "pain_points": [
+                "Unit tests miss real browser/API failures",
+                "Regressions slip through agent loops",
+            ],
+            "value_props": [
+                "Catch the failures unit tests can't",
+                "A QA loop your coding agent runs itself",
+            ],
+            "objections": ["I'll just write more tests", "Setup looks heavy"],
+            "reach_tactics": ["Technical threads", "Live-demo quickstarts"],
+        },
+    ],
 }
 
 # The default TestSprite org. ``handles_kinds`` is what routes work to each member;
@@ -215,6 +249,7 @@ def _get_or_create_brand_profile(session: Session, tenant_id: str) -> BrandProfi
         forbidden_words=BRAND["forbidden_words"],
         approved_phrases=BRAND["approved_phrases"],
         proof_points=BRAND["proof_points"],
+        segments=BRAND["segments"],
     )
     session.add(profile)
     return profile

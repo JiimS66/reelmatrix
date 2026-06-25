@@ -286,6 +286,32 @@ def test_brand_endpoint_exposes_proof_points() -> None:
     assert any("TestSprite" in str(p.get("claim", "")) for p in brand["proof_points"])
 
 
+def test_brand_segments_crud_and_post_tailoring() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+    assert any(s["name"] == "Engineering leaders" for s in brand["segments"])
+
+    added = _req(
+        app, "POST", "/api/v1/team/brand/segments", lead,
+        json={"name": "Founders", "platforms": ["X / Twitter"], "pain_points": ["No time to verify AI code"]},
+    ).json()
+    assert any(s["name"] == "Founders" for s in added["segments"])
+    assert (
+        _req(app, "POST", "/api/v1/team/brand/segments", sam, json={"name": "x"}).status_code
+        == 403
+    )
+    after = _req(app, "DELETE", "/api/v1/team/brand/segments/Founders", lead).json()
+    assert not any(s["name"] == "Founders" for s in after["segments"])
+
+    # A rendered post is routed to a segment and the copy leads with its pain.
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+    assert asset["params"].get("segment")
+    assert asset["params"]["segment"] in asset["output"]["title"]
+
+
 def test_member_profile_and_direct_chat() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

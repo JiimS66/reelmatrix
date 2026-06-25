@@ -668,18 +668,23 @@ class MockLLMClient(BaseLLMClient):
 
     @staticmethod
     def _build_asset(payload: Dict[str, Any]) -> Dict[str, Any]:
-        """One platform post rendered from the shared core (CopywriterAgent path)."""
+        """One platform post rendered from the shared core (CopywriterAgent path),
+        tailored to the target segment's pain point when one is provided."""
         channel = str(payload.get("channel") or "").strip() or "Web"
         core = str(payload.get("core_message") or "").strip() or (
             "Make the value concrete and credible for this audience."
         )
         product = str(payload.get("product_name") or "the product")
+        segment = str(payload.get("segment") or "").strip()
+        pain = str(payload.get("pain_point") or "").strip()
+        opener = f"For {segment}: {pain}\n\n" if segment and pain else ""
         return {
             "asset_type": "Post",
             "channel": channel,
-            "title": f"{channel} post for {product}",
+            "title": f"{channel} post for {product}"
+            + (f" — {segment}" if segment else ""),
             "content": (
-                f"{core}\n\nRendered for {channel} from the shared campaign core, "
+                f"{opener}{core}\n\nRendered for {channel} from the shared campaign core, "
                 "so every channel tells the same story."
             ),
             "call_to_action": "Start a campaign sprint.",

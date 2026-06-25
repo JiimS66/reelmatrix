@@ -13,6 +13,7 @@ import {
   submitTask,
   type ExecutionMode,
   type Member,
+  type Task,
   type TaskDetail,
 } from "@/lib/teamApi";
 
@@ -176,6 +177,7 @@ export function TaskDetailPanel({
           <AssigneeChip members={members} id={task.assignee_id} />
           <span className="chip">{MODE_LABEL[task.execution_mode] ?? task.execution_mode}</span>
         </div>
+        {(isAsset || isVisual) && <TargetingStrip task={task} />}
       </header>
 
       {/* Output editor */}
@@ -471,6 +473,26 @@ export function TaskDetailPanel({
           </ul>
         </section>
       )}
+    </div>
+  );
+}
+
+function TargetingStrip({ task }: { task: Task }) {
+  const p = (task.params ?? {}) as Record<string, unknown>;
+  const items = [
+    p.segment && { label: "Segment", value: String(p.segment) },
+    p.pain_point && { label: "Pain", value: String(p.pain_point) },
+    p.angle && { label: "Hot topic", value: String(p.angle) },
+    task.phase && { label: "Phase", value: cap(String(task.phase)) },
+  ].filter(Boolean) as { label: string; value: string }[];
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-ink/10 bg-canvas px-2.5 py-1.5">
+      {items.map((it) => (
+        <span key={it.label} className="font-mono text-[11px] text-ink/60">
+          <span className="text-ink/40">{it.label}:</span> {it.value}
+        </span>
+      ))}
     </div>
   );
 }

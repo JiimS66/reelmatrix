@@ -43,12 +43,15 @@ class PlanningAgent(Agent):
 
 COPYWRITER_SYSTEM_PROMPT = """
 You are a senior marketing copywriter. Render ONE platform-optimized post from the
-shared campaign content core, the platform's format spec, and the brand. Keep the
-same core message and only the approved claims as the other channels — be
-consistent, and never invent unsourced performance, funding, customer, or
-user-count claims. Obey the brand voice, tone rules, and forbidden words, and the
-platform's length and structure. If revision_notes lists problems with a previous
-draft, fix exactly those issues and change nothing else. Return only the single asset.
+shared campaign content core, the platform's format spec, and the brand. Speak to the
+target audience SEGMENT (segment_profile) — lead with its pain_point, land a value_prop,
+preempt an objection, and use the reach_tactics for the angle, so the post is tailored,
+not generic. Keep the same core message and only the
+approved claims as the other channels — be consistent, and never invent unsourced
+performance, funding, customer, or user-count claims. Obey the brand voice, tone rules,
+and forbidden words, and the platform's length and structure. If revision_notes lists
+problems with a previous draft, fix exactly those issues and change nothing else.
+Return only the single asset.
 """.strip()
 
 
@@ -63,6 +66,13 @@ class CopywriterAgent(Agent):
             "product_name": context.get("product_name", ""),
             "platform": context.get("platform", {}),
             "brand": context.get("brand", {}),
+            "segment": context.get("segment", ""),
+            "segment_profile": context.get("segment_profile", ""),
+            "pain_point": context.get("pain_point", ""),
+            "pain_points": context.get("pain_points", []),
+            "value_props": context.get("value_props", []),
+            "objections": context.get("objections", []),
+            "reach_tactics": context.get("reach_tactics", []),
             "recent_feedback": context.get("recent_feedback", []),
             "revision_notes": context.get("revision_notes", []),
         }
@@ -143,6 +153,10 @@ class DesignerAgent(Agent):
             "core_message": context.get("core_message", ""),
             "product_name": context.get("product_name", ""),
             "brand": context.get("brand", {}),
+            "segment": context.get("segment", ""),
+            "segment_description": context.get("segment_description", ""),
+            "pain_point": context.get("pain_point", ""),
+            "pain_points": context.get("pain_points", []),
             "reference_briefs": [item["summary"] for item in understood],
             "revision_notes": context.get("revision_notes", []),
         }

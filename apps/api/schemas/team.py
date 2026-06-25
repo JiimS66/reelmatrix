@@ -127,6 +127,18 @@ class BrandRead(BaseModel):
     forbidden_words: list[str] = []
     approved_phrases: list[str] = []
     proof_points: list[dict] = []  # [{claim, source}]
+    segments: list[dict] = []  # ICP: [{name, description, platforms, pain_points, reach_tactics}]
+
+
+class SegmentRequest(BaseModel):
+    name: str
+    description: str = ""
+    profile: str = ""  # firmographics: industry / size / role / region
+    platforms: list[str] = []
+    pain_points: list[str] = []
+    value_props: list[str] = []
+    objections: list[str] = []
+    reach_tactics: list[str] = []
 
 
 class CampaignRead(BaseModel):

@@ -12,6 +12,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from core.db.models import (
+    BrandProfile,
     Campaign,
     ExecutionMode,
     Member,
@@ -23,6 +24,50 @@ from core.db.models import (
 from core.workflows.scheduler import generate_schedule
 
 DEFAULT_CHANNELS = ["LinkedIn", "Email", "Blog"]
+
+
+def _seg_params(seg: dict, idx: int) -> dict:
+    """{segment, pain_point} for a post, rotating the pain point by post index so
+    different posts for a segment lead with different pains (not always the first)."""
+    if not seg:
+        return {}
+    pains = seg.get("pain_points") or []
+    return {
+        "segment": seg.get("name", ""),
+        "pain_point": pains[idx % len(pains)] if pains else "",
+    }
+
+
+def _pick_segment(channel: str, segments: list[dict]) -> dict:
+    """The targeted segment whose platforms include this channel (else the first)."""
+    if not segments:
+        return {}
+    ch = (channel or "").strip().lower()
+    return next(
+        (
+            s
+            for s in segments
+            if any(ch == str(p).strip().lower() for p in (s.get("platforms") or []))
+        ),
+        segments[0],
+    )
+
+
+def assign_segment(channel: str, segments: list[dict], idx: int = 0) -> dict:
+    """Reach mode: route a channel-post to one segment (by platform match) with a
+    rotated pain point. Returns {} when the brand has no segments."""
+    return _seg_params(_pick_segment(channel, segments), idx)
+
+
+def targeted_segments(session: Session, tenant_id: str, brief: dict) -> list[dict]:
+    """The brand's ICP segments this campaign targets (brief['target_segments']),
+    or all of them when the brief doesn't narrow it."""
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == tenant_id)
+    ).first()
+    segments = (brand.segments if brand is not None else []) or []
+    names = brief.get("target_segments") or []
+    return [s for s in segments if s.get("name") in names] or segments
 
 
 def route_assignees(session: Session, tenant_id: str) -> dict[str, Optional[str]]:
@@ -115,18 +160,37 @@ def instantiate_campaign(
     session.add(planning)
 
     channels = brief.get("selected_channels") or DEFAULT_CHANNELS
+    segments = targeted_segments(session, tenant_id, brief)
+    # Reach mode (default): one post per channel, routed to one segment.
+    # Tailored mode (brief["tailored"]): fan out one post per (channel × segment) so
+    # every targeted segment gets its own tailored post (Tofu-style personalization).
+    tailored = bool(brief.get("tailored")) and bool(segments)
+    post_specs: list[tuple[str, dict]] = []
+    if tailored:
+        idx = 0
+        for channel in channels:
+            for seg in segments:
+                post_specs.append((channel, _seg_params(seg, idx)))
+                idx += 1
+    else:
+        post_specs = [
+            (channel, assign_segment(channel, segments, i))
+            for i, channel in enumerate(channels)
+        ]
+
     sequence = 3
-    for channel in channels:
+    for channel, seg_params in post_specs:
+        seg_name = seg_params.get("segment", "")
         session.add(
             Task(
                 tenant_id=tenant_id,
                 campaign_id=campaign.id,
                 kind=TaskKind.ASSET,
-                title=f"{channel} post",
+                title=f"{channel} post" + (f" — {seg_name}" if tailored and seg_name else ""),
                 execution_mode=asset_mode,
                 depends_on=[planning.id],
                 assignee_id=routes.get(TaskKind.ASSET.value),
-                params={"channel": channel},
+                params={"channel": channel, **seg_params},
                 sequence=sequence,
             )
         )

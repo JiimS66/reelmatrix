@@ -250,6 +250,10 @@ class BrandProfile(SQLModel, table=True):
     forbidden_words: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     approved_phrases: list[str] = Field(default_factory=list, sa_column=Column(JSON))
     proof_points: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
+    # ICP library: who the brand sells to. Each segment =
+    # {name, description, platforms[], pain_points[], reach_tactics[]}. A campaign
+    # targets a subset (brief["target_segments"]); each post is routed to one.
+    segments: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
 
 

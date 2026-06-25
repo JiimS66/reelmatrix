@@ -38,6 +38,7 @@ from apps.api.schemas.team import (
     ResolveRequest,
     ReviewRequest,
     ScheduleRead,
+    SegmentRequest,
     SendMessageRequest,
     SubmitRequest,
     TaskDetailRead,
@@ -365,7 +366,10 @@ def get_brand(
     actor: Member = Depends(get_current_member),
     session: Session = Depends(get_session),
 ) -> BrandRead:
-    brand = team_service.get_brand(session, actor)
+    return _brand_read(team_service.get_brand(session, actor))
+
+
+def _brand_read(brand) -> BrandRead:
     if brand is None:
         return BrandRead()
     return BrandRead(
@@ -374,7 +378,33 @@ def get_brand(
         forbidden_words=brand.forbidden_words,
         approved_phrases=brand.approved_phrases,
         proof_points=brand.proof_points,
+        segments=brand.segments,
     )
+
+
+@router.post("/brand/segments", response_model=BrandRead)
+def upsert_segment(
+    payload: SegmentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    brand = team_service.upsert_segment(
+        session, actor,
+        name=payload.name, description=payload.description, profile=payload.profile,
+        platforms=payload.platforms, pain_points=payload.pain_points,
+        value_props=payload.value_props, objections=payload.objections,
+        reach_tactics=payload.reach_tactics,
+    )
+    return _brand_read(brand)
+
+
+@router.delete("/brand/segments/{name}", response_model=BrandRead)
+def delete_segment(
+    name: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    return _brand_read(team_service.delete_segment(session, actor, name))
 
 
 @router.get("/terms", response_model=list[TermRead])

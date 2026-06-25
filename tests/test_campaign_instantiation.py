@@ -104,6 +104,59 @@ def test_org_config_reroutes_a_kind_to_a_different_member() -> None:
         assert asset.assignee_id == by_name["Sam (Writer)"].id
 
 
+def test_assets_are_routed_to_targeted_segments() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={
+                "product_name": "TestSprite",
+                "selected_channels": ["LinkedIn", "Landing Page"],
+                "target_segments": ["Engineering leaders", "AI-native developers"],
+            },
+        )
+        by_channel = {
+            t.params["channel"]: t.params
+            for t in session.exec(
+                select(Task).where(
+                    Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+                )
+            ).all()
+        }
+        # Each post is routed to the targeted segment whose platforms include its channel.
+        assert by_channel["LinkedIn"]["segment"] == "Engineering leaders"
+        assert by_channel["LinkedIn"]["pain_point"]
+        assert by_channel["Landing Page"]["segment"] == "AI-native developers"
+
+
+def test_tailored_mode_fans_out_per_segment_and_channel() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={
+                "product_name": "TestSprite",
+                "selected_channels": ["LinkedIn", "Email"],
+                "target_segments": ["Engineering leaders", "AI-native developers"],
+                "tailored": True,
+            },
+        )
+        assets = session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).all()
+        # 2 channels × 2 segments = 4 tailored posts, each stamped with its segment.
+        assert len(assets) == 4
+        pairs = {(t.params["channel"], t.params["segment"]) for t in assets}
+        assert ("LinkedIn", "Engineering leaders") in pairs
+        assert ("LinkedIn", "AI-native developers") in pairs
+
+
 def test_instantiate_falls_back_to_default_channels() -> None:
     with _seeded_session() as session:
         tenant = seed_testsprite(session)

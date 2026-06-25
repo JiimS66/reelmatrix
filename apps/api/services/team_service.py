@@ -807,11 +807,64 @@ def add_comment(session: Session, actor: Member, task_id: str, *, body: str) -> 
 
 
 def get_brand(session: Session, actor: Member) -> Optional[BrandProfile]:
-    """The tenant's brand profile (voice, proof points, etc.) — the fact-check
-    reference. Readable by any member."""
+    """The tenant's brand profile (voice, proof points, ICP segments) — the fact-check
+    reference + audience library. Readable by any member."""
     return session.exec(
         select(BrandProfile).where(BrandProfile.tenant_id == actor.tenant_id)
     ).first()
+
+
+def upsert_segment(
+    session: Session,
+    actor: Member,
+    *,
+    name: str,
+    description: str,
+    profile: str,
+    platforms: list[str],
+    pain_points: list[str],
+    value_props: list[str],
+    objections: list[str],
+    reach_tactics: list[str],
+) -> BrandProfile:
+    """Add or replace (by name) an ICP segment on the tenant's brand (lead only)."""
+    _require_lead(actor)
+    if not (name or "").strip():
+        raise HTTPException(status_code=400, detail="segment name cannot be empty.")
+    brand = get_brand(session, actor)
+    if brand is None:
+        brand = BrandProfile(tenant_id=actor.tenant_id)
+        session.add(brand)
+    segments = [s for s in (brand.segments or []) if s.get("name") != name.strip()]
+    segments.append(
+        {
+            "name": name.strip(),
+            "description": description or "",
+            "profile": profile or "",
+            "platforms": platforms or [],
+            "pain_points": pain_points or [],
+            "value_props": value_props or [],
+            "objections": objections or [],
+            "reach_tactics": reach_tactics or [],
+        }
+    )
+    brand.segments = segments  # reassign so the JSON column registers the change
+    session.add(brand)
+    session.commit()
+    session.refresh(brand)
+    return brand
+
+
+def delete_segment(session: Session, actor: Member, name: str) -> BrandProfile:
+    _require_lead(actor)
+    brand = get_brand(session, actor)
+    if brand is None:
+        raise HTTPException(status_code=404, detail="No brand profile.")
+    brand.segments = [s for s in (brand.segments or []) if s.get("name") != name]
+    session.add(brand)
+    session.commit()
+    session.refresh(brand)
+    return brand
 
 
 _TERM_TYPES = ("approved", "avoid", "use_carefully")

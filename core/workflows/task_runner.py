@@ -89,6 +89,29 @@ def _revision_notes(checks: dict) -> list[str]:
     return [issue.get("detail", "") for issues in checks.values() for issue in issues]
 
 
+def _segment_slice(task: Task, brand: Optional[BrandProfile]) -> dict:
+    """The targeting slice for a post: which audience segment it's for, the pain point
+    it leads with, and (from the brand's ICP) the segment's profile, pain points, value
+    props, objections, and reach tactics. Empty when the post carries no segment."""
+    name = (task.params or {}).get("segment", "")
+    pain = (task.params or {}).get("pain_point", "")
+    seg = (
+        next((s for s in (brand.segments or []) if s.get("name") == name), {})
+        if (name and brand is not None)
+        else {}
+    )
+    return {
+        "segment": name,
+        "pain_point": pain,
+        "segment_profile": seg.get("profile", ""),
+        "segment_description": seg.get("description", ""),
+        "pain_points": seg.get("pain_points", []),
+        "value_props": seg.get("value_props", []),
+        "objections": seg.get("objections", []),
+        "reach_tactics": seg.get("reach_tactics", []),
+    }
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -652,6 +675,7 @@ class TaskRunner:
             ],
             "product_name": (campaign.brief or {}).get("product_name", ""),
             "platform": asdict(spec) if spec is not None else {},
+            **_segment_slice(task, brand),
             "brand": {
                 "voice": brand.voice,
                 "tone_rules": brand.tone_rules,
@@ -675,6 +699,7 @@ class TaskRunner:
             "core_message": plan.get("core_message", ""),
             "product_name": (campaign.brief or {}).get("product_name", ""),
             "reference_media": (campaign.brief or {}).get("reference_media", []),
+            **_segment_slice(task, brand),
             "brand": {
                 "voice": brand.voice,
                 "tone_rules": brand.tone_rules,

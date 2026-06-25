@@ -54,10 +54,14 @@ function PreviewCard({ task }: { task: Task }) {
     );
   }
 
+  const segment = String((task.params as { segment?: string })?.segment ?? "");
   return (
     <div className="flex flex-col rounded-xl border border-ink/10 bg-white p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="chip">{channel}</span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="chip">{channel}</span>
+          {segment && <span className="chip border-forest/30 text-forest">{segment}</span>}
+        </div>
         <ScoreBadge score={task.score} />
       </div>
       <p className="mt-1.5 font-semibold text-ink">{String(out.title ?? task.title)}</p>

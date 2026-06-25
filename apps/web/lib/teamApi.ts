@@ -415,16 +415,45 @@ export interface BrandTermItem {
   note: string;
 }
 
+export interface IcpSegment {
+  name: string;
+  description?: string;
+  profile?: string;
+  platforms: string[];
+  pain_points: string[];
+  value_props?: string[];
+  objections?: string[];
+  reach_tactics: string[];
+}
+
 export interface BrandProfile {
   voice: string;
   tone_rules: string[];
   forbidden_words: string[];
   approved_phrases: string[];
   proof_points: Array<{ claim?: string; source?: string | null }>;
+  segments: IcpSegment[];
 }
 
 export const getBrand = (memberId: string) =>
   request<BrandProfile>("/api/v1/team/brand", { memberId });
+
+export const upsertSegment = (
+  memberId: string,
+  body: {
+    name: string;
+    description?: string;
+    platforms?: string[];
+    pain_points?: string[];
+    reach_tactics?: string[];
+  },
+) => request<BrandProfile>("/api/v1/team/brand/segments", { method: "POST", memberId, body });
+
+export const deleteSegment = (memberId: string, name: string) =>
+  request<BrandProfile>(`/api/v1/team/brand/segments/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    memberId,
+  });
 
 export const listTerms = (memberId: string) =>
   request<BrandTermItem[]>("/api/v1/team/terms", { memberId });
@@ -536,4 +565,5 @@ export const TESTSPRITE_BRIEF: Record<string, unknown> = {
   marketing_goal: "Generate qualified developer signups and API key starts",
   user_prompt: "ready for planning: launch campaign for TestSprite",
   selected_channels: ["LinkedIn", "Email", "Landing Page"],
+  target_segments: ["Engineering leaders", "AI-native developers"],
 };
