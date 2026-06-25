@@ -293,6 +293,31 @@ export const getTodo = (memberId: string) =>
 export const getReviewQueue = (memberId: string) =>
   request<TodoItem[]>("/api/v1/team/review-queue", { memberId });
 
+export interface AttributeInsight {
+  attribute_type: string;
+  attribute_value: string;
+  cvr: number;
+  n_posts: number;
+  impressions: number;
+  conversions: number;
+}
+
+export interface GrowthInsights {
+  attributes: AttributeInsight[];
+  priors: string[];
+}
+
+/** The effect-flywheel scoreboard: learned per-attribute conversion + priors. */
+export const getInsights = (memberId: string) =>
+  request<GrowthInsights>("/api/v1/team/insights", { memberId });
+
+/** Rebuild the attribute posteriors from current outcomes, then return them. */
+export const learnInsights = (memberId: string) =>
+  request<GrowthInsights>("/api/v1/team/insights/learn", {
+    method: "POST",
+    memberId,
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

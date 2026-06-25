@@ -429,3 +429,22 @@ class UpdateOrgMemberRequest(BaseModel):
     role: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
+
+
+class AttributeInsight(BaseModel):
+    """One learned content-attribute posterior: its conversion rate + sample size."""
+
+    attribute_type: str
+    attribute_value: str
+    cvr: float
+    n_posts: int
+    impressions: int
+    conversions: int
+
+
+class GrowthInsights(BaseModel):
+    """The effect-flywheel made visible: the learned scoreboard + the 'what's working'
+    priors the agents now generate from."""
+
+    attributes: list[AttributeInsight]
+    priors: list[str]

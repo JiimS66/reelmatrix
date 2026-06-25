@@ -352,3 +352,24 @@ class EpisodicNote(SQLModel, table=True):
     kind: str = "feedback"  # feedback | decision | summary
     text: str
     created_at: datetime = Field(default_factory=_now)
+
+
+class AttributeOutcome(SQLModel, table=True):
+    """Derived (4th-layer) memory: a learned Beta(alpha, beta) posterior of conversion
+    for ONE content attribute, sliced by channel and segment. Rebuilt from published
+    posts + their MetricSnapshots by the OutcomeLearner — this is what turns the
+    system's self-CORRECTION into outcome-LEARNING. A blank ``channel``/``segment``
+    means the global (cold-start) prior across that dimension."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    attribute_type: str  # hook_type | cta_style | length_bucket | ...
+    attribute_value: str
+    channel: str = ""  # "" = across all channels
+    segment: str = ""  # "" = across all segments
+    impressions: int = 0
+    conversions: int = 0
+    n_posts: int = 0
+    alpha: float = 1.0  # Beta posterior: 1 + conversions
+    beta: float = 1.0  # Beta posterior: 1 + (impressions - conversions)
+    updated_at: datetime = Field(default_factory=_now)

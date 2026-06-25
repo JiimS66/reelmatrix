@@ -42,6 +42,7 @@ from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
 from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
+from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.workflows.campaign_instantiation import (
     assign_segment,
     instantiate_campaign,
@@ -1235,3 +1236,20 @@ def record_metrics(
     session.commit()
     session.refresh(snapshot)
     return snapshot
+
+
+def get_growth_insights(session: Session, actor: Member) -> dict:
+    """The learned 'what's working' scoreboard + priors — the effect flywheel made
+    visible to the lead (the same priors the agents now generate from)."""
+    _require_lead(actor)
+    return {
+        "attributes": attribute_insights(session, actor.tenant_id),
+        "priors": learned_priors(session, actor.tenant_id),
+    }
+
+
+def relearn_outcomes(session: Session, actor: Member) -> dict:
+    """Rebuild the attribute posteriors from current post outcomes, then return them."""
+    _require_lead(actor)
+    learn_outcomes(session, actor.tenant_id)
+    return get_growth_insights(session, actor)

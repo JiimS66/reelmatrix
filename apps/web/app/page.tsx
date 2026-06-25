@@ -8,6 +8,7 @@ import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
+import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TeamView } from "@/components/workspace/TeamView";
@@ -546,7 +547,9 @@ export default function Workspace() {
             onError={(m) => setError(m)}
           />
         ) : view === "results" ? (
-          performance ? (
+          <div className="space-y-5">
+            <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />
+            {performance ? (
             <PerformanceView
               data={performance}
               canSync={!!isLead}
@@ -571,7 +574,8 @@ export default function Workspace() {
             <p className="surface p-6 text-sm text-ink/60">
               {board ? "Loading results…" : "Create a campaign to see results."}
             </p>
-          )
+          )}
+          </div>
         ) : view === "plan" ? (
           schedule ? (
             <div className="space-y-5">

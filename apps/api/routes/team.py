@@ -45,6 +45,7 @@ from apps.api.schemas.team import (
     TaskRead,
     TermRead,
     TermRequest,
+    GrowthInsights,
     TodoItem,
     TrendAngle,
     TrendDraftRequest,
@@ -55,6 +56,7 @@ from apps.api.schemas.team import (
 from apps.api.services import team_service
 from core.agents.roles import ROLES
 from core.analytics.sync import sync_campaign_analytics
+from core.growth.learner import learn_outcomes
 from core.db.engine import get_session
 from core.db.models import Member, TaskKind
 from core.publish.publish import publish_campaign_posts
@@ -330,6 +332,7 @@ async def sync_analytics(
 ) -> PerformanceData:
     campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
     updated = await sync_campaign_analytics(session, campaign)
+    learn_outcomes(session, campaign.tenant_id)  # GA4 回流后即刷新学习先验
     return _performance_response(
         session,
         actor,
@@ -396,6 +399,24 @@ def get_review_queue(
         TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
         for name, task in team_service.get_review_queue(session, actor)
     ]
+
+
+@router.get("/insights", response_model=GrowthInsights)
+def read_growth_insights(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> GrowthInsights:
+    """The learned 'what's working' scoreboard + priors (the effect flywheel)."""
+    return GrowthInsights(**team_service.get_growth_insights(session, actor))
+
+
+@router.post("/insights/learn", response_model=GrowthInsights)
+def learn_growth_insights(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> GrowthInsights:
+    """Rebuild the attribute posteriors from current post outcomes, then return them."""
+    return GrowthInsights(**team_service.relearn_outcomes(session, actor))
 
 
 @router.get("/brand", response_model=BrandRead)

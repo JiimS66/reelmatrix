@@ -49,6 +49,7 @@ from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
 from core.content.terminology import term_issues
+from core.growth.learner import learned_priors
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
 from core.media.base import VisionProvider
@@ -768,6 +769,11 @@ class TaskRunner:
             "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
             "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
+            # 4th-layer derived memory: what's converting, fed back into generation.
+            "learned_priors": learned_priors(
+                self._session, task.tenant_id, channel,
+                (task.params or {}).get("segment", ""),
+            ),
             # A directive task has no planning step — its instruction IS the brief.
             "core_message": plan.get("core_message")
             or (task.params or {}).get("directive", ""),
@@ -802,6 +808,11 @@ class TaskRunner:
             "core_message": plan.get("core_message", ""),
             "product_name": (campaign.brief or {}).get("product_name", ""),
             "reference_media": (campaign.brief or {}).get("reference_media", []),
+            "learned_priors": learned_priors(
+                self._session, task.tenant_id,
+                (task.params or {}).get("channel", ""),
+                (task.params or {}).get("segment", ""),
+            ),
             **_segment_slice(task, brand),
             "brand": {
                 "voice": brand.voice,

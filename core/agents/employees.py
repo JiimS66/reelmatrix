@@ -76,6 +76,7 @@ class CopywriterAgent(Agent):
             "reach_tactics": context.get("reach_tactics", []),
             "recent_feedback": context.get("recent_feedback", []),
             "revision_notes": context.get("revision_notes", []),
+            "learned_priors": context.get("learned_priors", []),
         }
         asset = await self._llm_client.generate_structured(
             system_prompt=COPYWRITER_SYSTEM_PROMPT,
@@ -161,6 +162,7 @@ class DesignerAgent(Agent):
             "post_copy": context.get("post_copy", ""),  # match the finalized caption
             "reference_briefs": [item["summary"] for item in understood],
             "revision_notes": context.get("revision_notes", []),
+            "learned_priors": context.get("learned_priors", []),
         }
         spec = await self._llm_client.generate_structured(
             system_prompt=DESIGNER_SYSTEM_PROMPT,

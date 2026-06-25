@@ -424,6 +424,24 @@ def test_directive_becomes_a_tracked_ai_task() -> None:
     assert row and row["campaign_name"] == "Direct assignments"
 
 
+def test_growth_insights_learn_from_published_outcomes() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)
+    _run_campaign(app, lead)  # two campaigns → published posts to learn from
+
+    learned = _req(app, "POST", "/api/v1/team/insights/learn", lead).json()
+    assert any(a["attribute_type"] == "hook_type" for a in learned["attributes"])
+    assert all("cvr" in a and "n_posts" in a for a in learned["attributes"])
+
+    got = _req(app, "GET", "/api/v1/team/insights", lead).json()
+    assert got["attributes"] and isinstance(got["priors"], list)
+
+    # The flywheel view is lead-only.
+    assert _req(app, "POST", "/api/v1/team/insights/learn", sam).status_code == 403
+    assert _req(app, "GET", "/api/v1/team/insights", sam).status_code == 403
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
