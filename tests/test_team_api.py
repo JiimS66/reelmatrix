@@ -442,6 +442,36 @@ def test_growth_insights_learn_from_published_outcomes() -> None:
     assert _req(app, "GET", "/api/v1/team/insights", sam).status_code == 403
 
 
+def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    cid, _ = _run_campaign(app, lead)
+
+    designed = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/experiments", lead,
+        json={"hypothesis": "shipping AI code without a verification gate", "n": 4},
+    ).json()
+    assert len(designed["variants"]) == 4
+    assert any(v["key"] == "control" for v in designed["variants"])
+    exp_id = designed["id"]
+
+    decided = _req(
+        app, "POST", f"/api/v1/team/experiments/{exp_id}/decide", lead
+    ).json()
+    assert decided["status"] == "decided"
+    assert any(v["result_status"] == "winner" for v in decided["variants"])
+
+    # The winner becomes a generative prior surfaced in the flywheel insights.
+    insights = _req(app, "POST", "/api/v1/team/insights/learn", lead).json()
+    assert any("Experiment-proven" in p for p in insights["priors"])
+
+    # Designing experiments is lead-only.
+    assert _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/experiments", sam,
+        json={"hypothesis": "x"},
+    ).status_code == 403
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

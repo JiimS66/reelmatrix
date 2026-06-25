@@ -448,3 +448,30 @@ class GrowthInsights(BaseModel):
 
     attributes: list[AttributeInsight]
     priors: list[str]
+
+
+class ExperimentVariantRead(BaseModel):
+    key: str
+    attributes: dict
+    rationale: str
+    impressions: int
+    conversions: int
+    cvr: float
+    chance_to_beat_control: float
+    result_status: str
+
+
+class ExperimentRead(BaseModel):
+    id: str
+    hypothesis: str
+    channel: str
+    segment: str
+    status: str
+    variants: list[ExperimentVariantRead]
+
+
+class DesignExperimentRequest(BaseModel):
+    hypothesis: str
+    channel: str = ""
+    segment: str = ""
+    n: int = 3

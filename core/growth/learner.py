@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from core.content.tracking import mock_metrics
-from core.db.models import AttributeOutcome, MetricSnapshot, Post, Task
+from core.db.models import AttributeOutcome, MetricSnapshot, Post, Task, WinningPattern
 from core.growth.attributes import ATTRIBUTE_TYPES, extract_attributes
 
 # Cold-start guard: below this many posts in a slice, look-ups fall back to a broader
@@ -146,7 +146,32 @@ def learned_priors(
                 f"'{worst.attribute_value}' {_TYPE_LABEL[atype]} underperforms "
                 f"(CVR {_mean(worst) * 100:.1f}%, n={worst.n_posts}) — consider avoiding."
             )
-    return memos[:5]
+    memos = memos[:4] + _winning_pattern_memos(session, tenant_id, channel, segment)
+    return memos[:6]
+
+
+def _winning_pattern_memos(
+    session: Session, tenant_id: str, channel: str = "", segment: str = ""
+) -> list[str]:
+    """Experiment-proven attribute combos (Phase 5b) promoted to generation rules,
+    injected right next to the flywheel memo so proven winners actively steer drafts."""
+    rows = [
+        w
+        for w in session.exec(
+            select(WinningPattern).where(WinningPattern.tenant_id == tenant_id)
+        ).all()
+        if (not w.channel or w.channel == channel)
+        and (not w.segment or w.segment == segment)
+    ]
+    rows.sort(key=lambda w: w.confidence, reverse=True)
+    memos: list[str] = []
+    for w in rows[:2]:
+        attrs = ", ".join(f"{k}={v}" for k, v in (w.attributes or {}).items())
+        memos.append(
+            f"Experiment-proven: [{attrs}] lifted CVR +{w.lift * 100:.0f}% "
+            f"(p={w.confidence:.2f}) — prefer it."
+        )
+    return memos
 
 
 def attribute_insights(

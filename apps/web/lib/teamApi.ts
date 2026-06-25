@@ -318,6 +318,48 @@ export const learnInsights = (memberId: string) =>
     memberId,
   });
 
+export interface ExperimentVariant {
+  key: string;
+  attributes: Record<string, string>;
+  rationale: string;
+  impressions: number;
+  conversions: number;
+  cvr: number;
+  chance_to_beat_control: number;
+  result_status: string;
+}
+
+export interface Experiment {
+  id: string;
+  hypothesis: string;
+  channel: string;
+  segment: string;
+  status: string;
+  variants: ExperimentVariant[];
+}
+
+export const getExperiments = (memberId: string, campaignId: string) =>
+  request<Experiment[]>(`/api/v1/team/campaigns/${campaignId}/experiments`, {
+    memberId,
+  });
+
+export const designExperiment = (
+  memberId: string,
+  campaignId: string,
+  body: { hypothesis: string; channel?: string; segment?: string; n?: number },
+) =>
+  request<Experiment>(`/api/v1/team/campaigns/${campaignId}/experiments`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const decideExperiment = (memberId: string, experimentId: string) =>
+  request<Experiment>(`/api/v1/team/experiments/${experimentId}/decide`, {
+    method: "POST",
+    memberId,
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

@@ -373,3 +373,54 @@ class AttributeOutcome(SQLModel, table=True):
     alpha: float = 1.0  # Beta posterior: 1 + conversions
     beta: float = 1.0  # Beta posterior: 1 + (impressions - conversions)
     updated_at: datetime = Field(default_factory=_now)
+
+
+class Experiment(SQLModel, table=True):
+    """A content experiment: variants of one brief that differ by tagged attributes,
+    raced on conversion (GrowthBook/PostHog-style). Winners become reusable
+    WinningPatterns — the ledger half of the flywheel."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    hypothesis: str
+    channel: str = ""
+    segment: str = ""
+    stats_method: str = "bayesian"  # bayesian | frequentist (provider-swappable)
+    status: str = "running"  # running | decided
+    created_at: datetime = Field(default_factory=_now)
+    decided_at: Optional[datetime] = None
+
+
+class ExperimentVariant(SQLModel, table=True):
+    """One arm of an experiment — exactly one per experiment has key=='control'. Carries
+    the tagged attribute set (the shared vocabulary) + its draft + accumulated metrics +
+    the decided result."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    experiment_id: str = Field(index=True, foreign_key="experiment.id")
+    key: str  # control | A | B | C
+    attributes: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    content: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    rationale: str = ""
+    impressions: int = 0
+    conversions: int = 0
+    chance_to_beat_control: float = 0.0
+    result_status: str = "untested"  # untested | control | winner | loser | inconclusive
+
+
+class WinningPattern(SQLModel, table=True):
+    """A proven attribute combo promoted from a decided experiment — an experiment-backed
+    generative prior injected into agent context alongside the flywheel memo. This is the
+    agentic differentiator: a winner isn't just stored data, it becomes a generation rule."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    attributes: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    channel: str = ""
+    segment: str = ""
+    lift: float = 0.0  # relative CVR lift over the control
+    confidence: float = 0.0  # chance-to-beat-control at decision time
+    evidence_experiment_id: str = Field(foreign_key="experiment.id")
+    created_at: datetime = Field(default_factory=_now)

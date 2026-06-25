@@ -8,6 +8,7 @@ import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
+import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
@@ -549,6 +550,13 @@ export default function Workspace() {
         ) : view === "results" ? (
           <div className="space-y-5">
             <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />
+            {board && (
+              <ExperimentsPanel
+                memberId={currentId}
+                campaignId={board.campaign.id}
+                canManage={!!isLead}
+              />
+            )}
             {performance ? (
             <PerformanceView
               data={performance}

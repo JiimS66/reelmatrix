@@ -23,6 +23,8 @@ from core.db.models import (
     ContentVersion,
     DirectMessage,
     EpisodicNote,
+    Experiment,
+    ExperimentVariant,
     ExecutionMode,
     Member,
     MemberKind,
@@ -36,13 +38,16 @@ from core.db.models import (
     TaskKind,
     TaskStatus,
     UsageEvent,
+    WinningPattern,
 )
 from core.agents.roles import ROLES
 from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
 from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
+from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
+from core.growth.stats import create_stats_provider
 from core.workflows.campaign_instantiation import (
     assign_segment,
     instantiate_campaign,
@@ -1253,3 +1258,133 @@ def relearn_outcomes(session: Session, actor: Member) -> dict:
     _require_lead(actor)
     learn_outcomes(session, actor.tenant_id)
     return get_growth_insights(session, actor)
+
+
+# --- Phase 5b: the experiment ledger (variants → stats → winning patterns) ---
+
+
+def _experiment_dict(session: Session, exp: Experiment) -> dict:
+    variants = list(
+        session.exec(
+            select(ExperimentVariant).where(ExperimentVariant.experiment_id == exp.id)
+        ).all()
+    )
+    return {
+        "id": exp.id,
+        "hypothesis": exp.hypothesis,
+        "channel": exp.channel,
+        "segment": exp.segment,
+        "status": exp.status,
+        "variants": [
+            {
+                "key": v.key,
+                "attributes": v.attributes,
+                "rationale": v.rationale,
+                "impressions": v.impressions,
+                "conversions": v.conversions,
+                "cvr": round(v.conversions / v.impressions * 100, 2) if v.impressions else 0.0,
+                "chance_to_beat_control": round(v.chance_to_beat_control, 3),
+                "result_status": v.result_status,
+            }
+            for v in sorted(variants, key=lambda x: x.key)
+        ],
+    }
+
+
+def list_experiments(session: Session, actor: Member, campaign_id: str) -> list[dict]:
+    campaign = _get_campaign(session, actor, campaign_id)
+    exps = list(
+        session.exec(
+            select(Experiment)
+            .where(Experiment.campaign_id == campaign.id)
+            .order_by(Experiment.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
+    )
+    return [_experiment_dict(session, e) for e in exps]
+
+
+def design_experiment(
+    session: Session,
+    actor: Member,
+    campaign_id: str,
+    *,
+    hypothesis: str,
+    channel: str = "",
+    segment: str = "",
+    n: int = 3,
+) -> dict:
+    """Design N attribute-tagged variants of one brief (the ExperimentDesigner step)."""
+    _require_lead(actor)
+    campaign = _get_campaign(session, actor, campaign_id)
+    if not (hypothesis or "").strip():
+        raise HTTPException(status_code=400, detail="hypothesis cannot be empty.")
+    exp = Experiment(
+        tenant_id=actor.tenant_id, campaign_id=campaign.id,
+        hypothesis=hypothesis.strip(), channel=channel, segment=segment,
+    )
+    session.add(exp)
+    session.commit()
+    session.refresh(exp)
+    for spec in design_variants(hypothesis, n):
+        session.add(
+            ExperimentVariant(
+                tenant_id=actor.tenant_id, experiment_id=exp.id, key=spec["key"],
+                attributes=spec["attributes"], content=spec["content"],
+                rationale=spec["rationale"],
+                result_status="control" if spec["key"] == "control" else "untested",
+            )
+        )
+    session.commit()
+    return _experiment_dict(session, exp)
+
+
+def decide_experiment(session: Session, actor: Member, experiment_id: str) -> dict:
+    """Score variants against control (Bayesian chance-to-beat), mark the winner, and
+    promote winning attribute combos to WinningPatterns. Auto-simulates mock metrics if
+    none are recorded yet (a demo affordance — real metrics arrive via GA4 sync)."""
+    _require_lead(actor)
+    exp = session.get(Experiment, experiment_id)
+    if exp is None or exp.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Experiment not found.")
+    variants = list(
+        session.exec(
+            select(ExperimentVariant).where(ExperimentVariant.experiment_id == exp.id)
+        ).all()
+    )
+    control = next((v for v in variants if v.key == "control"), variants[0] if variants else None)
+    if control is None:
+        raise HTTPException(status_code=409, detail="Experiment has no variants.")
+
+    if all(v.impressions == 0 for v in variants):  # demo: fabricate a mock market
+        for v in variants:
+            v.impressions, v.conversions = simulated_outcome(v.attributes)
+
+    stats = create_stats_provider(exp.stats_method)
+    for v in variants:
+        if v.key == "control":
+            v.result_status, v.chance_to_beat_control = "control", 0.0
+        else:
+            ctbc = stats.chance_to_beat_control(control, v)
+            v.chance_to_beat_control = ctbc
+            v.result_status = (
+                "winner" if ctbc >= 0.95 else "loser" if ctbc <= 0.05 else "inconclusive"
+            )
+        session.add(v)
+
+    control_cvr = control.conversions / max(1, control.impressions)
+    for v in variants:
+        if v.result_status == "winner":
+            v_cvr = v.conversions / max(1, v.impressions)
+            lift = (v_cvr / control_cvr - 1.0) if control_cvr > 0 else 0.0
+            session.add(
+                WinningPattern(
+                    tenant_id=actor.tenant_id, attributes=v.attributes,
+                    channel=exp.channel, segment=exp.segment, lift=lift,
+                    confidence=v.chance_to_beat_control, evidence_experiment_id=exp.id,
+                )
+            )
+    exp.status = "decided"
+    exp.decided_at = datetime.now(timezone.utc)
+    session.add(exp)
+    session.commit()
+    return _experiment_dict(session, exp)

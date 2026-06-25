@@ -45,6 +45,8 @@ from apps.api.schemas.team import (
     TaskRead,
     TermRead,
     TermRequest,
+    DesignExperimentRequest,
+    ExperimentRead,
     GrowthInsights,
     TodoItem,
     TrendAngle,
@@ -417,6 +419,45 @@ def learn_growth_insights(
 ) -> GrowthInsights:
     """Rebuild the attribute posteriors from current post outcomes, then return them."""
     return GrowthInsights(**team_service.relearn_outcomes(session, actor))
+
+
+@router.get(
+    "/campaigns/{campaign_id}/experiments", response_model=list[ExperimentRead]
+)
+def list_campaign_experiments(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ExperimentRead]:
+    return [
+        ExperimentRead(**e)
+        for e in team_service.list_experiments(session, actor, campaign_id)
+    ]
+
+
+@router.post("/campaigns/{campaign_id}/experiments", response_model=ExperimentRead)
+def design_campaign_experiment(
+    campaign_id: str,
+    payload: DesignExperimentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ExperimentRead:
+    return ExperimentRead(
+        **team_service.design_experiment(
+            session, actor, campaign_id,
+            hypothesis=payload.hypothesis, channel=payload.channel,
+            segment=payload.segment, n=payload.n,
+        )
+    )
+
+
+@router.post("/experiments/{experiment_id}/decide", response_model=ExperimentRead)
+def decide_experiment_route(
+    experiment_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ExperimentRead:
+    return ExperimentRead(**team_service.decide_experiment(session, actor, experiment_id))
 
 
 @router.get("/brand", response_model=BrandRead)

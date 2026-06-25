@@ -97,3 +97,30 @@ def test_cold_start_suppresses_thin_advice() -> None:
     _add_post(session, 0, title="Are you shipping AI code blind?", signups=80)
     learn_outcomes(session, TENANT)
     assert learned_priors(session, TENANT) == []
+
+
+def test_design_variants_are_self_consistent() -> None:
+    from core.growth.experiments import design_variants
+
+    variants = design_variants("verifying AI code", n=4)
+    assert len(variants) == 4
+    assert variants[0]["key"] == "control"
+    # Each variant's drafted content round-trips to its tagged attributes — so the
+    # experiment's labels match what the flywheel would read off the content.
+    for v in variants:
+        got = extract_attributes(v["content"])
+        assert got["hook_type"] == v["attributes"]["hook_type"]
+        assert got["cta_style"] == v["attributes"]["cta_style"]
+        assert got["length_bucket"] == v["attributes"]["length_bucket"]
+
+
+def test_bayesian_stats_detects_a_clear_winner() -> None:
+    from types import SimpleNamespace
+
+    from core.growth.stats import create_stats_provider
+
+    stats = create_stats_provider()
+    control = SimpleNamespace(impressions=2000, conversions=60)  # 3%
+    variant = SimpleNamespace(impressions=2000, conversions=180)  # 9%
+    assert stats.chance_to_beat_control(control, variant) > 0.95
+    assert stats.chance_to_beat_control(variant, control) < 0.05
