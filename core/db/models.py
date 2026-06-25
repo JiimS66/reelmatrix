@@ -147,6 +147,8 @@ class Task(SQLModel, table=True):
     checks: dict = Field(default_factory=dict, sa_column=Column(JSON))
     due_date: Optional[str] = None  # ISO date the task is scheduled for
     phase: Optional[str] = None  # prep | warmup | buildup | prelaunch | launch | followup
+    locked: bool = False  # proofing sign-off: output is immutable until unlocked
+    locked_version_id: Optional[str] = Field(default=None, foreign_key="contentversion.id")
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
 
@@ -157,6 +159,40 @@ class Comment(SQLModel, table=True):
     task_id: str = Field(index=True, foreign_key="task.id")
     author_id: str = Field(foreign_key="member.id")
     body: str
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ContentVersion(SQLModel, table=True):
+    """An immutable snapshot of a task's output — the version stack behind proofing.
+
+    Appended (never updated) on every output change, so reviewers can see history and
+    a lock can pin the approved version. ``ai_draft`` is effectively the first version.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    task_id: str = Field(index=True, foreign_key="task.id")
+    number: int  # 1, 2, 3… per task
+    snapshot: dict = Field(sa_column=Column(JSON))
+    source: str = "edit"  # ai_render | submit | edit | review_edit
+    created_by: Optional[str] = Field(default=None, foreign_key="member.id")
+    created_at: datetime = Field(default_factory=_now)
+
+
+class Annotation(SQLModel, table=True):
+    """A pinpoint/region/text-span comment anchored to a task's content — targeted
+    feedback that resolves, distinct from the task-level Comment thread. ``anchor``
+    holds normalized coordinates / a text quote so it survives a re-render."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    task_id: str = Field(index=True, foreign_key="task.id")
+    author_id: str = Field(foreign_key="member.id")
+    target: str = "general"  # general | text | region | timecode
+    anchor: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    body: str
+    resolved: bool = False
+    resolved_by: Optional[str] = Field(default=None, foreign_key="member.id")
     created_at: datetime = Field(default_factory=_now)
 
 

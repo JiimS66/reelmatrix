@@ -13,10 +13,12 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from core.db.models import (
+    Annotation,
     BrandTerm,
     Campaign,
     Comment,
     ContentAtom,
+    ContentVersion,
     EpisodicNote,
     ExecutionMode,
     Member,
@@ -36,7 +38,11 @@ from core.agents.roles import ROLES
 from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
 from core.workflows.campaign_instantiation import instantiate_campaign
-from core.workflows.task_runner import complete_task, recompute_asset_checks
+from core.workflows.task_runner import (
+    complete_task,
+    recompute_asset_checks,
+    snapshot_version,
+)
 
 
 def _require_lead(actor: Member) -> None:
@@ -497,8 +503,11 @@ def submit_task(
         raise HTTPException(status_code=403, detail="Only the assignee can submit this task.")
     if task.status not in (TaskStatus.TODO, TaskStatus.IN_PROGRESS):
         raise HTTPException(status_code=409, detail="Task is not in a submittable state.")
+    if task.locked:
+        raise HTTPException(status_code=409, detail="Content is locked; unlock to edit.")
     if output is not None:
         task.output = output
+        snapshot_version(session, task, source="submit", member_id=actor.id)
     _record_event(session, task, TaskEventType.SUBMITTED, actor_id=actor.id)
     if task.execution_mode == ExecutionMode.HUMAN_ONLY:
         complete_task(session, task, actor_id=actor.id)
@@ -528,6 +537,7 @@ def review_task(
     if action == "approve":
         if output is not None:
             task.output = output
+            snapshot_version(session, task, source="review_edit", member_id=actor.id)
             _record_event(session, task, TaskEventType.EDITED, actor_id=actor.id)
         complete_task(session, task, actor_id=actor.id)
     else:  # request_changes
@@ -554,10 +564,13 @@ def edit_task(session: Session, actor: Member, task_id: str, *, output: dict) ->
         raise HTTPException(
             status_code=403, detail="Only the lead or the assignee can edit this task."
         )
+    if task.locked:
+        raise HTTPException(status_code=409, detail="Content is locked; unlock to edit.")
     task.output = output
     task.updated_at = datetime.now(timezone.utc)
     if task.kind == TaskKind.ASSET:
         task.checks = recompute_asset_checks(session, task)
+    snapshot_version(session, task, source="edit", member_id=actor.id)
     _record_event(session, task, TaskEventType.EDITED, actor_id=actor.id)
     record_episodic_note(session, task, kind="feedback", text=f"Lead edited '{task.title}'.")
     session.add(task)
@@ -565,15 +578,104 @@ def edit_task(session: Session, actor: Member, task_id: str, *, output: dict) ->
     return task
 
 
+def lock_task(session: Session, actor: Member, task_id: str, *, locked: bool) -> Task:
+    """Lead sign-off: lock (or unlock) a task's content. While locked, edits/submits
+    are rejected, and the approved version is pinned."""
+    _require_lead(actor)
+    task = _get_task(session, actor, task_id)
+    task.locked = locked
+    if locked:
+        latest = session.exec(
+            select(ContentVersion)
+            .where(ContentVersion.task_id == task.id)
+            .order_by(ContentVersion.number.desc())  # type: ignore[attr-defined]
+        ).first()
+        task.locked_version_id = latest.id if latest is not None else None
+    else:
+        task.locked_version_id = None
+    _record_event(
+        session, task, TaskEventType.STATUS_CHANGED, actor_id=actor.id,
+        payload={"locked": locked},
+    )
+    session.add(task)
+    session.commit()
+    return task
+
+
+def list_versions(session: Session, actor: Member, task_id: str) -> list[ContentVersion]:
+    task = _get_task(session, actor, task_id)
+    return list(
+        session.exec(
+            select(ContentVersion)
+            .where(ContentVersion.task_id == task.id)
+            .order_by(ContentVersion.number)
+        ).all()
+    )
+
+
+def list_annotations(session: Session, actor: Member, task_id: str) -> list[Annotation]:
+    task = _get_task(session, actor, task_id)
+    return list(
+        session.exec(
+            select(Annotation)
+            .where(Annotation.task_id == task.id)
+            .order_by(Annotation.created_at)
+        ).all()
+    )
+
+
+def create_annotation(
+    session: Session,
+    actor: Member,
+    task_id: str,
+    *,
+    body: str,
+    target: str,
+    anchor: dict,
+) -> Annotation:
+    task = _get_task(session, actor, task_id)
+    if not (body or "").strip():
+        raise HTTPException(status_code=400, detail="annotation body cannot be empty.")
+    row = Annotation(
+        tenant_id=task.tenant_id,
+        task_id=task.id,
+        author_id=actor.id,
+        target=target or "general",
+        anchor=anchor or {},
+        body=body.strip(),
+    )
+    session.add(row)
+    _record_event(session, task, TaskEventType.COMMENTED, actor_id=actor.id)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def resolve_annotation(
+    session: Session, actor: Member, annotation_id: str, *, resolved: bool
+) -> Annotation:
+    row = session.get(Annotation, annotation_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Annotation not found.")
+    _require_same_tenant(actor, row.tenant_id)
+    row.resolved = resolved
+    row.resolved_by = actor.id if resolved else None
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
 def available_actions(actor: Member, task: Task) -> list[str]:
     """Intervention affordances for this actor on this task, for a friendly UI."""
-    actions = ["comment"]
+    actions = ["comment", "annotate"]
     is_lead = actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD
     is_assignee = task.assignee_id == actor.id and actor.kind == MemberKind.HUMAN
-    if is_lead or is_assignee:
+    if (is_lead or is_assignee) and not task.locked:
         actions.append("edit")
     if is_lead:
         actions.append("assign")
+        actions.append("unlock" if task.locked else "lock")
     if is_lead and task.status == TaskStatus.NEEDS_REVIEW:
         actions.append("review")
     if is_assignee and task.status in (TaskStatus.TODO, TaskStatus.IN_PROGRESS):

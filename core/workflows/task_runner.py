@@ -29,6 +29,7 @@ from core.db.models import (
     BrandTerm,
     Campaign,
     ContentAtom,
+    ContentVersion,
     EpisodicNote,
     ExecutionMode,
     Member,
@@ -224,6 +225,30 @@ def fan_out_from_plan(session: Session, planning_task: Task) -> None:
                 session, task, TaskEventType.SUBMITTED, payload={"source": "planning_fan_out"}
             )
             session.add(task)
+
+
+def snapshot_version(
+    session: Session, task: Task, *, source: str, member_id: Optional[str] = None
+) -> None:
+    """Append an immutable ContentVersion of the task's current output (content tasks
+    only). Never updates — the version stack behind proofing/compare."""
+    if task.kind not in (TaskKind.ASSET, TaskKind.VISUAL) or not task.output:
+        return
+    count = len(
+        session.exec(
+            select(ContentVersion).where(ContentVersion.task_id == task.id)
+        ).all()
+    )
+    session.add(
+        ContentVersion(
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            number=count + 1,
+            snapshot=task.output,
+            source=source,
+            created_by=member_id,
+        )
+    )
 
 
 def harvest_atoms(session: Session, task: Task) -> None:
@@ -539,6 +564,7 @@ class TaskRunner:
         elif task.kind == TaskKind.VISUAL:
             task.checks = self._pending_checks.pop(task.id, {})  # the "brand_fit" critique
         task.updated_at = _now()
+        snapshot_version(self._session, task, source="ai_render", member_id=task.assignee_id)
         _record_usage(self._session, task, member)
         _record_event(
             self._session, task, TaskEventType.AI_RUN, actor_id=task.assignee_id,

@@ -11,6 +11,8 @@ from sqlmodel import Session
 
 from apps.api.schemas.team import (
     AgentRoleRead,
+    AnnotationRead,
+    AnnotationRequest,
     AssignRequest,
     AtomRead,
     BoardRead,
@@ -22,6 +24,7 @@ from apps.api.schemas.team import (
     EditRequest,
     EventRead,
     FleetAgent,
+    LockRequest,
     MemberRead,
     MetricsRequest,
     MilestoneRead,
@@ -29,6 +32,7 @@ from apps.api.schemas.team import (
     OrgRead,
     PerformanceData,
     PlatformPerformance,
+    ResolveRequest,
     ReviewRequest,
     ScheduleRead,
     SubmitRequest,
@@ -39,6 +43,7 @@ from apps.api.schemas.team import (
     TodoItem,
     TrendRefresh,
     UpdateOrgMemberRequest,
+    VersionRead,
 )
 from apps.api.services import team_service
 from core.agents.roles import ROLES
@@ -367,7 +372,53 @@ def get_task(
         comments=[CommentRead.model_validate(c) for c in comments],
         events=[EventRead.model_validate(e) for e in events],
         available_actions=team_service.available_actions(actor, task),
+        versions=[
+            VersionRead.model_validate(v)
+            for v in team_service.list_versions(session, actor, task_id)
+        ],
+        annotations=[
+            AnnotationRead.model_validate(a)
+            for a in team_service.list_annotations(session, actor, task_id)
+        ],
     )
+
+
+@router.post("/tasks/{task_id}/lock", response_model=TaskRead)
+def lock_task(
+    task_id: str,
+    payload: LockRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.lock_task(session, actor, task_id, locked=payload.locked)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/annotations", response_model=AnnotationRead)
+def add_annotation(
+    task_id: str,
+    payload: AnnotationRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> AnnotationRead:
+    row = team_service.create_annotation(
+        session, actor, task_id,
+        body=payload.body, target=payload.target, anchor=payload.anchor,
+    )
+    return AnnotationRead.model_validate(row)
+
+
+@router.post("/annotations/{annotation_id}/resolve", response_model=AnnotationRead)
+def resolve_annotation(
+    annotation_id: str,
+    payload: ResolveRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> AnnotationRead:
+    row = team_service.resolve_annotation(
+        session, actor, annotation_id, resolved=payload.resolved
+    )
+    return AnnotationRead.model_validate(row)
 
 
 @router.post("/tasks/{task_id}/edit", response_model=TaskRead)

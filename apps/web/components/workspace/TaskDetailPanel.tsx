@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 
 import {
+  addAnnotation,
   addComment,
   assignTask,
   editTask,
+  lockTask,
+  resolveAnnotation,
   reviewTask,
   submitTask,
   type ExecutionMode,
@@ -52,6 +55,7 @@ export function TaskDetailPanel({
   const [cta, setCta] = useState("");
   const [jsonText, setJsonText] = useState("");
   const [comment, setComment] = useState("");
+  const [annotation, setAnnotation] = useState("");
   const [assignTo, setAssignTo] = useState("");
   const [mode, setMode] = useState<ExecutionMode | "">("");
   const [busy, setBusy] = useState(false);
@@ -63,6 +67,7 @@ export function TaskDetailPanel({
     setCta(String(output.call_to_action ?? ""));
     setJsonText(JSON.stringify(task.output ?? {}, null, 2));
     setComment("");
+    setAnnotation("");
     setAssignTo("");
     setMode("");
     setShowDraft(false);
@@ -117,6 +122,13 @@ export function TaskDetailPanel({
   const onComment = () => {
     if (comment.trim()) run(() => addComment(currentMemberId, task.id, comment.trim()));
   };
+  const onLock = (locked: boolean) => run(() => lockTask(currentMemberId, task.id, locked));
+  const onAddAnnotation = () => {
+    if (annotation.trim())
+      run(() => addAnnotation(currentMemberId, task.id, annotation.trim()));
+  };
+  const onResolve = (id: string, resolved: boolean) =>
+    run(() => resolveAnnotation(currentMemberId, id, resolved));
   const onAssign = () =>
     run(() =>
       assignTask(currentMemberId, task.id, {
@@ -131,6 +143,9 @@ export function TaskDetailPanel({
         <div className="flex items-center justify-between gap-3">
           <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
           <div className="flex items-center gap-2">
+            {task.locked && (
+              <span className="chip border-amber-300 bg-amber-50 text-amber-700">🔒 Locked</span>
+            )}
             <ScoreBadge score={task.score} />
             <StatusBadge status={task.status} />
           </div>
@@ -274,7 +289,77 @@ export function TaskDetailPanel({
             Submit
           </button>
         )}
+        {can("lock") && (
+          <button className="btn-line" disabled={busy} onClick={() => onLock(true)}>
+            🔒 Lock
+          </button>
+        )}
+        {can("unlock") && (
+          <button className="btn-line" disabled={busy} onClick={() => onLock(false)}>
+            🔓 Unlock
+          </button>
+        )}
       </section>
+
+      {/* Proofing: version stack + pinpoint annotations */}
+      {(detail.versions.length > 0 || can("annotate")) && (
+        <section className="space-y-2 border-t border-ink/10 pt-4">
+          <p className="tlabel">Proofing</p>
+          {detail.versions.length > 0 && (
+            <p className="font-mono text-[11px] text-ink/55">
+              {detail.versions.length} version{detail.versions.length === 1 ? "" : "s"}:{" "}
+              {detail.versions.map((v) => `v${v.number} ${v.source}`).join(" · ")}
+            </p>
+          )}
+          {detail.annotations.length > 0 && (
+            <ul className="space-y-1.5">
+              {detail.annotations.map((a) => (
+                <li
+                  key={a.id}
+                  className={`flex items-start justify-between gap-2 rounded-lg border p-2 text-sm ${
+                    a.resolved
+                      ? "border-ink/10 bg-canvas text-ink/45 line-through"
+                      : "border-amber-200 bg-amber-50/50 text-ink/80"
+                  }`}
+                >
+                  <span>
+                    {a.body}
+                    {typeof a.anchor?.quote === "string" && (
+                      <span className="ml-1 font-mono text-[10px] text-ink/40">
+                        “{a.anchor.quote}”
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    className="shrink-0 font-mono text-[10px] text-forest hover:underline"
+                    disabled={busy}
+                    onClick={() => onResolve(a.id, !a.resolved)}
+                  >
+                    {a.resolved ? "reopen" : "resolve"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {can("annotate") && (
+            <div className="flex gap-2">
+              <input
+                className="field"
+                value={annotation}
+                placeholder="Pinpoint feedback…"
+                onChange={(e) => setAnnotation(e.target.value)}
+              />
+              <button
+                className="btn-line"
+                disabled={busy || !annotation.trim()}
+                onClick={onAddAnnotation}
+              >
+                Add note
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Assign / take over */}
       {can("assign") && (

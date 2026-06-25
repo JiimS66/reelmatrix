@@ -54,6 +54,7 @@ class TaskRead(BaseModel):
     checks: dict
     due_date: Optional[str]
     phase: Optional[str]
+    locked: bool = False
     updated_at: datetime
 
     @computed_field  # type: ignore[prop-decorator]
@@ -165,12 +166,51 @@ class TrendRefresh(BaseModel):
     timely_angles: list[str]
 
 
+class VersionRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    number: int
+    source: str
+    created_by: Optional[str]
+    created_at: datetime
+
+
+class AnnotationRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    author_id: str
+    target: str
+    anchor: dict
+    body: str
+    resolved: bool
+    resolved_by: Optional[str]
+    created_at: datetime
+
+
+class AnnotationRequest(BaseModel):
+    body: str
+    target: str = "general"
+    anchor: dict = {}
+
+
+class ResolveRequest(BaseModel):
+    resolved: bool = True
+
+
+class LockRequest(BaseModel):
+    locked: bool = True
+
+
 class TaskDetailRead(BaseModel):
     task: TaskRead
     ai_draft: Optional[dict]
     comments: list[CommentRead]
     events: list[EventRead]
     available_actions: list[str]
+    versions: list[VersionRead] = []
+    annotations: list[AnnotationRead] = []
 
 
 class CreateCampaignRequest(BaseModel):

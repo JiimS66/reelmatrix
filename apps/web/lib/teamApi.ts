@@ -50,6 +50,7 @@ export interface Task {
   } | null;
   due_date: string | null;
   phase: string | null;
+  locked: boolean;
   updated_at: string;
 }
 
@@ -104,12 +105,33 @@ export interface TaskEvent {
   created_at: string;
 }
 
+export interface ContentVersion {
+  id: string;
+  number: number;
+  source: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface Annotation {
+  id: string;
+  author_id: string;
+  target: string;
+  anchor: Record<string, unknown>;
+  body: string;
+  resolved: boolean;
+  resolved_by: string | null;
+  created_at: string;
+}
+
 export interface TaskDetail {
   task: Task;
   ai_draft: Record<string, unknown> | null;
   comments: Comment[];
   events: TaskEvent[];
   available_actions: string[];
+  versions: ContentVersion[];
+  annotations: Annotation[];
 }
 
 export interface Atom {
@@ -350,6 +372,31 @@ export const submitTask = (
     method: "POST",
     memberId,
     body: { output: output ?? null },
+  });
+
+export const lockTask = (memberId: string, taskId: string, locked: boolean) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/lock`, {
+    method: "POST",
+    memberId,
+    body: { locked },
+  });
+
+export const addAnnotation = (memberId: string, taskId: string, bodyText: string) =>
+  request<Annotation>(`/api/v1/team/tasks/${taskId}/annotations`, {
+    method: "POST",
+    memberId,
+    body: { body: bodyText, target: "general", anchor: {} },
+  });
+
+export const resolveAnnotation = (
+  memberId: string,
+  annotationId: string,
+  resolved = true,
+) =>
+  request<Annotation>(`/api/v1/team/annotations/${annotationId}/resolve`, {
+    method: "POST",
+    memberId,
+    body: { resolved },
   });
 
 export const addComment = (memberId: string, taskId: string, bodyText: string) =>

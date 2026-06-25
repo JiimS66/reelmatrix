@@ -311,6 +311,44 @@ def test_terminology_check_flags_an_edited_post() -> None:
     assert edited["score"]["overall"] < 100
 
 
+def test_proofing_versions_annotations_and_lock() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+    tid = asset["id"]
+
+    # The AI render is v1; a human edit appends v2 (immutable version stack).
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert [v["number"] for v in detail["versions"]] == [1]
+    assert detail["versions"][0]["source"] == "ai_render"
+    _req(app, "POST", f"/api/v1/team/tasks/{tid}/edit", lead,
+         json={"output": {**asset["output"], "title": "v2 title"}})
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert [v["number"] for v in detail["versions"]] == [1, 2]
+
+    # Pinpoint annotation → resolve.
+    ann = _req(app, "POST", f"/api/v1/team/tasks/{tid}/annotations", lead,
+               json={"body": "tighten the hook", "target": "text", "anchor": {"quote": "Rendered"}}).json()
+    assert ann["resolved"] is False
+    resolved = _req(app, "POST", f"/api/v1/team/annotations/{ann['id']}/resolve", lead,
+                    json={"resolved": True}).json()
+    assert resolved["resolved"] is True and resolved["resolved_by"]
+
+    # Lock (lead-only) makes the content immutable until unlocked.
+    locked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", lead, json={"locked": True}).json()
+    assert locked["locked"] is True
+    blocked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/edit", lead,
+                   json={"output": {**asset["output"], "title": "v3"}})
+    assert blocked.status_code == 409
+    assert (
+        _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", sam, json={"locked": True}).status_code
+        == 403
+    )
+    unlocked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", lead, json={"locked": False}).json()
+    assert unlocked["locked"] is False
+
+
 def test_fleet_reports_per_agent_observability() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

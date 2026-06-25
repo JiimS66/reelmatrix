@@ -30,6 +30,7 @@ function task(overrides: Partial<Task> = {}): Task {
     checks: {},
     score: null,
     predicted_performance: null,
+    locked: false,
     due_date: null,
     phase: null,
     updated_at: "2026-06-24",
