@@ -16,6 +16,7 @@ export const CHECK_LABEL: Record<string, string> = {
   audit: "Audit",
   brand_fit: "Brand fit",
   policy: "Policy",
+  geo: "GEO",
 };
 
 export const MODE_LABEL: Record<string, string> = {

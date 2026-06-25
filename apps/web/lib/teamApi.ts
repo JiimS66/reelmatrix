@@ -368,6 +368,26 @@ export const ignoreAction = (memberId: string, id: string) =>
     memberId,
   });
 
+export interface BudgetRow {
+  channel: string;
+  allocated: number;
+  predicted_response: number;
+  marginal_roi: number;
+}
+
+export interface BudgetPlan {
+  total_budget: number;
+  allocation: BudgetRow[];
+}
+
+/** Phase 16 — allocate a budget across channels by marginal ROI (equimarginal). */
+export const optimizeBudget = (memberId: string, total: number) =>
+  request<BudgetPlan>("/api/v1/team/paid/optimize-budget", {
+    method: "POST",
+    memberId,
+    body: { total },
+  });
+
 export interface ExperimentVariant {
   key: string;
   attributes: Record<string, string>;

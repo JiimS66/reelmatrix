@@ -158,3 +158,25 @@ def test_flywheel_debiases_with_incrementality() -> None:
     session.commit()
     learn_outcomes(session, TENANT)
     assert _bold(session).conversions < naive_conv  # de-biased shrinks the over-claimer
+
+
+def test_geo_issues_flag_citability_gaps() -> None:
+    from core.content.geo import geo_issues
+
+    bare = {i["rule"] for i in geo_issues("We help teams ship faster")}
+    assert {"add_statistic", "cite_source", "faq_structure"} <= bare
+    rich = {
+        i["rule"]
+        for i in geo_issues("Slow shipping? 80% of teams improve, according to our study.")
+    }
+    assert not ({"add_statistic", "cite_source", "faq_structure"} & rich)
+
+
+def test_budget_optimizer_allocates_by_marginal_roi() -> None:
+    from core.paid.optimizer import ChannelCurve, optimize_budget
+
+    plan = optimize_budget(
+        [ChannelCurve("A", 8000, 2000), ChannelCurve("B", 4000, 1500)], 4000, step=100
+    )
+    assert abs(sum(r["allocated"] for r in plan["allocation"]) - 4000) < 100
+    assert all("marginal_roi" in r for r in plan["allocation"])

@@ -48,6 +48,7 @@ from core.content.brand import forbidden_word_issues
 from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
+from core.content.geo import geo_issues
 from core.content.terminology import term_issues
 from core.growth.learner import learned_priors
 from core.policy.gate import policy_issues
@@ -85,7 +86,7 @@ _MAX_ASSET_REVISIONS = 2
 # Advisory groups are judges/gates, not self-correction targets: the cross-model audit,
 # the visual critic, and the compliance gate don't drive automatic re-renders (a policy
 # violation needs a human call, not a retry loop).
-_ADVISORY_CHECKS = ("audit", "brand_fit", "policy")
+_ADVISORY_CHECKS = ("audit", "brand_fit", "policy", "geo")
 
 
 def _issue_count(checks: dict) -> int:
@@ -201,6 +202,10 @@ def asset_checks(
                 str(asset.get(k, "")) for k in ("title", "content", "call_to_action")
             ),
             channel=channel,
+        ),
+        # GEO/AEO citability levers (Phase 16) — advisory, like policy.
+        "geo": geo_issues(
+            " ".join(str(asset.get(k, "")) for k in ("title", "content", "call_to_action"))
         ),
     }
 

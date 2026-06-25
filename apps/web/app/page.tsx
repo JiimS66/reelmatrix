@@ -15,6 +15,7 @@ import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
+import { BudgetOptimizerPanel } from "@/components/workspace/BudgetOptimizerPanel";
 import { IncrementalityPanel } from "@/components/workspace/IncrementalityPanel";
 import { OutboundPanel } from "@/components/workspace/OutboundPanel";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
@@ -573,6 +574,7 @@ export default function Workspace() {
           <div className="space-y-5">
             <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />
             <IncrementalityPanel memberId={currentId} canManage={!!isLead} />
+            <BudgetOptimizerPanel memberId={currentId} canManage={!!isLead} />
             {board && (
               <ExperimentsPanel
                 memberId={currentId}

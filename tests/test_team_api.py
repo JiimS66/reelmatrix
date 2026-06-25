@@ -495,6 +495,17 @@ def test_orchestrator_proposes_and_accepts_actions() -> None:
     assert _req(app, "POST", "/api/v1/team/actions/plan", sam).status_code == 403
 
 
+def test_optimize_budget_allocates_across_channels() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    plan = _req(
+        app, "POST", "/api/v1/team/paid/optimize-budget", lead, json={"total": 5000}
+    ).json()
+    assert abs(sum(r["allocated"] for r in plan["allocation"]) - 5000) < 200
+    assert len(plan["allocation"]) >= 3
+    assert all("marginal_roi" in r and "predicted_response" in r for r in plan["allocation"])
+
+
 def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

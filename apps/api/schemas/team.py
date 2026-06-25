@@ -474,6 +474,22 @@ class PlannedActionRead(BaseModel):
     status: str
 
 
+class BudgetAllocationRow(BaseModel):
+    channel: str
+    allocated: float
+    predicted_response: float
+    marginal_roi: float
+
+
+class BudgetPlan(BaseModel):
+    total_budget: float
+    allocation: list[BudgetAllocationRow]
+
+
+class BudgetRequest(BaseModel):
+    total: float = 5000.0
+
+
 class ExperimentVariantRead(BaseModel):
     key: str
     attributes: dict

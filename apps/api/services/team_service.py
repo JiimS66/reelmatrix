@@ -68,6 +68,7 @@ from core.outbound.base import enrich_waterfall
 from core.outbound.factory import create_deliverability_guard, create_enrichment_waterfall
 from core.outbound.mock import personalized_line
 from core.paid.factory import create_budget_allocator, create_creative_scorer
+from core.paid.optimizer import ChannelCurve, optimize_budget as _optimize_budget
 from core.policy.gate import policy_issues
 from core.workflows.campaign_instantiation import (
     assign_segment,
@@ -2053,6 +2054,22 @@ def plan_paid_creative(
         row["allocated_budget"] = budget
     rows.sort(key=lambda r: -r["creative_score"])
     return {"total_budget": total_budget, "variants": rows}
+
+
+_CHANNEL_CURVES = {
+    "LinkedIn": (8000.0, 2000.0),
+    "Email": (5000.0, 800.0),
+    "X / Twitter": (4000.0, 1500.0),
+    "Landing Page": (6000.0, 1200.0),
+}
+
+
+def optimize_paid_budget(session: Session, actor: Member, *, total: float = 5000.0) -> dict:
+    """Allocate a budget across channels by marginal ROI (equimarginal principle). Mock
+    Hill-saturation response curves now; MMM curves (PyMC-Marketing/Meridian) later."""
+    _require_lead(actor)
+    curves = [ChannelCurve(c, v_max, k) for c, (v_max, k) in _CHANNEL_CURVES.items()]
+    return _optimize_budget(curves, total)
 
 
 def _prospect_dict(p: OutboundProspect) -> dict:

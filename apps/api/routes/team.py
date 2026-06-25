@@ -65,6 +65,8 @@ from apps.api.schemas.team import (
     FunnelCoverage,
     GapRequest,
     GrowthInsights,
+    BudgetPlan,
+    BudgetRequest,
     IncrementalityResult,
     MarketIntelRead,
     PlannedActionRead,
@@ -488,6 +490,16 @@ def ignore_action_route(
     session: Session = Depends(get_session),
 ) -> list[PlannedActionRead]:
     return [PlannedActionRead(**a) for a in team_service.ignore_action(session, actor, action_id)]
+
+
+@router.post("/paid/optimize-budget", response_model=BudgetPlan)
+def optimize_budget_route(
+    payload: BudgetRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BudgetPlan:
+    """Allocate a budget across channels by marginal ROI (equimarginal principle)."""
+    return BudgetPlan(**team_service.optimize_paid_budget(session, actor, total=payload.total))
 
 
 @router.get(
