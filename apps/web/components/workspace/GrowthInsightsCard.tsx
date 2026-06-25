@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 import { getInsights, learnInsights, type GrowthInsights } from "@/lib/teamApi";
 
+import { RankedBarChart } from "./charts";
+
 const TYPE_LABEL: Record<string, string> = {
   hook_type: "Hook",
   cta_style: "CTA",
@@ -81,21 +83,16 @@ export function GrowthInsightsCard({
           {Object.entries(byType).map(([type, rows]) => (
             <div key={type}>
               <p className="tlabel">{TYPE_LABEL[type] ?? type}</p>
-              <ul className="mt-1 space-y-1">
-                {rows.map((r, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center justify-between gap-2 text-sm"
-                  >
-                    <span className={i === 0 ? "text-ink" : "text-ink/55"}>
-                      {r.attribute_value}
-                    </span>
-                    <span className="font-mono text-[11px] text-forest">
-                      {r.cvr}% · n{r.n_posts}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-1">
+                <RankedBarChart
+                  data={rows.map((r) => ({ label: r.attribute_value, "CVR": r.cvr }))}
+                  labelKey="label"
+                  valueKey="CVR"
+                  unit="%"
+                  labelWidth={68}
+                  height={Math.max(56, rows.length * 30)}
+                />
+              </div>
             </div>
           ))}
         </div>

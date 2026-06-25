@@ -105,6 +105,13 @@ export function PillarFunnelPanel({
     }
   }
 
+  const maxCount = Math.max(
+    1,
+    ...(cov
+      ? cov.stages.flatMap((st) => cov.segments.map((sg) => cov.matrix[st]?.[sg] ?? 0))
+      : [0]),
+  );
+
   return (
     <div className="space-y-5">
       {cov && (
@@ -132,9 +139,17 @@ export function PillarFunnelPanel({
                     {cov.segments.map((sg) => {
                       const n = cov.matrix[st]?.[sg] ?? 0;
                       return (
-                        <td key={sg} className="px-2 py-1">
+                        <td key={sg} className="px-1 py-1 text-center">
                           {n > 0 ? (
-                            <span className="font-mono text-ink">{n}</span>
+                            <span
+                              className="inline-block min-w-7 rounded px-1.5 py-0.5 font-mono text-[12px]"
+                              style={{
+                                backgroundColor: `rgba(63,110,31,${0.15 + (n / maxCount) * 0.55})`,
+                                color: n / maxCount > 0.6 ? "white" : "#10211b",
+                              }}
+                            >
+                              {n}
+                            </span>
                           ) : canManage ? (
                             <button
                               className="btn-line px-1.5 py-0.5 text-[10px]"

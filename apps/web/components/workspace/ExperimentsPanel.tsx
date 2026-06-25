@@ -9,6 +9,8 @@ import {
   type Experiment,
 } from "@/lib/teamApi";
 
+import { RankedBarChart } from "./charts";
+
 const STATUS_TONE: Record<string, string> = {
   winner: "bg-forest text-white",
   loser: "bg-ink/10 text-ink/45",
@@ -116,6 +118,18 @@ export function ExperimentsPanel({
                   </span>
                 )}
               </div>
+              {exp.status === "decided" && (
+                <div className="mt-2">
+                  <RankedBarChart
+                    data={exp.variants.map((v) => ({ label: v.key, "CVR": v.cvr }))}
+                    labelKey="label"
+                    valueKey="CVR"
+                    unit="%"
+                    labelWidth={28}
+                    height={Math.max(56, exp.variants.length * 26)}
+                  />
+                </div>
+              )}
               <ul className="mt-2 space-y-1">
                 {exp.variants.map((v) => (
                   <li key={v.key} className="flex items-center gap-2 text-sm">
