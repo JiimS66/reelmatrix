@@ -18,10 +18,19 @@ interface Props {
   currentMemberId: string;
   isLead: boolean;
   onChanged: () => void | Promise<void>;
+  onOpen: (memberId: string) => void;
   onError: (message: string) => void;
 }
 
-export function TeamView({ org, fleet, currentMemberId, isLead, onChanged, onError }: Props) {
+export function TeamView({
+  org,
+  fleet,
+  currentMemberId,
+  isLead,
+  onChanged,
+  onOpen,
+  onError,
+}: Props) {
   const [hiring, setHiring] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -64,6 +73,7 @@ export function TeamView({ org, fleet, currentMemberId, isLead, onChanged, onErr
           setHiring(false);
           setEditingId(member.id);
         }}
+        onOpen={() => onOpen(member.id)}
       />
     );
   }
@@ -214,11 +224,13 @@ function MemberCard({
   roleTitle,
   canEdit,
   onEdit,
+  onOpen,
 }: {
   member: OrgMember;
   roleTitle: (key: string | null) => string;
   canEdit: boolean;
   onEdit: () => void;
+  onOpen: () => void;
 }) {
   return (
     <div className="surface p-4">
@@ -237,11 +249,16 @@ function MemberCard({
             <p className="mt-1.5 text-sm text-ink/65">{member.job_description}</p>
           )}
         </div>
-        {canEdit && (
-          <button className="btn-line shrink-0 px-3 py-1.5 text-xs" onClick={onEdit}>
-            Configure
+        <div className="flex shrink-0 gap-1.5">
+          <button className="btn-line px-3 py-1.5 text-xs" onClick={onOpen}>
+            Open →
           </button>
-        )}
+          {canEdit && (
+            <button className="btn-line px-3 py-1.5 text-xs" onClick={onEdit}>
+              Configure
+            </button>
+          )}
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         {member.handles_kinds.length > 0 ? (

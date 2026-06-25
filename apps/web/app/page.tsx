@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
+import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
@@ -81,6 +82,7 @@ export default function Workspace() {
   const [terms, setTerms] = useState<BrandTermItem[]>([]);
   const [org, setOrg] = useState<OrgData | null>(null);
   const [fleet, setFleet] = useState<FleetAgent[]>([]);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -260,6 +262,7 @@ export default function Workspace() {
   function pickMember(id: string) {
     setCurrentId(id);
     setSelectedId(null);
+    setEmployeeId(null);
     setView("home");
   }
 
@@ -321,6 +324,7 @@ export default function Workspace() {
               onClick={() => {
                 setView(v);
                 setSelectedId(null);
+                setEmployeeId(null);
               }}
               className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-mono text-[12px] transition ${
                 view === v
@@ -352,12 +356,25 @@ export default function Workspace() {
         )}
 
         {view === "team" ? (
-          org ? (
+          employeeId ? (
+            <EmployeePage
+              memberId={employeeId}
+              currentMemberId={currentId}
+              isLead={!!isLead}
+              onBack={() => setEmployeeId(null)}
+              onOpenTask={(id) => {
+                setEmployeeId(null);
+                openTaskOnBoard(id);
+              }}
+              onError={(m) => setError(m)}
+            />
+          ) : org ? (
             <TeamView
               org={org}
               fleet={fleet}
               currentMemberId={currentId}
               isLead={!!isLead}
+              onOpen={setEmployeeId}
               onChanged={async () => {
                 try {
                   setOrg(await getOrg(currentId));

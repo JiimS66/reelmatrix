@@ -37,6 +37,14 @@ async def sync_campaign_analytics(
         utm_campaign=_slug(campaign.event_name or campaign.name),
         content_ids=list(by_content),
     )
+    # Replace prior synced snapshots so repeated syncs stay idempotent (manual
+    # snapshots are kept). The perf view takes the latest snapshot per post.
+    for old in session.exec(
+        select(MetricSnapshot).where(
+            MetricSnapshot.campaign_id == campaign.id, MetricSnapshot.source == "ga4"
+        )
+    ).all():
+        session.delete(old)
     updated = 0
     for row in rows:
         post = by_content.get(row.utm_content or "")

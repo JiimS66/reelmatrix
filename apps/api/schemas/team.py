@@ -213,6 +213,23 @@ class TaskDetailRead(BaseModel):
     annotations: list[AnnotationRead] = []
 
 
+class DirectMessageRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    sender: str
+    kind: str
+    title: Optional[str]
+    body: str
+    created_at: datetime
+
+
+class SendMessageRequest(BaseModel):
+    body: str
+    kind: str = "message"
+    title: Optional[str] = None
+
+
 class CreateCampaignRequest(BaseModel):
     name: str
     brief: dict
@@ -342,6 +359,12 @@ class OrgRead(BaseModel):
     members: list[OrgMemberRead]
     task_kinds: list[str]  # kinds a member can be set to handle
     agent_roles: list[AgentRoleRead]  # AI agents a digital employee can run as
+
+
+class MemberProfileRead(BaseModel):
+    member: OrgMemberRead
+    fleet: Optional[FleetAgent]
+    tasks: list[TaskRead]
 
 
 class CreateOrgMemberRequest(BaseModel):

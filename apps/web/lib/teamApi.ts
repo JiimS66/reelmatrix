@@ -485,6 +485,38 @@ export const updateOrgMember = (
     body,
   });
 
+export interface DirectMessage {
+  id: string;
+  sender: string;
+  kind: string;
+  title: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface MemberProfile {
+  member: OrgMember;
+  fleet: FleetAgent | null;
+  tasks: Task[];
+}
+
+export const getMemberProfile = (memberId: string, targetId: string) =>
+  request<MemberProfile>(`/api/v1/team/members/${targetId}/profile`, { memberId });
+
+export const getMemberMessages = (memberId: string, targetId: string) =>
+  request<DirectMessage[]>(`/api/v1/team/members/${targetId}/messages`, { memberId });
+
+export const sendMemberMessage = (
+  memberId: string,
+  targetId: string,
+  body: { body: string; kind?: string; title?: string | null },
+) =>
+  request<DirectMessage[]>(`/api/v1/team/members/${targetId}/messages`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
 export const TESTSPRITE_BRIEF: Record<string, unknown> = {
   product_name: "TestSprite",
   product_description:

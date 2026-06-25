@@ -21,10 +21,12 @@ from apps.api.schemas.team import (
     CommentRequest,
     CreateCampaignRequest,
     CreateOrgMemberRequest,
+    DirectMessageRead,
     EditRequest,
     EventRead,
     FleetAgent,
     LockRequest,
+    MemberProfileRead,
     MemberRead,
     MetricsRequest,
     MilestoneRead,
@@ -35,6 +37,7 @@ from apps.api.schemas.team import (
     ResolveRequest,
     ReviewRequest,
     ScheduleRead,
+    SendMessageRequest,
     SubmitRequest,
     TaskDetailRead,
     TaskRead,
@@ -198,6 +201,46 @@ def update_org_member(
         model=payload.model,
     )
     return OrgMemberRead.from_member(member)
+
+
+@router.get("/members/{member_id}/profile", response_model=MemberProfileRead)
+def get_member_profile(
+    member_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> MemberProfileRead:
+    member, stat, tasks = team_service.member_profile(session, actor, member_id)
+    return MemberProfileRead(
+        member=OrgMemberRead.from_member(member),
+        fleet=FleetAgent(**stat) if stat else None,
+        tasks=[TaskRead.model_validate(t) for t in tasks],
+    )
+
+
+@router.get("/members/{member_id}/messages", response_model=list[DirectMessageRead])
+def get_member_messages(
+    member_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[DirectMessageRead]:
+    return [
+        DirectMessageRead.model_validate(m)
+        for m in team_service.list_member_messages(session, actor, member_id)
+    ]
+
+
+@router.post("/members/{member_id}/messages", response_model=list[DirectMessageRead])
+async def send_member_message(
+    member_id: str,
+    payload: SendMessageRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[DirectMessageRead]:
+    messages = await team_service.send_member_message(
+        session, actor, member_id,
+        body=payload.body, kind=payload.kind, title=payload.title,
+    )
+    return [DirectMessageRead.model_validate(m) for m in messages]
 
 
 @router.get("/inbox", response_model=list[TaskRead])

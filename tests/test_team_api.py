@@ -277,6 +277,36 @@ def test_performance_groups_published_posts_by_platform() -> None:
     assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
 
 
+def test_member_profile_and_direct_chat() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    wid = members["Asset writer"]
+    _run_campaign(app, lead)  # the writer now owns tasks + has fleet stats
+
+    profile = _req(app, "GET", f"/api/v1/team/members/{wid}/profile", lead).json()
+    assert profile["member"]["display_name"] == "Asset writer"
+    assert profile["fleet"]["runs"] >= 1
+    assert len(profile["tasks"]) >= 1  # owns the per-channel posts
+
+    # Chat: the lead messages the AI, which auto-replies in role.
+    thread = _req(app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+                  json={"body": "How would you angle the LinkedIn post?"}).json()
+    assert len(thread) == 2
+    assert thread[0]["sender"] == "lead" and thread[1]["sender"] == "agent"
+
+    # Directive (assign a task) carries a title and gets an in-role ack.
+    thread = _req(app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+                  json={"body": "Draft a teaser", "kind": "directive", "title": "LinkedIn teaser"}).json()
+    assert any(m["kind"] == "directive" and m["title"] == "LinkedIn teaser" for m in thread)
+    assert thread[-1]["sender"] == "agent"
+
+    # Lead-only.
+    assert (
+        _req(app, "POST", f"/api/v1/team/members/{wid}/messages", sam, json={"body": "hi"}).status_code
+        == 403
+    )
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

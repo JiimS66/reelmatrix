@@ -196,6 +196,20 @@ class Annotation(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class DirectMessage(SQLModel, table=True):
+    """A message in the lead's direct line to a team member — chat + directives.
+    AI members auto-reply in their role; the thread is the lead's 1:1 with them."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    member_id: str = Field(index=True, foreign_key="member.id")  # the employee this thread is with
+    sender: str = "lead"  # lead | agent
+    kind: str = "message"  # message | directive
+    title: Optional[str] = None  # for a directive (assigned task)
+    body: str
+    created_at: datetime = Field(default_factory=_now)
+
+
 class TaskEvent(SQLModel, table=True):
     """Audit trail entry. Approve/edit/reject rows seed the Phase 3 learning loop."""
 

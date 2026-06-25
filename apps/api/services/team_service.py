@@ -19,6 +19,7 @@ from core.db.models import (
     Comment,
     ContentAtom,
     ContentVersion,
+    DirectMessage,
     EpisodicNote,
     ExecutionMode,
     Member,
@@ -37,9 +38,11 @@ from core.db.models import (
 from core.agents.roles import ROLES
 from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
+from core.llm.base import BaseLLMClient
 from core.workflows.campaign_instantiation import instantiate_campaign
 from core.workflows.task_runner import (
     complete_task,
+    default_client_for_provider,
     recompute_asset_checks,
     snapshot_version,
 )
@@ -250,6 +253,112 @@ def agent_fleet(session: Session, actor: Member) -> list[dict]:
         )
     fleet.sort(key=lambda row: row["runs"], reverse=True)
     return fleet
+
+
+def _get_member(session: Session, actor: Member, member_id: str) -> Member:
+    member = session.get(Member, member_id)
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found.")
+    _require_same_tenant(actor, member.tenant_id)
+    return member
+
+
+def member_profile(
+    session: Session, actor: Member, member_id: str
+) -> tuple[Member, Optional[dict], list[Task]]:
+    """A member's profile: who they are, their fleet stat (AI), and their tasks."""
+    member = _get_member(session, actor, member_id)
+    stat = next(
+        (f for f in agent_fleet(session, actor) if f["member_id"] == member.id), None
+    )
+    tasks = list(
+        session.exec(
+            select(Task)
+            .where(Task.tenant_id == actor.tenant_id, Task.assignee_id == member.id)
+            .order_by(Task.updated_at.desc())  # type: ignore[attr-defined]
+        ).all()
+    )
+    return member, stat, tasks
+
+
+def list_member_messages(
+    session: Session, actor: Member, member_id: str
+) -> list[DirectMessage]:
+    _get_member(session, actor, member_id)
+    return list(
+        session.exec(
+            select(DirectMessage)
+            .where(DirectMessage.member_id == member_id)
+            .order_by(DirectMessage.created_at)
+        ).all()
+    )
+
+
+async def _agent_reply(
+    member: Member,
+    body: str,
+    kind: str,
+    title: Optional[str],
+    client_for_provider,
+) -> str:
+    """The AI employee's in-role reply to the lead (real LLM, or a role-aware mock)."""
+    config = member.agent_config or {}
+    role_key = config.get("role", "")
+    provider = config.get("provider", "mock")
+    role_title = ROLES[role_key].title if role_key in ROLES else "your agent"
+    if provider == "mock":
+        if kind == "directive":
+            return (
+                f"On it — I'll take “{(title or body)[:48]}” as {member.display_name} "
+                f"({role_title}) and come back with a draft for your review."
+            )
+        return (
+            f"Thanks. As {member.display_name} I'd focus on {body[:60]}… "
+            "Want me to draft something?"
+        )
+    client: BaseLLMClient = (client_for_provider or default_client_for_provider)(provider)
+    job = ROLES[role_key].job_description if role_key in ROLES else ""
+    system = (
+        f"You are {member.display_name}, the team's {role_title}. {job} "
+        "Reply concisely and helpfully to the marketing lead."
+    )
+    user = f"[Directive: {title}]\n{body}" if kind == "directive" else body
+    return await client.generate_text(system_prompt=system, user_prompt=user)
+
+
+async def send_member_message(
+    session: Session,
+    actor: Member,
+    member_id: str,
+    *,
+    body: str,
+    kind: str,
+    title: Optional[str],
+    client_for_provider=None,
+) -> list[DirectMessage]:
+    """Lead sends a message/directive to a member; AI members auto-reply in role."""
+    _require_lead(actor)
+    member = _get_member(session, actor, member_id)
+    if not (body or "").strip():
+        raise HTTPException(status_code=400, detail="message body cannot be empty.")
+    if kind not in ("message", "directive"):
+        raise HTTPException(status_code=400, detail="kind must be 'message' or 'directive'.")
+    session.add(
+        DirectMessage(
+            tenant_id=actor.tenant_id, member_id=member_id, sender="lead",
+            kind=kind, title=title, body=body.strip(),
+        )
+    )
+    if member.kind == MemberKind.AI:
+        reply = await _agent_reply(member, body.strip(), kind, title, client_for_provider)
+        session.add(
+            DirectMessage(
+                tenant_id=actor.tenant_id, member_id=member_id, sender="agent",
+                kind="message", body=reply,
+            )
+        )
+    session.commit()
+    return list_member_messages(session, actor, member_id)
 
 
 # --- Org configuration (the per-tenant digital-employee roster) ---
@@ -533,6 +642,8 @@ def review_task(
     task = _get_task(session, actor, task_id)
     if task.status != TaskStatus.NEEDS_REVIEW:
         raise HTTPException(status_code=409, detail="Task is not awaiting review.")
+    if task.locked:
+        raise HTTPException(status_code=409, detail="Content is locked; unlock to review.")
 
     if action == "approve":
         if output is not None:
