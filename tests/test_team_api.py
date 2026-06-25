@@ -369,6 +369,61 @@ def test_member_profile_and_direct_chat() -> None:
     )
 
 
+def test_review_queue_spans_campaigns_and_is_lead_scoped() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    # Two campaigns, each run → each leaves a human claim_check open in the queue.
+    cid_a, _ = _run_campaign(app, lead)
+    cid_b, _ = _run_campaign(app, lead)
+
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    campaigns = {item["campaign_name"] for item in queue}
+    # The queue spans both campaigns (cross-campaign), each row tagged with its campaign.
+    assert len({item["task"]["campaign_id"] for item in queue}) >= 2
+    assert all(item["campaign_name"] for item in queue)
+    assert {cid_a, cid_b} <= {item["task"]["campaign_id"] for item in queue}
+    assert all(
+        item["task"]["status"] in ("needs_review", "blocked")
+        or item["task"]["kind"] == "claim_check"
+        for item in queue
+    )
+    # A non-lead sees only their own awaiting-review work, not the team's queue.
+    sam_queue = _req(app, "GET", "/api/v1/team/review-queue", sam).json()
+    assert len(sam_queue) < len(queue)
+    assert campaigns  # sanity: leads see named campaigns
+
+
+def test_directive_becomes_a_tracked_ai_task() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    wid = members["Asset writer"]  # an AI member
+
+    thread = _req(
+        app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+        json={"body": "Draft a recap thread on the launch", "kind": "directive",
+              "title": "Launch recap"},
+    ).json()
+    directive = next(m for m in thread if m["kind"] == "directive")
+    # The directive is linked to a real tracked task.
+    assert directive["task_id"]
+
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{directive['task_id']}", lead).json()
+    task = detail["task"]
+    assert task["kind"] == "asset"
+    # The addressed employee drafted it (the ai_run is theirs)…
+    assert any(
+        e["type"] == "ai_run" and e["actor_id"] == wid for e in detail["events"]
+    )
+    # …then it routed to the lead's review queue with a real deliverable.
+    assert task["status"] == "needs_review"
+    assert task["output"] and task["output"].get("content")
+
+    # It surfaces in the cross-campaign review queue under the Direct-assignments campaign.
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    row = next((it for it in queue if it["task"]["id"] == task["id"]), None)
+    assert row and row["campaign_name"] == "Direct assignments"
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

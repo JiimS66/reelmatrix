@@ -288,6 +288,11 @@ export const refreshTrends = (memberId: string, campaignId: string) =>
 export const getTodo = (memberId: string) =>
   request<TodoItem[]>("/api/v1/team/todo", { memberId });
 
+/** The cross-campaign "needs your call" queue — every awaiting-review item across all
+ * campaigns, each tagged with its campaign. */
+export const getReviewQueue = (memberId: string) =>
+  request<TodoItem[]>("/api/v1/team/review-queue", { memberId });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,
@@ -557,6 +562,7 @@ export interface DirectMessage {
   sender: string;
   kind: string;
   title: string | null;
+  task_id: string | null;
   body: string;
   created_at: string;
 }

@@ -173,6 +173,7 @@ export function EmployeePage({
                     }`}
                   >
                     📋 Task{msg.title ? `: ${msg.title}` : ""}
+                    {msg.task_id ? " · tracked ✓" : ""}
                   </p>
                 )}
                 {msg.body}

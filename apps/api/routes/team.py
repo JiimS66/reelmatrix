@@ -386,6 +386,18 @@ def get_todo(
     ]
 
 
+@router.get("/review-queue", response_model=list[TodoItem])
+def get_review_queue(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TodoItem]:
+    """The cross-campaign 'needs your call' queue, each row tagged with its campaign."""
+    return [
+        TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
+        for name, task in team_service.get_review_queue(session, actor)
+    ]
+
+
 @router.get("/brand", response_model=BrandRead)
 def get_brand(
     actor: Member = Depends(get_current_member),

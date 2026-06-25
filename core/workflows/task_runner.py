@@ -768,7 +768,9 @@ class TaskRunner:
             "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
             "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
-            "core_message": plan.get("core_message", ""),
+            # A directive task has no planning step — its instruction IS the brief.
+            "core_message": plan.get("core_message")
+            or (task.params or {}).get("directive", ""),
             "approved_claims": [
                 claim.get("claim", "")
                 for claim in (plan.get("claim_checks") or [])

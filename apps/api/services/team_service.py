@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import and_, or_
 from sqlmodel import Session, select
 
 from core.db.models import (
@@ -48,6 +49,7 @@ from core.workflows.campaign_instantiation import (
     targeted_segments,
 )
 from core.workflows.task_runner import (
+    TaskRunner,
     complete_task,
     default_client_for_provider,
     recompute_asset_checks,
@@ -213,6 +215,65 @@ def create_trend_draft(
     )
     session.add(task)
     _record_event(session, task, TaskEventType.CREATED, actor_id=actor.id, payload={"trend": angle})
+    session.commit()
+    session.refresh(task)
+    return task
+
+
+_DIRECT_CAMPAIGN_NAME = "Direct assignments"
+
+
+def _direct_campaign(session: Session, actor: Member) -> Campaign:
+    """The per-tenant inbox campaign that holds ad-hoc directive tasks (lazily created).
+    It borrows the brand's name for product context so a directive draft isn't starved."""
+    existing = session.exec(
+        select(Campaign).where(
+            Campaign.tenant_id == actor.tenant_id, Campaign.template == "direct"
+        )
+    ).first()
+    if existing is not None:
+        return existing
+    campaign = Campaign(
+        tenant_id=actor.tenant_id,
+        name=_DIRECT_CAMPAIGN_NAME,
+        template="direct",
+        brief={"product_name": _DIRECT_CAMPAIGN_NAME},
+        created_by=actor.id,
+    )
+    session.add(campaign)
+    session.commit()
+    session.refresh(campaign)
+    return campaign
+
+
+def _directive_task(
+    session: Session, actor: Member, member: Member, *, title: Optional[str], body: str
+) -> Task:
+    """Spin a directive into a real tracked task in the tenant's Direct-assignments
+    campaign, assigned to the member. AI → review-gated draft; human → human-only to do."""
+    campaign = _direct_campaign(session, actor)
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == campaign.id)
+        ).all()),
+        default=0,
+    )
+    is_ai = member.kind == MemberKind.AI
+    task = Task(
+        tenant_id=actor.tenant_id,
+        campaign_id=campaign.id,
+        kind=TaskKind.ASSET,
+        title=title.strip() if (title or "").strip() else f"Directive — {body[:40]}",
+        execution_mode=(
+            ExecutionMode.AI_DRAFT_HUMAN_REVIEW if is_ai else ExecutionMode.HUMAN_ONLY
+        ),
+        assignee_id=member.id,
+        params={"channel": "LinkedIn", "directive": body, "provenance": "directive"},
+        phase="followup",
+        sequence=last + 1,
+    )
+    session.add(task)
+    _record_event(session, task, TaskEventType.CREATED, actor_id=actor.id, payload={"directive": True})
     session.commit()
     session.refresh(task)
     return task
@@ -423,10 +484,19 @@ async def send_member_message(
         raise HTTPException(status_code=400, detail="message body cannot be empty.")
     if kind not in ("message", "directive"):
         raise HTTPException(status_code=400, detail="kind must be 'message' or 'directive'.")
+
+    # A directive becomes a real, tracked task in the team's Direct-assignments campaign,
+    # linked from the message so it shows in the thread and the cross-campaign queue.
+    directive_task: Optional[Task] = None
+    if kind == "directive":
+        directive_task = _directive_task(
+            session, actor, member, title=title, body=body.strip()
+        )
     session.add(
         DirectMessage(
             tenant_id=actor.tenant_id, member_id=member_id, sender="lead",
             kind=kind, title=title, body=body.strip(),
+            task_id=directive_task.id if directive_task is not None else None,
         )
     )
     if member.kind == MemberKind.AI:
@@ -438,6 +508,12 @@ async def send_member_message(
             )
         )
     session.commit()
+    # An AI member drafts the directive task immediately so a real deliverable comes back
+    # (review-gated). Runs the inbox campaign; only fresh TODO directive tasks are picked.
+    if directive_task is not None and member.kind == MemberKind.AI:
+        await TaskRunner(session, client_for_provider).run_ready_tasks(
+            directive_task.campaign_id
+        )
     return list_member_messages(session, actor, member_id)
 
 
@@ -601,6 +677,39 @@ def get_board(
 
 
 _INBOX_STATUSES = (TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.NEEDS_REVIEW)
+
+
+def get_review_queue(session: Session, actor: Member) -> list[tuple[str, Task]]:
+    """The cross-campaign "needs your call" queue (Workfront-style): for a lead, every
+    needs-review task, open claim-check, or blocked task across ALL campaigns, each
+    labelled with its campaign; for a member, their own awaiting-review tasks. A decision
+    completes the task, so it leaves the queue."""
+    is_lead = actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD
+    query = select(Task).where(Task.tenant_id == actor.tenant_id)
+    if is_lead:
+        query = query.where(
+            or_(
+                Task.status == TaskStatus.NEEDS_REVIEW,
+                Task.status == TaskStatus.BLOCKED,
+                and_(Task.kind == TaskKind.CLAIM_CHECK, Task.status != TaskStatus.DONE),
+            )
+        )
+    else:
+        query = query.where(
+            Task.assignee_id == actor.id, Task.status == TaskStatus.NEEDS_REVIEW
+        )
+    tasks = list(session.exec(query.order_by(Task.sequence)).all())
+    campaign_ids = list({t.campaign_id for t in tasks})
+    names: dict[str, str] = {}
+    if campaign_ids:
+        names = {
+            c.id: c.name
+            for c in session.exec(
+                select(Campaign).where(Campaign.id.in_(campaign_ids))  # type: ignore[attr-defined]
+            ).all()
+        }
+    items = [(names.get(t.campaign_id, "—"), t) for t in tasks]
+    return sorted(items, key=lambda it: (it[0], it[1].sequence))
 
 
 def get_inbox(session: Session, actor: Member) -> list[Task]:

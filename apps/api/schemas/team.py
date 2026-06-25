@@ -252,6 +252,7 @@ class DirectMessageRead(BaseModel):
     sender: str
     kind: str
     title: Optional[str]
+    task_id: Optional[str] = None
     body: str
     created_at: datetime
 

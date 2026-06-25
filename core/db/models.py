@@ -206,6 +206,7 @@ class DirectMessage(SQLModel, table=True):
     sender: str = "lead"  # lead | agent
     kind: str = "message"  # message | directive
     title: Optional[str] = None  # for a directive (assigned task)
+    task_id: Optional[str] = Field(default=None, foreign_key="task.id")  # directive → tracked task
     body: str
     created_at: datetime = Field(default_factory=_now)
 

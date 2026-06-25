@@ -27,6 +27,7 @@ import {
   draftFromTrend,
   getBoard,
   getInbox,
+  getReviewQueue,
   getTrends,
   getFleet,
   getOrg,
@@ -54,6 +55,7 @@ import {
   type ScheduleData,
   type Task,
   type TaskDetail,
+  type TodoItem,
   type TrendAngle,
 } from "@/lib/teamApi";
 
@@ -96,6 +98,7 @@ export default function Workspace() {
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
   const [trends, setTrends] = useState<TrendAngle[]>([]);
+  const [reviewQueue, setReviewQueue] = useState<TodoItem[]>([]);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -134,6 +137,16 @@ export default function Workspace() {
     }
   }, [selectedId, currentId]);
 
+  // The cross-campaign review queue feeds both the tenant-wide badge and the Review tab.
+  const refreshQueue = useCallback(async () => {
+    if (!currentId) return;
+    try {
+      setReviewQueue(await getReviewQueue(currentId));
+    } catch (e) {
+      setError(errMessage(e));
+    }
+  }, [currentId]);
+
   useEffect(() => {
     if (selectedId) refreshDetail();
     else setDetail(null);
@@ -143,12 +156,14 @@ export default function Workspace() {
   useEffect(() => {
     if (!currentId) return;
     getInbox(currentId).then(setInbox).catch((e) => setError(errMessage(e)));
+    refreshQueue();
     listCampaigns(currentId)
       .then((cs) => (cs.length > 0 ? getBoard(currentId, cs[0].id) : null))
       .then((b) => {
         if (b) setBoard(b);
       })
       .catch((e) => setError(errMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
   useEffect(() => {
@@ -171,6 +186,7 @@ export default function Workspace() {
         .then(setTrends)
         .catch((e) => setError(errMessage(e)));
     }
+    if (view === "review") refreshQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, currentId, board?.campaign.id]);
 
@@ -201,6 +217,7 @@ export default function Workspace() {
   async function onChanged() {
     await refreshBoard();
     await refreshDetail();
+    await refreshQueue();
     if (currentId) {
       try {
         setInbox(await getInbox(currentId));
@@ -291,10 +308,8 @@ export default function Workspace() {
   }
 
   const boardTasks = board?.tasks ?? [];
-  // Tasks routed to their workflow stage (a task lives in exactly one).
-  const reviewTasks = boardTasks.filter(
-    (t) => t.status === "needs_review" || t.kind === "claim_check",
-  );
+  // Tasks routed to their workflow stage (a task lives in exactly one). Review is
+  // tenant-wide (the reviewQueue), so it isn't filtered from the current board here.
   const planTasks = boardTasks.filter(
     (t) =>
       t.status !== "needs_review" &&
@@ -306,6 +321,26 @@ export default function Workspace() {
   );
 
   // Shared master-detail: a filtered task list (left) + the task detail (right).
+  const detailColumn = (
+    <div className="lg:sticky lg:top-6">
+      {detail ? (
+        <div className="surface p-5">
+          <TaskDetailPanel
+            detail={detail}
+            members={board?.members ?? members}
+            currentMemberId={currentId}
+            onChanged={onChanged}
+            onError={(m) => setError(m)}
+          />
+        </div>
+      ) : (
+        <div className="surface border-dashed p-6 text-sm text-ink/55">
+          Select a task to view, edit, review, reassign, or comment.
+        </div>
+      )}
+    </div>
+  );
+
   function taskPane(tasks: Task[], header: ReactNode, empty: string) {
     return (
       <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -328,23 +363,58 @@ export default function Workspace() {
             <p className="surface p-6 text-sm text-ink/60">{empty}</p>
           )}
         </div>
-        <div className="lg:sticky lg:top-6">
-          {detail ? (
-            <div className="surface p-5">
-              <TaskDetailPanel
-                detail={detail}
-                members={board?.members ?? members}
-                currentMemberId={currentId}
-                onChanged={onChanged}
-                onError={(m) => setError(m)}
-              />
+        {detailColumn}
+      </div>
+    );
+  }
+
+  // The cross-campaign review queue: every campaign's awaiting-review work in one place,
+  // grouped under its campaign so a decision anywhere empties that row.
+  function reviewPane(items: TodoItem[]) {
+    const groups: { name: string; tasks: Task[] }[] = [];
+    for (const it of items) {
+      let g = groups.find((x) => x.name === it.campaign_name);
+      if (!g) {
+        g = { name: it.campaign_name, tasks: [] };
+        groups.push(g);
+      }
+      g.tasks.push(it.task);
+    }
+    return (
+      <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="space-y-4">
+          <p className="tlabel">
+            Review &amp; fact-check — every campaign&apos;s approvals + the truth rail
+          </p>
+          {groups.length > 0 ? (
+            <div className="space-y-5">
+              {groups.map((g) => (
+                <div key={g.name} className="space-y-2">
+                  <p className="font-mono text-[11px] uppercase tracking-wide text-ink/45">
+                    {g.name}
+                  </p>
+                  <ul className="space-y-2.5">
+                    {g.tasks.map((task) => (
+                      <li key={task.id}>
+                        <TaskRow
+                          task={task}
+                          members={board?.members ?? members}
+                          selected={task.id === selectedId}
+                          onClick={() => setSelectedId(task.id)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           ) : (
-            <div className="surface border-dashed p-6 text-sm text-ink/55">
-              Select a task to view, edit, review, reassign, or comment.
-            </div>
+            <p className="surface p-6 text-sm text-ink/60">
+              Nothing needs review across your campaigns — you&apos;re all caught up.
+            </p>
           )}
         </div>
+        {detailColumn}
       </div>
     );
   }
@@ -405,13 +475,13 @@ export default function Workspace() {
               }`}
             >
               {VIEW_LABEL[v]}
-              {v === "review" && reviewTasks.length > 0 && (
+              {v === "review" && reviewQueue.length > 0 && (
                 <span
                   className={`rounded-full px-1.5 text-[10px] ${
                     view === v ? "bg-white/20 text-white" : "bg-forest text-white"
                   }`}
                 >
-                  {reviewTasks.length}
+                  {reviewQueue.length}
                 </span>
               )}
             </button>
@@ -562,13 +632,7 @@ export default function Workspace() {
             {schedule && <ContentPreview tasks={schedule.tasks} />}
           </div>
         ) : view === "review" ? (
-          taskPane(
-            reviewTasks,
-            <p className="tlabel">Review & fact-check — approvals + the truth rail</p>,
-            board
-              ? "Nothing needs review — you're all caught up."
-              : "Create a campaign first.",
-          )
+          reviewPane(reviewQueue)
         ) : (
           <HomeView
             role={isLead ? "lead" : "member"}
