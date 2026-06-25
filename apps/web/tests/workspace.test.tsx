@@ -29,6 +29,7 @@ function task(overrides: Partial<Task> = {}): Task {
     output: null,
     checks: {},
     score: null,
+    predicted_performance: null,
     due_date: null,
     phase: null,
     updated_at: "2026-06-24",

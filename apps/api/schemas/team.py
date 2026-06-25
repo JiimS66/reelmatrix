@@ -3,6 +3,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
+from core.content.insight import predicted_performance
 from core.content.scoring import content_score
 from core.db.models import (
     ExecutionMode,
@@ -60,6 +61,14 @@ class TaskRead(BaseModel):
     def score(self) -> Optional[dict]:
         """0–100 content score derived from the checks (None when not scoreable)."""
         return content_score(self.checks)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def predicted_performance(self) -> Optional[dict]:
+        """0–100 predicted-performance heuristic for a post (None otherwise)."""
+        if self.kind != TaskKind.ASSET:
+            return None
+        return predicted_performance(self.output, (self.params or {}).get("channel", ""))
 
 
 class CommentRead(BaseModel):

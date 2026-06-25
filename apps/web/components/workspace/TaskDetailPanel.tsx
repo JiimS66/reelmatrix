@@ -22,6 +22,7 @@ import {
   StatusBadge,
   cap,
   memberName,
+  scoreBand,
 } from "./primitives";
 
 interface Props {
@@ -207,6 +208,29 @@ export function TaskDetailPanel({
               </div>
             ))}
           </div>
+        </section>
+      )}
+
+      {task.predicted_performance && (
+        <section className="space-y-1.5">
+          <p className="tlabel">Predicted performance</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex items-center rounded-md border px-2 py-0.5 font-mono text-sm font-semibold ${scoreBand(
+                task.predicted_performance.overall,
+              )}`}
+            >
+              {task.predicted_performance.overall}
+            </span>
+            {Object.entries(task.predicted_performance.factors).map(([k, v]) => (
+              <span key={k} className="chip font-mono text-[10px]">
+                {k} {v}
+              </span>
+            ))}
+          </div>
+          <p className="font-mono text-[10px] text-ink/45">
+            {task.predicted_performance.note}
+          </p>
         </section>
       )}
 

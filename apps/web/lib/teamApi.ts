@@ -43,6 +43,11 @@ export interface Task {
   output: Record<string, unknown> | null;
   checks: Record<string, CheckIssue[]>;
   score: { overall: number; dimensions: Record<string, number> } | null;
+  predicted_performance: {
+    overall: number;
+    factors: Record<string, number>;
+    note: string;
+  } | null;
   due_date: string | null;
   phase: string | null;
   updated_at: string;
