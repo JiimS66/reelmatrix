@@ -180,3 +180,20 @@ def test_budget_optimizer_allocates_by_marginal_roi() -> None:
     )
     assert abs(sum(r["allocated"] for r in plan["allocation"]) - 4000) < 100
     assert all("marginal_roi" in r for r in plan["allocation"])
+
+
+def test_identity_resolution_stitches_shared_ids() -> None:
+    from core.identity.resolver import resolve_identities
+
+    records = [
+        {"anon_id": "a1", "email": "dana@acme.dev"},
+        {"email": "dana@acme.dev", "user_id": "u1", "company": "Acme"},
+        {"anon_id": "a2", "email": "sam@acme.dev"},
+    ]
+    profiles = resolve_identities(records)
+    assert len(profiles) == 2  # dana (stitched via email) + sam
+    dana = next(p for p in profiles if p["record_count"] == 2)
+    assert dana["main_id"].startswith("user_id:")  # priority main_id
+    assert dana["traits"].get("company") == "Acme"
+    # blocked/empty values don't runaway-merge.
+    assert len(resolve_identities([{"email": "", "anon_id": "x"}, {"email": "", "anon_id": "y"}])) == 2

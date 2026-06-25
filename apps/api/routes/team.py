@@ -67,6 +67,8 @@ from apps.api.schemas.team import (
     GrowthInsights,
     BudgetPlan,
     BudgetRequest,
+    IdentityResolveRequest,
+    IdentityResult,
     IncrementalityResult,
     MarketIntelRead,
     PlannedActionRead,
@@ -500,6 +502,16 @@ def optimize_budget_route(
 ) -> BudgetPlan:
     """Allocate a budget across channels by marginal ROI (equimarginal principle)."""
     return BudgetPlan(**team_service.optimize_paid_budget(session, actor, total=payload.total))
+
+
+@router.post("/identity/resolve", response_model=IdentityResult)
+def resolve_identities_route(
+    payload: IdentityResolveRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> IdentityResult:
+    """Stitch fragmented records into unified profiles (deterministic union-find)."""
+    return IdentityResult(**team_service.resolve_identities(session, actor, payload.records))
 
 
 @router.get(

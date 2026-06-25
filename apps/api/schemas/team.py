@@ -490,6 +490,21 @@ class BudgetRequest(BaseModel):
     total: float = 5000.0
 
 
+class IdentityResolveRequest(BaseModel):
+    records: list[dict]
+
+
+class UnifiedProfileRead(BaseModel):
+    main_id: Optional[str]
+    identifiers: list[str]
+    record_count: int
+    traits: dict
+
+
+class IdentityResult(BaseModel):
+    profiles: list[UnifiedProfileRead]
+
+
 class ExperimentVariantRead(BaseModel):
     key: str
     attributes: dict

@@ -57,6 +57,7 @@ from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.incrementality import measure_lift
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.content.repurpose import create_repurpose_provider
+from core.identity.resolver import resolve_identities as _resolve_identities
 from core.ingest.factory import create_import_provider
 from core.privacy.factory import create_egress_gate
 from core.growth.segments import discover_segments, score_segments
@@ -2070,6 +2071,13 @@ def optimize_paid_budget(session: Session, actor: Member, *, total: float = 5000
     _require_lead(actor)
     curves = [ChannelCurve(c, v_max, k) for c, (v_max, k) in _CHANNEL_CURVES.items()]
     return _optimize_budget(curves, total)
+
+
+def resolve_identities(session: Session, actor: Member, records: list[dict]) -> dict:
+    """Stitch fragmented records into unified profiles (Phase 13 — data foundation). Lead
+    only. Pure resolution today; a warehouse-native CDP swaps in behind this later."""
+    _require_lead(actor)
+    return {"profiles": _resolve_identities(records or [])}
 
 
 def _prospect_dict(p: OutboundProspect) -> dict:

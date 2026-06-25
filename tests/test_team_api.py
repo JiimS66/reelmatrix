@@ -506,6 +506,22 @@ def test_optimize_budget_allocates_across_channels() -> None:
     assert all("marginal_roi" in r and "predicted_response" in r for r in plan["allocation"])
 
 
+def test_identity_resolve_endpoint_stitches_profiles() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    records = [
+        {"anon_id": "a1", "email": "dana@acme.dev"},
+        {"email": "dana@acme.dev", "user_id": "u1"},
+    ]
+    res = _req(
+        app, "POST", "/api/v1/team/identity/resolve", lead, json={"records": records}
+    ).json()
+    assert len(res["profiles"]) == 1 and res["profiles"][0]["record_count"] == 2
+    assert _req(
+        app, "POST", "/api/v1/team/identity/resolve", sam, json={"records": []}
+    ).status_code == 403
+
+
 def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
