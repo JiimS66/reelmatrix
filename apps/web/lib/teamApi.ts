@@ -374,6 +374,12 @@ export const submitTask = (
     body: { output: output ?? null },
   });
 
+export const syncVisual = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/sync-visual`, { method: "POST", memberId });
+
+export const improvePost = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/improve`, { method: "POST", memberId });
+
 export const lockTask = (memberId: string, taskId: string, locked: boolean) =>
   request<Task>(`/api/v1/team/tasks/${taskId}/lock`, {
     method: "POST",

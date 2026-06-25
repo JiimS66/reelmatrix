@@ -157,6 +157,7 @@ class DesignerAgent(Agent):
             "segment_description": context.get("segment_description", ""),
             "pain_point": context.get("pain_point", ""),
             "pain_points": context.get("pain_points", []),
+            "post_copy": context.get("post_copy", ""),  # match the finalized caption
             "reference_briefs": [item["summary"] for item in understood],
             "revision_notes": context.get("revision_notes", []),
         }

@@ -474,6 +474,28 @@ def get_task(
     )
 
 
+@router.post("/tasks/{task_id}/sync-visual", response_model=TaskRead)
+async def sync_visual(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await TaskRunner(session).sync_visual(task)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/improve", response_model=TaskRead)
+async def improve_task(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await TaskRunner(session).improve(task)
+    return TaskRead.model_validate(task)
+
+
 @router.post("/tasks/{task_id}/lock", response_model=TaskRead)
 def lock_task(
     task_id: str,

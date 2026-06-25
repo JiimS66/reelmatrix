@@ -376,6 +376,34 @@ def test_terminology_check_flags_an_edited_post() -> None:
     assert edited["score"]["overall"] < 100
 
 
+def test_post_carries_a_visual_with_sync_and_improve() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    created = _req(
+        app, "POST", "/api/v1/team/campaigns", lead,
+        json={"name": "Launch", "brief": BRIEF, "with_visuals": True},
+    ).json()
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    asset = _task(board, "asset")
+    tid = asset["id"]
+    # The post is one deliverable: copy + a nested visual.
+    assert asset["output"]["content"] and asset["output"]["visual"]["image_ref"]
+
+    synced = _req(app, "POST", f"/api/v1/team/tasks/{tid}/sync-visual", lead).json()
+    assert synced["output"]["visual"]["image_ref"]
+
+    improved = _req(app, "POST", f"/api/v1/team/tasks/{tid}/improve", lead).json()
+    assert improved["output"]["content"]
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert len(detail["versions"]) >= 2  # ai_render + sync/improve snapshots
+
+    # Only the lead or assignee (Sam is neither) can re-render a post.
+    assert (
+        _req(app, "POST", f"/api/v1/team/tasks/{tid}/sync-visual", sam).status_code == 403
+    )
+
+
 def test_proofing_versions_annotations_and_lock() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
@@ -562,7 +590,8 @@ def test_org_returns_the_roster_and_config_catalogs() -> None:
     # The Auditor owns no task kinds; the Designer owns visuals.
     assert by_name["Content auditor"]["agent_role"] == "auditor"
     assert by_name["Content auditor"]["handles_kinds"] == []
-    assert by_name["Designer"]["handles_kinds"] == ["visual"]
+    # Designer is a service member too — it attaches a visual to each post.
+    assert by_name["Designer"]["handles_kinds"] == []
     assert {"auditor", "designer"} <= {r["key"] for r in org["agent_roles"]}
     assert asset_writer["reports_to"] == lead
     # Catalogs the team UI offers when configuring an employee.

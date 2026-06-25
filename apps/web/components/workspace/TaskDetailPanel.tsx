@@ -7,10 +7,12 @@ import {
   addComment,
   assignTask,
   editTask,
+  improvePost,
   lockTask,
   resolveAnnotation,
   reviewTask,
   submitTask,
+  syncVisual,
   type ExecutionMode,
   type Member,
   type Task,
@@ -26,6 +28,7 @@ import {
   ScoreBadge,
   StatusBadge,
   cap,
+  checkCount,
   memberName,
   scoreBand,
 } from "./primitives";
@@ -56,6 +59,8 @@ export function TaskDetailPanel({
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [cta, setCta] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [jsonText, setJsonText] = useState("");
   const [comment, setComment] = useState("");
   const [annotation, setAnnotation] = useState("");
@@ -64,10 +69,14 @@ export function TaskDetailPanel({
   const [busy, setBusy] = useState(false);
   const [showDraft, setShowDraft] = useState(false);
 
+  const visual = (output.visual ?? null) as Record<string, unknown> | null;
+
   useEffect(() => {
     setTitle(String(output.title ?? ""));
     setContent(String(output.content ?? ""));
     setCta(String(output.call_to_action ?? ""));
+    setImageUrl(String(visual?.image_ref ?? ""));
+    setVideoUrl(String(visual?.video_ref ?? ""));
     setJsonText(JSON.stringify(task.output ?? {}, null, 2));
     setComment("");
     setAnnotation("");
@@ -100,7 +109,18 @@ export function TaskDetailPanel({
 
   function buildOutput(): Record<string, unknown> | null {
     if (isAsset) {
-      return { ...output, title, content, call_to_action: cta };
+      const nextVisual = {
+        ...(visual ?? {}),
+        ...(imageUrl ? { image_ref: imageUrl } : {}),
+        ...(videoUrl ? { video_ref: videoUrl } : {}),
+      };
+      return {
+        ...output,
+        title,
+        content,
+        call_to_action: cta,
+        ...(Object.keys(nextVisual).length > 0 ? { visual: nextVisual } : {}),
+      };
     }
     try {
       const parsed: unknown = JSON.parse(jsonText);
@@ -144,6 +164,8 @@ export function TaskDetailPanel({
   const onComment = () => {
     if (comment.trim()) run(() => addComment(currentMemberId, task.id, comment.trim()));
   };
+  const onSyncVisual = () => run(() => syncVisual(currentMemberId, task.id));
+  const onImprove = () => run(() => improvePost(currentMemberId, task.id));
   const onLock = (locked: boolean) => run(() => lockTask(currentMemberId, task.id, locked));
   const onAddAnnotation = () => {
     if (annotation.trim())
@@ -203,6 +225,37 @@ export function TaskDetailPanel({
               placeholder="Call to action"
               onChange={(e) => setCta(e.target.value)}
             />
+
+            {/* The post's visual — copy + image/video are one deliverable. */}
+            <div className="rounded-xl border border-ink/10 bg-canvas/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="tlabel">Visual</p>
+                {can("edit") && (
+                  <button
+                    className="btn-line px-2.5 py-1 text-xs"
+                    disabled={busy}
+                    onClick={onSyncVisual}
+                  >
+                    {busy ? "…" : "↻ Sync visual to copy"}
+                  </button>
+                )}
+              </div>
+              {visual && <VisualPreview output={visual} />}
+              <div className="mt-2 space-y-1.5">
+                <input
+                  className="field"
+                  value={imageUrl}
+                  placeholder="Image URL (or generated mock ref)"
+                  onChange={(e) => setImageUrl(e.target.value)}
+                />
+                <input
+                  className="field"
+                  value={videoUrl}
+                  placeholder="Video URL (human-attached)"
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                />
+              </div>
+            </div>
           </div>
         ) : isVisual ? (
           <div className="space-y-2">
@@ -317,6 +370,11 @@ export function TaskDetailPanel({
         {can("submit") && (
           <button className="btn-green" disabled={busy} onClick={onSubmit}>
             Submit
+          </button>
+        )}
+        {isAsset && can("edit") && checkCount(task) > 0 && (
+          <button className="btn-dark" disabled={busy} onClick={onImprove}>
+            ✦ Apply AI improvement
           </button>
         )}
         {can("lock") && (

@@ -690,6 +690,21 @@ def edit_task(session: Session, actor: Member, task_id: str, *, output: dict) ->
     return task
 
 
+def guard_post_edit(session: Session, actor: Member, task_id: str) -> Task:
+    """Permission gate for AI re-renders on a post (sync-visual / improve): the lead or
+    the human assignee, the task is a post, and it isn't locked."""
+    task = _get_task(session, actor, task_id)
+    is_lead = actor.kind == MemberKind.HUMAN and actor.role == MemberRole.LEAD
+    is_assignee = task.assignee_id == actor.id and actor.kind == MemberKind.HUMAN
+    if not (is_lead or is_assignee):
+        raise HTTPException(status_code=403, detail="Only the lead or the assignee can do this.")
+    if task.locked:
+        raise HTTPException(status_code=409, detail="Content is locked; unlock first.")
+    if task.kind != TaskKind.ASSET:
+        raise HTTPException(status_code=400, detail="Only posts support this action.")
+    return task
+
+
 def lock_task(session: Session, actor: Member, task_id: str, *, locked: bool) -> Task:
     """Lead sign-off: lock (or unlock) a task's content. While locked, edits/submits
     are rejected, and the approved version is pinned."""

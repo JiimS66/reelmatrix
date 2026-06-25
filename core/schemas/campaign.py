@@ -121,6 +121,9 @@ class CampaignAsset(StrictSchema):
     content: NonEmptyStr
     call_to_action: NonEmptyStr
     notes: List[NonEmptyStr]
+    # The post's visual (copy + image/video are one deliverable). Filled by the
+    # Designer sub-step after the copy converges, or attached by a human (URL).
+    visual: Optional[dict] = None
 
 
 class AuditDimension(str, Enum):
@@ -150,12 +153,13 @@ class VisualAsset(StrictSchema):
     ``references`` records any human-provided media the VisionProvider understood and
     fed in as brand references."""
 
-    channel: NonEmptyStr
+    channel: Optional[NonEmptyStr] = None  # inherits the post's channel when nested
     concept: NonEmptyStr
     prompt: NonEmptyStr
     alt_text: NonEmptyStr
     aspect_ratio: str = "1:1"
     image_ref: Optional[str] = None
+    video_ref: Optional[str] = None  # a human-attached or generated video (URL)
     references: Optional[List[dict]] = None
 
 

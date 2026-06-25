@@ -458,10 +458,102 @@ class TaskRunner:
                 return None
         output = await agent_for_role(role_key, client).run(context)
         if task.kind == TaskKind.ASSET:
+            # Converge the COPY first (deterministic checks + Auditor), THEN attach the
+            # visual once — keeping image generation out of the copy correction loop so
+            # a copy fix never re-spends on imagery or clobbers an approved image.
             output = await self._self_correct(task, member, client, role_key, context, output)
+            output = await self._attach_visual(task, campaign, output)
         elif task.kind == TaskKind.VISUAL:
             output = await self._critique_visual(task, member, client, role_key, context, output)
         return output
+
+    def _designer_member(self, tenant_id: str) -> Optional[Member]:
+        """The tenant's Designer (an AI member whose role is 'designer'), invoked to
+        attach a visual to a post; None when the tenant has none."""
+        members = self._session.exec(
+            select(Member).where(
+                Member.tenant_id == tenant_id, Member.kind == MemberKind.AI
+            )
+        ).all()
+        return next(
+            (m for m in members if (m.agent_config or {}).get("role") == "designer"), None
+        )
+
+    async def _attach_visual(self, task: Task, campaign: Campaign, output: dict) -> dict:
+        """Attach a visual to the post (one deliverable) via the Designer sub-step, then
+        critique it into checks["brand_fit"]. Skipped when the campaign has no visuals or
+        no Designer. The Designer sees the finalized copy so the image matches it."""
+        if not (campaign.brief or {}).get("with_visuals"):
+            return output
+        designer = self._designer_member(task.tenant_id)
+        if designer is None:
+            return output
+        provider = (designer.agent_config or {}).get("provider", "mock")
+        client = self._client_for_provider(provider)
+        ctx = {**self._designer_context(task, campaign), "post_copy": output.get("content", "")}
+        visual = await agent_for_role("designer", client).run(ctx)
+        _record_usage(self._session, task, designer)
+        critique = await self._run_visual_critique(task, visual, ctx)
+        if critique is not None:
+            self._pending_checks.setdefault(task.id, {})["brand_fit"] = critique
+        return {**output, "visual": visual}
+
+    def _merged_asset_checks(self, task: Task, *, brand_fit: Optional[list], keep_audit: bool) -> dict:
+        """Recompute the deterministic post checks, optionally preserving the prior audit
+        verdict and adding a fresh brand_fit — so a sync/improve keeps checks coherent."""
+        checks = recompute_asset_checks(self._session, task)
+        if keep_audit and (task.checks or {}).get("audit") is not None:
+            checks["audit"] = task.checks["audit"]
+        if brand_fit is not None:
+            checks["brand_fit"] = brand_fit
+        return checks
+
+    async def sync_visual(self, task: Task) -> Task:
+        """Re-run the Designer on the post's CURRENT copy so the image matches it; snapshot
+        a new version (never silently clobber). Lead/assignee + lock are checked upstream."""
+        campaign = self._session.get(Campaign, task.campaign_id)
+        designer = self._designer_member(task.tenant_id)
+        if campaign is None or designer is None:
+            raise LookupError("No campaign or Designer to sync the visual.")
+        client = self._client_for_provider((designer.agent_config or {}).get("provider", "mock"))
+        ctx = {**self._designer_context(task, campaign), "post_copy": (task.output or {}).get("content", "")}
+        visual = await agent_for_role("designer", client).run(ctx)
+        _record_usage(self._session, task, designer)
+        critique = await self._run_visual_critique(task, visual, ctx)
+        task.output = {**(task.output or {}), "visual": visual}
+        task.checks = self._merged_asset_checks(task, brand_fit=critique, keep_audit=True)
+        task.updated_at = _now()
+        snapshot_version(self._session, task, source="sync_visual")
+        _record_event(self._session, task, TaskEventType.EDITED, payload={"sync_visual": True})
+        self._session.add(task)
+        self._session.commit()
+        return task
+
+    async def improve(self, task: Task) -> Task:
+        """One-click "apply AI improvement": re-render the post once, feeding the current
+        check + audit issues back as revision notes, re-attach the visual, and snapshot a
+        new version the human reviews (it does not loop or re-bill the auditor)."""
+        campaign = self._session.get(Campaign, task.campaign_id)
+        member = self._session.get(Member, task.assignee_id)
+        if campaign is None:
+            raise LookupError("No campaign to improve against.")
+        client = self._client_for_provider((member.agent_config or {}).get("provider", "mock") if member else "mock")
+        role_key = role_for(task, member)
+        context = self._build_context(task, campaign)
+        notes = _revision_notes(task.checks or {})
+        candidate = await agent_for_role(role_key, client).run({**context, "revision_notes": notes})
+        _record_usage(self._session, task, member)
+        candidate = await self._attach_visual(task, campaign, candidate)
+        task.output = candidate
+        task.checks = self._merged_asset_checks(
+            task, brand_fit=self._pending_checks.pop(task.id, {}).get("brand_fit"), keep_audit=False
+        )
+        task.updated_at = _now()
+        snapshot_version(self._session, task, source="improve")
+        _record_event(self._session, task, TaskEventType.SELF_CORRECTED, payload={"passes": 1, "manual": True})
+        self._session.add(task)
+        self._session.commit()
+        return task
 
     async def _self_correct(
         self,
@@ -635,13 +727,21 @@ class TaskRunner:
         )
         self._session.add(task)
 
+    # Orchestration/routing keys that ride on the brief but are NOT generation inputs,
+    # so they're stripped before the brief is validated as a CampaignGenerationRequest.
+    _BRIEF_ORCHESTRATION_KEYS = ("with_visuals", "target_segments", "tailored", "reference_media")
+
     def _build_context(self, task: Task, campaign: Campaign) -> dict:
         """The blackboard slice an agent reads — only its dependencies, nothing more."""
         if task.kind == TaskKind.ASSET:
             return self._copywriter_context(task, campaign)
         if task.kind == TaskKind.VISUAL:
             return self._designer_context(task, campaign)
-        payload = dict(campaign.brief)
+        payload = {
+            k: v
+            for k, v in (campaign.brief or {}).items()
+            if k not in self._BRIEF_ORCHESTRATION_KEYS
+        }
         payload.setdefault("campaign_template", campaign.template)
         context: dict = {"request": payload}
         if task.kind == TaskKind.PLANNING:

@@ -123,6 +123,9 @@ def instantiate_campaign(
     Tasks are created but not run; a task runner executes AI tasks once their
     dependencies are satisfied.
     """
+    # Persist whether posts carry a visual on the brief, so the runner's Designer
+    # sub-step (visual is now part of the post, not a separate task) can read it.
+    brief = {**brief, "with_visuals": with_visuals}
     campaign = Campaign(
         tenant_id=tenant_id,
         name=name,
@@ -196,23 +199,9 @@ def instantiate_campaign(
         )
         sequence += 1
 
-    # Optional per-channel visuals, rendered by the Designer from the same core.
-    if with_visuals:
-        for channel in channels:
-            session.add(
-                Task(
-                    tenant_id=tenant_id,
-                    campaign_id=campaign.id,
-                    kind=TaskKind.VISUAL,
-                    title=f"{channel} visual",
-                    execution_mode=ExecutionMode.AI_AUTO,
-                    depends_on=[planning.id],
-                    assignee_id=routes.get(TaskKind.VISUAL.value),
-                    params={"channel": channel},
-                    sequence=sequence,
-                )
-            )
-            sequence += 1
+    # Visuals are no longer separate tasks — the Designer attaches one to each post
+    # during the asset render (see TaskRunner._attach_visual), so a post is one
+    # deliverable carrying both copy and image/video.
 
     # Fact-checking is a human-only task; route_assignees guarantees a lead fallback.
     session.add(

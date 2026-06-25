@@ -54,23 +54,41 @@ function PreviewCard({ task }: { task: Task }) {
     );
   }
 
+  // A post is one deliverable: its visual (image/video) + copy together.
   const segment = String((task.params as { segment?: string })?.segment ?? "");
+  const v = (out.visual ?? null) as Record<string, unknown> | null;
+  const ref = String(v?.image_ref ?? "");
+  const isImg = /^https?:\/\//.test(ref);
   return (
-    <div className="flex flex-col rounded-xl border border-ink/10 bg-white p-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="chip">{channel}</span>
-          {segment && <span className="chip border-forest/30 text-forest">{segment}</span>}
+    <div className="flex flex-col overflow-hidden rounded-xl border border-ink/10 bg-white">
+      {v &&
+        (isImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={ref} alt={String(v.alt_text ?? "")} className="aspect-video w-full object-cover" />
+        ) : (
+          <div className="flex aspect-video w-full flex-col items-center justify-center bg-canvas text-center">
+            <div className="text-xl">🖼</div>
+            <p className="mt-0.5 px-3 font-mono text-[10px] text-ink/45">
+              {String(v.aspect_ratio ?? "1:1")} · {ref || "generated"}
+            </p>
+          </div>
+        ))}
+      <div className="flex flex-col p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="chip">{channel}</span>
+            {segment && <span className="chip border-forest/30 text-forest">{segment}</span>}
+          </div>
+          <ScoreBadge score={task.score} />
         </div>
-        <ScoreBadge score={task.score} />
+        <p className="mt-1.5 font-semibold text-ink">{String(out.title ?? task.title)}</p>
+        <p className="mt-1 line-clamp-4 whitespace-pre-line text-sm text-ink/70">
+          {String(out.content ?? "")}
+        </p>
+        {typeof out.call_to_action === "string" && out.call_to_action && (
+          <p className="mt-2 font-mono text-[11px] text-forest">→ {out.call_to_action}</p>
+        )}
       </div>
-      <p className="mt-1.5 font-semibold text-ink">{String(out.title ?? task.title)}</p>
-      <p className="mt-1 line-clamp-5 whitespace-pre-line text-sm text-ink/70">
-        {String(out.content ?? "")}
-      </p>
-      {typeof out.call_to_action === "string" && out.call_to_action && (
-        <p className="mt-2 font-mono text-[11px] text-forest">→ {out.call_to_action}</p>
-      )}
     </div>
   );
 }

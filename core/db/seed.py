@@ -142,11 +142,13 @@ AI_AGENTS = [
         "reports_to": "Adam (Lead)",
     },
     {
+        # Service member (not task-assigned): the runner invokes the Designer to
+        # attach a visual to each post during the asset render.
         "display_name": "Designer",
         "agent_kind": "visual",
         "agent_role": "designer",
-        "job_description": "Renders each channel's visual from the shared core (image model).",
-        "handles_kinds": [TaskKind.VISUAL],
+        "job_description": "Attaches each post's visual from the copy + brand (image model).",
+        "handles_kinds": [],
         "reports_to": "Adam (Lead)",
     },
 ]

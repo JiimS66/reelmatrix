@@ -399,7 +399,7 @@ def test_auditor_flag_drives_a_self_correction_pass() -> None:
     assert audit_usage and all(u.provider == "audit" for u in audit_usage)
 
 
-def test_runner_renders_per_channel_visuals_when_enabled() -> None:
+def test_posts_carry_a_visual_when_enabled() -> None:
     engine = create_db_engine("sqlite://")
     init_db(engine)
     session = Session(engine)
@@ -409,23 +409,26 @@ def test_runner_renders_per_channel_visuals_when_enabled() -> None:
     )
     asyncio.run(_runner(session).run_ready_tasks(campaign.id))
 
-    designer = next(
-        m
-        for m in session.exec(select(Member)).all()
-        if (m.agent_config or {}).get("role") == "designer"
+    # No separate visual tasks — the visual is part of each post (one deliverable).
+    assert (
+        session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.VISUAL
+            )
+        ).all()
+        == []
     )
-    visuals = session.exec(
-        select(Task).where(Task.campaign_id == campaign.id, Task.kind == TaskKind.VISUAL)
+    assets = session.exec(
+        select(Task).where(Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET)
     ).all()
-    assert len(visuals) == 2  # one per channel (LinkedIn, Email)
-    for visual in visuals:
-        assert visual.status == TaskStatus.DONE
-        assert visual.assignee_id == designer.id  # routed by handles_kinds
-        assert visual.output["channel"] == visual.params["channel"]
-        assert visual.output["image_ref"].startswith("mock://image/")
-        assert visual.output["prompt"] and visual.output["alt_text"]
-        # The VisionProvider critiqued it; the mock judges it on-brand.
-        assert visual.checks["brand_fit"] == []
+    assert len(assets) == 2  # LinkedIn, Email
+    for asset in assets:
+        assert asset.status == TaskStatus.DONE
+        visual = asset.output["visual"]
+        assert visual["image_ref"].startswith("mock://image/")
+        assert visual["prompt"] and visual["alt_text"]
+        # The Designer's visual was critiqued; the mock judges it on-brand.
+        assert asset.checks["brand_fit"] == []
 
 
 class _FlaggingVisionProvider(VisionProvider):
@@ -447,7 +450,7 @@ class _FlaggingVisionProvider(VisionProvider):
         return MediaCritique(on_brand=True, issues=[])
 
 
-def test_visual_critique_drives_a_self_correction_pass() -> None:
+def test_visual_critique_surfaces_on_the_post() -> None:
     engine = create_db_engine("sqlite://")
     init_db(engine)
     session = Session(engine)
@@ -465,18 +468,12 @@ def test_visual_critique_drives_a_self_correction_pass() -> None:
     )
     asyncio.run(runner.run_ready_tasks(campaign.id))
 
-    visual = _task(session, campaign.id, TaskKind.VISUAL)
-    # The VLM-judge flagged the first draft; after a rewrite it approved.
-    assert visual.status == TaskStatus.DONE
-    assert visual.checks["brand_fit"] == []
-    event = session.exec(
-        select(TaskEvent).where(
-            TaskEvent.task_id == visual.id,
-            TaskEvent.type == TaskEventType.SELF_CORRECTED,
-        )
-    ).first()
-    assert event is not None
-    assert event.payload["passes"] == 1 and event.payload.get("kind") == "visual"
+    asset = _task(session, campaign.id, TaskKind.ASSET)
+    # The Designer attached a visual; the VLM-judge flagged it off-brand, surfaced as
+    # the post's brand_fit check (advisory — visual gen is decoupled from the copy loop).
+    assert asset.output["visual"]["image_ref"]
+    assert asset.checks["brand_fit"]
+    assert any("off-brand" in i["detail"] for i in asset.checks["brand_fit"])
 
 
 def test_fan_out_preserves_human_edits_on_replay() -> None:
