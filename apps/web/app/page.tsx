@@ -13,6 +13,7 @@ import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
+import { OutboundPanel } from "@/components/workspace/OutboundPanel";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { ReliabilityCard } from "@/components/workspace/ReliabilityCard";
@@ -659,6 +660,13 @@ export default function Workspace() {
                 campaignId={board.campaign.id}
                 canManage={!!isLead}
                 onChanged={onChanged}
+              />
+            )}
+            {board && (
+              <OutboundPanel
+                memberId={currentId}
+                campaignId={board.campaign.id}
+                canManage={!!isLead}
               />
             )}
           </div>

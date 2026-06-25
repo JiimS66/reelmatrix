@@ -458,3 +458,20 @@ class PillarAsset(SQLModel, table=True):
     kind: str = "doc"  # doc | transcript | webinar
     source_text: str
     created_at: datetime = Field(default_factory=_now)
+
+
+class OutboundProspect(SQLModel, table=True):
+    """A scaled-but-1:1 outbound target (Phase 10): waterfall-enriched, AI-personalized,
+    deliverability-guarded, and policy-gated before send."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    name: str
+    domain: str = ""
+    company: str = ""
+    title: str = ""
+    signal: str = ""  # enrichment reason-to-reach-out
+    personalized_line: str = ""
+    status: str = "new"  # new | enriched | sent | blocked
+    created_at: datetime = Field(default_factory=_now)

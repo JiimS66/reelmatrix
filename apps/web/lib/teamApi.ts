@@ -543,6 +543,62 @@ export interface ReliabilityRow {
 export const getReliability = (memberId: string) =>
   request<ReliabilityRow[]>("/api/v1/team/reliability", { memberId });
 
+export interface PaidVariant {
+  angle: string;
+  headline: string;
+  creative_score: number;
+  predicted_ctr: number;
+  allocated_budget: number;
+}
+
+export interface PaidPlan {
+  total_budget: number;
+  variants: PaidVariant[];
+}
+
+/** Phase 10 — score paid creative variants pre-spend + allocate (mock) budget. */
+export const planPaid = (memberId: string, taskId: string) =>
+  request<PaidPlan>(`/api/v1/team/tasks/${taskId}/paid-plan`, {
+    method: "POST",
+    memberId,
+  });
+
+export interface Prospect {
+  id: string;
+  name: string;
+  company: string;
+  title: string;
+  signal: string;
+  personalized_line: string;
+  status: string;
+}
+
+export const getProspects = (memberId: string, campaignId: string) =>
+  request<Prospect[]>(`/api/v1/team/campaigns/${campaignId}/prospects`, { memberId });
+
+export const addProspect = (
+  memberId: string,
+  campaignId: string,
+  body: { name: string; domain?: string },
+) =>
+  request<Prospect[]>(`/api/v1/team/campaigns/${campaignId}/prospects`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const enrichProspect = (memberId: string, prospectId: string) =>
+  request<Prospect[]>(`/api/v1/team/prospects/${prospectId}/enrich`, {
+    method: "POST",
+    memberId,
+  });
+
+export const sendProspect = (memberId: string, prospectId: string) =>
+  request<Prospect[]>(`/api/v1/team/prospects/${prospectId}/send`, {
+    method: "POST",
+    memberId,
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

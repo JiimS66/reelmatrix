@@ -644,6 +644,45 @@ def test_reliability_scorecard_grades_autonomy() -> None:
     )
 
 
+def test_paid_plan_scores_and_allocates_budget() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    plan = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/paid-plan", lead).json()
+    assert plan["total_budget"] == 1000.0
+    assert len(plan["variants"]) == 4
+    assert plan["variants"][0]["creative_score"] >= plan["variants"][-1]["creative_score"]
+    assert all("allocated_budget" in v and "predicted_ctr" in v for v in plan["variants"])
+    assert abs(sum(v["allocated_budget"] for v in plan["variants"]) - 1000.0) < 1.0
+
+
+def test_outbound_enriches_personalizes_and_guards() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    cid, _ = _run_campaign(app, lead)
+
+    added = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", lead,
+        json={"name": "Dana Lee", "domain": "acme.dev"},
+    ).json()
+    assert added and added[0]["status"] == "new"
+    pid = added[0]["id"]
+
+    enriched = _req(app, "POST", f"/api/v1/team/prospects/{pid}/enrich", lead).json()
+    row = next(p for p in enriched if p["id"] == pid)
+    assert row["status"] == "enriched"
+    assert row["personalized_line"] and "Acme" in row["company"]
+
+    sent = _req(app, "POST", f"/api/v1/team/prospects/{pid}/send", lead).json()
+    assert next(p for p in sent if p["id"] == pid)["status"] == "sent"
+
+    assert _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", sam, json={"name": "x"}
+    ).status_code == 403
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

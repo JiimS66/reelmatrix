@@ -51,7 +51,10 @@ from apps.api.schemas.team import (
     ClipDraftRequest,
     ClipsRead,
     CreatePillarRequest,
+    AddProspectRequest,
+    PaidPlan,
     PolicyVerdictRead,
+    ProspectRead,
     ReliabilityRow,
     FunnelCoverage,
     GapRequest,
@@ -665,6 +668,64 @@ def policy_check(
     session: Session = Depends(get_session),
 ) -> PolicyVerdictRead:
     return PolicyVerdictRead(**team_service.policy_check(session, actor, task_id))
+
+
+@router.post("/tasks/{task_id}/paid-plan", response_model=PaidPlan)
+def plan_paid(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PaidPlan:
+    return PaidPlan(**team_service.plan_paid_creative(session, actor, task_id))
+
+
+@router.get("/campaigns/{campaign_id}/prospects", response_model=list[ProspectRead])
+def list_prospects_route(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.list_prospects(session, actor, campaign_id)
+    ]
+
+
+@router.post("/campaigns/{campaign_id}/prospects", response_model=list[ProspectRead])
+def add_prospect_route(
+    campaign_id: str,
+    payload: AddProspectRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    result = team_service.add_prospect(
+        session, actor, campaign_id, name=payload.name, domain=payload.domain
+    )
+    return [ProspectRead(**p) for p in result["prospects"]]
+
+
+@router.post("/prospects/{prospect_id}/enrich", response_model=list[ProspectRead])
+def enrich_prospect_route(
+    prospect_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.enrich_prospect(session, actor, prospect_id)["prospects"]
+    ]
+
+
+@router.post("/prospects/{prospect_id}/send", response_model=list[ProspectRead])
+def send_outbound_route(
+    prospect_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.send_outbound(session, actor, prospect_id)["prospects"]
+    ]
 
 
 @router.get("/brand", response_model=BrandRead)

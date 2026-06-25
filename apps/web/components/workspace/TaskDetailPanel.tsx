@@ -21,6 +21,7 @@ import {
 } from "@/lib/teamApi";
 
 import { ClaimCheckView, type Claim } from "./ClaimCheckView";
+import { PaidPlanInline } from "./PaidPlanInline";
 import {
   AssigneeChip,
   CHECK_LABEL,
@@ -272,6 +273,7 @@ export function TaskDetailPanel({
                 />
               </div>
             </div>
+            <PaidPlanInline memberId={currentMemberId} taskId={task.id} />
           </div>
         ) : isVisual ? (
           <div className="space-y-2">

@@ -32,6 +32,7 @@ from core.db.models import (
     MemberRole,
     MetricSnapshot,
     Milestone,
+    OutboundProspect,
     PillarAsset,
     Post,
     Task,
@@ -55,6 +56,10 @@ from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
 from core.media.clips import create_clip_provider
 from core.media.video import create_video_provider
+from core.outbound.base import enrich_waterfall
+from core.outbound.factory import create_deliverability_guard, create_enrichment_waterfall
+from core.outbound.mock import personalized_line
+from core.paid.factory import create_budget_allocator, create_creative_scorer
 from core.policy.gate import policy_issues
 from core.workflows.campaign_instantiation import (
     assign_segment,
@@ -1839,3 +1844,124 @@ def policy_check(session: Session, actor: Member, task_id: str) -> dict:
         "allow": not any(i["severity"] == "block" for i in issues),
         "violations": issues,
     }
+
+
+# --- Phase 10: paid creative loop + scaled 1:1 outbound ---
+
+
+def plan_paid_creative(
+    session: Session, actor: Member, task_id: str, *, total_budget: float = 1000.0
+) -> dict:
+    """Generate paid creative variants from a post, score each PRE-spend, and allocate a
+    (mock) budget toward winners — the create→test→reallocate loop on mock spend."""
+    task = _get_task(session, actor, task_id)
+    output = task.output or {}
+    headline = output.get("title", "Your offer")
+    channel = (task.params or {}).get("channel", "")
+    templates = [
+        ("Pain-led", f"Still struggling? {headline}"),
+        ("Proof-led", f"{headline} — proven on 1,000+ teams"),
+        ("Outcome-led", f"Ship faster — {headline}"),
+        ("Curiosity", f"What if {headline.lower()}?"),
+    ]
+    scorer = create_creative_scorer()
+    allocator = create_budget_allocator()
+    rows = []
+    for angle, hl in templates:
+        score, ctr = scorer.score(headline=hl, angle=angle, channel=channel)
+        rows.append(
+            {"angle": angle, "headline": hl, "creative_score": score, "predicted_ctr": ctr}
+        )
+    budgets = allocator.allocate([r["creative_score"] for r in rows], total_budget)
+    for row, budget in zip(rows, budgets):
+        row["allocated_budget"] = budget
+    rows.sort(key=lambda r: -r["creative_score"])
+    return {"total_budget": total_budget, "variants": rows}
+
+
+def _prospect_dict(p: OutboundProspect) -> dict:
+    return {
+        "id": p.id, "name": p.name, "company": p.company, "title": p.title,
+        "signal": p.signal, "personalized_line": p.personalized_line, "status": p.status,
+    }
+
+
+def list_prospects(session: Session, actor: Member, campaign_id: str) -> list[dict]:
+    campaign = _get_campaign(session, actor, campaign_id)
+    prospects = session.exec(
+        select(OutboundProspect)
+        .where(OutboundProspect.campaign_id == campaign.id)
+        .order_by(OutboundProspect.created_at)  # type: ignore[attr-defined]
+    ).all()
+    return [_prospect_dict(p) for p in prospects]
+
+
+def add_prospect(
+    session: Session, actor: Member, campaign_id: str, *, name: str, domain: str
+) -> dict:
+    _require_lead(actor)
+    campaign = _get_campaign(session, actor, campaign_id)
+    if not (name or "").strip():
+        raise HTTPException(status_code=400, detail="prospect name cannot be empty.")
+    session.add(
+        OutboundProspect(
+            tenant_id=actor.tenant_id, campaign_id=campaign.id,
+            name=name.strip(), domain=(domain or "").strip(),
+        )
+    )
+    session.commit()
+    return {"prospects": list_prospects(session, actor, campaign_id)}
+
+
+def _get_prospect(session, actor, prospect_id) -> OutboundProspect:
+    p = session.get(OutboundProspect, prospect_id)
+    if p is None or p.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Prospect not found.")
+    return p
+
+
+def enrich_prospect(session: Session, actor: Member, prospect_id: str) -> dict:
+    """Waterfall-enrich, write a per-lead personalized line, and policy-gate it before it
+    can ever send (the same PolicyGate as all outbound)."""
+    _require_lead(actor)
+    p = _get_prospect(session, actor, prospect_id)
+    enrichment = enrich_waterfall(p.name, p.domain, create_enrichment_waterfall())
+    if enrichment is None:
+        p.status = "new"  # no domain → nothing to enrich
+    else:
+        brand = get_brand(session, actor)
+        vp = brand.value_proposition if brand else "ship with confidence"
+        line = personalized_line(p.name, enrichment, vp)
+        p.company, p.title, p.signal = enrichment.company, enrichment.title, enrichment.signal
+        p.personalized_line = line
+        blocked = any(i["severity"] == "block" for i in policy_issues(line))
+        p.status = "blocked" if blocked else "enriched"
+    session.add(p)
+    session.commit()
+    return {"prospects": list_prospects(session, actor, p.campaign_id)}
+
+
+def send_outbound(session: Session, actor: Member, prospect_id: str) -> dict:
+    """Mock send, gated by the DeliverabilityGuard (daily cap stands in for warmup ramp +
+    mailbox rotation + bounce/spam auto-pause)."""
+    _require_lead(actor)
+    p = _get_prospect(session, actor, prospect_id)
+    if p.status != "enriched":
+        raise HTTPException(
+            status_code=409, detail="Prospect must be enriched + policy-clean before send."
+        )
+    sent_today = len(
+        session.exec(
+            select(OutboundProspect).where(
+                OutboundProspect.campaign_id == p.campaign_id,
+                OutboundProspect.status == "sent",
+            )
+        ).all()
+    )
+    ok, reason = create_deliverability_guard().can_send(sent_today)
+    if not ok:
+        raise HTTPException(status_code=429, detail=reason)
+    p.status = "sent"
+    session.add(p)
+    session.commit()
+    return {"prospects": list_prospects(session, actor, p.campaign_id)}

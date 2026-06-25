@@ -590,3 +590,31 @@ class PolicyViolation(BaseModel):
 class PolicyVerdictRead(BaseModel):
     allow: bool
     violations: list[PolicyViolation]
+
+
+class PaidVariant(BaseModel):
+    angle: str
+    headline: str
+    creative_score: int
+    predicted_ctr: float
+    allocated_budget: float
+
+
+class PaidPlan(BaseModel):
+    total_budget: float
+    variants: list[PaidVariant]
+
+
+class ProspectRead(BaseModel):
+    id: str
+    name: str
+    company: str
+    title: str
+    signal: str
+    personalized_line: str
+    status: str
+
+
+class AddProspectRequest(BaseModel):
+    name: str
+    domain: str = ""
