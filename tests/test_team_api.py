@@ -332,6 +332,46 @@ def test_strategy_draft_offers_audiences_and_angles_to_any_member() -> None:
     assert len(data["next_questions"]) >= 1
 
 
+def test_strategy_loop_iterates_and_folds_in_feedback() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+    # Open circuit A with a bare idea — no big-data foundation needed.
+    started = _req(
+        app, "POST", "/api/v1/team/strategy/sessions", sam,
+        json={"inputs": [{"type": "idea", "value": "AI tool that proofreads marketing copy"}]},
+    )
+    assert started.status_code == 200
+    s1 = started.json()
+    sid = s1["id"]
+    assert s1["status"] == "active" and s1["turn_count"] == 1
+    assert s1["draft"]["audience_candidates"]
+    # First turn flags what it had to guess (never stalls on missing info).
+    assert s1["draft"]["assumptions"]
+
+    # Advance with a correction — the loop is stateful and folds the steer in.
+    advanced = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/advance", sam,
+        json={"feedback": "Target is solo founders, not teams"},
+    )
+    assert advanced.status_code == 200
+    s2 = advanced.json()
+    assert s2["turn_count"] == 2  # turns accrue — not a goldfish
+    assert s2["draft"]["audience_candidates"][0]["confidence"] == "confirmed"
+    assert s2["draft"]["assumptions"] == []  # resolved
+    assert s2["draft"]["understanding"] != s1["draft"]["understanding"]  # restated around the steer
+
+    # Reopen round-trips the persisted state.
+    got = _req(app, "GET", f"/api/v1/team/strategy/sessions/{sid}", sam)
+    assert got.json()["turn_count"] == 2
+
+    # Human says "good enough" — the loop closes.
+    done = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/advance", sam,
+        json={"done": True},
+    )
+    assert done.json()["status"] == "done"
+
+
 def test_brand_segments_crud_and_post_tailoring() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

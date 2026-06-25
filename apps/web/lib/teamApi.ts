@@ -1031,15 +1031,19 @@ export const sendMemberMessage = (
     body,
   });
 
+export type Confidence = "guess" | "likely" | "confirmed";
+
 export interface AudienceCandidate {
   name: string;
   why: string;
   pain: string;
+  confidence: Confidence;
 }
 
 export interface PositioningAngle {
   angle: string;
   rationale: string;
+  confidence: Confidence;
 }
 
 export interface StrategyDraft {
@@ -1049,11 +1053,11 @@ export interface StrategyDraft {
   content_pillars: string[];
   channels: string[];
   measure: string;
+  assumptions: string[];
   next_questions: string[];
 }
 
-/** Strategy co-creation — a fuzzy idea becomes a structured, editable draft (audience
- * candidates + positioning angles to pick from). The only "data" it needs is an LLM. */
+/** One-shot strategy draft (the quick entry). Internally one turn of the strategy loop. */
 export const draftStrategy = (
   memberId: string,
   idea: string,
@@ -1063,6 +1067,42 @@ export const draftStrategy = (
     method: "POST",
     memberId,
     body: { idea, answers },
+  });
+
+// --- Strategy loop (circuit A) — stateful, multi-turn co-creation ---
+
+export interface StrategyInput {
+  type: string; // idea | url | text | competitor
+  value: string;
+}
+
+export interface StrategySession {
+  id: string;
+  goal: string;
+  status: string; // active | done
+  draft: StrategyDraft | null;
+  turns: { feedback: string | null; draft: StrategyDraft }[];
+  turn_count: number;
+}
+
+/** Open the strategy loop over whatever the user fed; returns the first draft to react to. */
+export const startStrategySession = (memberId: string, inputs: StrategyInput[]) =>
+  request<StrategySession>("/api/v1/team/strategy/sessions", {
+    method: "POST",
+    memberId,
+    body: { inputs },
+  });
+
+/** One more turn — fold the user's reaction in, or close the loop with `done: true`. */
+export const advanceStrategySession = (
+  memberId: string,
+  sessionId: string,
+  body: { feedback?: string; inputs?: StrategyInput[]; done?: boolean },
+) =>
+  request<StrategySession>(`/api/v1/team/strategy/sessions/${sessionId}/advance`, {
+    method: "POST",
+    memberId,
+    body,
   });
 
 export const TESTSPRITE_BRIEF: Record<string, unknown> = {

@@ -47,41 +47,65 @@ class MockLLMClient(BaseLLMClient):
 
     @staticmethod
     def _build_strategy_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
-        idea = (str(payload.get("idea", "")).strip() or "your offering")[:70]
-        return {
-            "understanding": (
-                f"You want to take «{idea}» to market and need a clear plan — "
+        # Work from whatever was fed (inputs: idea/url/text/competitor), falling back to a
+        # bare idea. If FEEDBACK is present this is a later loop turn — reflect it: bump
+        # confidence on the lead audience, clear assumptions, restate around their steer.
+        inputs = payload.get("inputs") or []
+        topic = ""
+        for item in inputs:
+            if isinstance(item, dict) and str(item.get("value", "")).strip():
+                topic = str(item["value"]).strip()
+                break
+        topic = (topic or str(payload.get("idea", "")).strip() or "your offering")[:70]
+        feedback = str(payload.get("feedback") or "").strip()
+        refined = bool(feedback)
+        if refined:
+            understanding = (
+                f"Got it — taking your steer («{feedback[:60]}») into account, here's the "
+                f"sharpened plan for «{topic}»."
+            )
+        else:
+            understanding = (
+                f"You want to take «{topic}» to market and need a clear plan — "
                 "let's start from who it's really for."
-            ),
+            )
+        return {
+            "understanding": understanding,
             "audience_candidates": [
                 {
                     "name": "Hands-on practitioners",
                     "why": "They feel the pain daily and adopt fast.",
-                    "pain": f"They waste time on what «{idea}» fixes, with no good alternative.",
+                    "pain": f"They waste time on what «{topic}» fixes, with no good alternative.",
+                    "confidence": "confirmed" if refined else "likely",
                 },
                 {
                     "name": "Team leads / buyers",
                     "why": "They hold budget and care about team outcomes.",
                     "pain": "They must justify ROI and de-risk the choice to their boss.",
+                    "confidence": "likely" if refined else "guess",
                 },
                 {
                     "name": "Skeptical late adopters",
                     "why": "A larger but slower group — reach them once proof exists.",
-                    "pain": "They've been burned by tools that overpromised and underdelivered.",
+                    "pain": "They've been burned by tools that overpromised.",
+                    "confidence": "guess",
                 },
             ],
             "positioning_angles": [
                 {
                     "angle": "The fastest path to the outcome",
                     "rationale": "Speed-to-value lands with busy practitioners.",
+                    "confidence": "likely",
                 },
                 {
                     "angle": "Built for this audience, not a generic tool",
                     "rationale": "Specificity beats broad claims and is more believable.",
+                    "confidence": "guess",
                 },
                 {
                     "angle": "Proof over promises",
                     "rationale": "Directly counters the skeptics with evidence.",
+                    "confidence": "guess",
                 },
             ],
             "content_pillars": [
@@ -94,10 +118,15 @@ class MockLLMClient(BaseLLMClient):
                 "Start simple — qualified signups per week. Once volume builds, watch which "
                 "angle and pillar actually convert, and double down there."
             ),
+            "assumptions": (
+                []
+                if refined
+                else ["I assumed B2B with self-serve sign-up — tell me if it's sales-led or consumer."]
+            ),
             "next_questions": [
-                "Which audience above feels most right — or is it someone else entirely?",
+                "Which audience feels most right — or is it someone else entirely?",
                 "What's the single biggest pain you hear from them, in their own words?",
-                "Do you have any proof yet (results, customers, a number) we can lead with?",
+                "Got any proof yet (a result, a customer, a number) we can lead with?",
             ],
         }
 

@@ -14,8 +14,11 @@ from apps.api.schemas.team import (
     AnnotationRead,
     AudienceCandidateRead,
     PositioningAngleRead,
+    AdvanceStrategySessionRequest,
+    StartStrategySessionRequest,
     StrategyDraftRead,
     StrategyDraftRequest,
+    StrategySessionRead,
     AnnotationRequest,
     AssignRequest,
     AtomRead,
@@ -1124,3 +1127,48 @@ async def draft_strategy_route(
     candidates + positioning angles to pick from, not a form to fill). Any member."""
     draft = await team_service.draft_strategy(actor, idea=body.idea, answers=body.answers)
     return StrategyDraftRead(**draft)
+
+
+@router.post("/strategy/sessions", response_model=StrategySessionRead)
+async def start_strategy_session_route(
+    body: StartStrategySessionRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    """Open circuit A — the strategy loop. Feed whatever you have (idea / url / text /
+    competitor); the advisor runs the first turn and returns a draft to react to."""
+    data = await team_service.start_strategy_session(
+        session, actor, inputs=[i.model_dump() for i in body.inputs]
+    )
+    return StrategySessionRead(**data)
+
+
+@router.post("/strategy/sessions/{session_id}/advance", response_model=StrategySessionRead)
+async def advance_strategy_session_route(
+    session_id: str,
+    body: AdvanceStrategySessionRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    """One more turn — fold the user's reaction (pick / edit / correction) into the draft,
+    or close the loop with `done`."""
+    data = await team_service.advance_strategy_session(
+        session,
+        actor,
+        session_id,
+        feedback=body.feedback,
+        inputs=[i.model_dump() for i in body.inputs],
+        done=body.done,
+    )
+    return StrategySessionRead(**data)
+
+
+@router.get("/strategy/sessions/{session_id}", response_model=StrategySessionRead)
+def get_strategy_session_route(
+    session_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    return StrategySessionRead(
+        **team_service.get_strategy_session(session, actor, session_id)
+    )

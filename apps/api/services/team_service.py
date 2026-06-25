@@ -42,6 +42,7 @@ from core.db.models import (
     PillarAsset,
     PlannedAction,
     Post,
+    StrategySession,
     Task,
     TaskEvent,
     TaskEventType,
@@ -2418,4 +2419,93 @@ async def draft_strategy(
 
     provider = get_settings().llm_provider
     client = (client_for_provider or default_client_for_provider)(provider)
-    return await _advisor_draft(client, idea=idea, answers=answers)
+    return await _advisor_draft(client, inputs=[{"type": "idea", "value": idea}])
+
+
+def _strategy_session_dict(row: StrategySession) -> dict:
+    return {
+        "id": row.id,
+        "goal": row.goal,
+        "status": row.status,
+        "draft": row.draft,
+        "turns": row.turns,
+        "turn_count": len(row.turns or []),
+    }
+
+
+async def start_strategy_session(
+    session: Session, actor: Member, *, inputs: list[dict], client_for_provider=None
+) -> dict:
+    """Open circuit A: run the first turn of the strategy loop over whatever was fed, and
+    persist it as a StrategySession so the loop is stateful + reopenable."""
+    from core.strategy.loop import StrategyLoop
+
+    provider = get_settings().llm_provider
+    client = (client_for_provider or default_client_for_provider)(provider)
+    loop = StrategyLoop(client)
+    state = await loop.step(
+        {"inputs": list(inputs or []), "draft": None, "turns": [], "status": "active"},
+        {"inputs": [], "feedback": None},
+    )
+    row = StrategySession(
+        tenant_id=actor.tenant_id,
+        member_id=actor.id,
+        inputs=state["inputs"],
+        draft=state["draft"],
+        turns=state["turns"],
+        status="active",
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return _strategy_session_dict(row)
+
+
+async def advance_strategy_session(
+    session: Session,
+    actor: Member,
+    session_id: str,
+    *,
+    feedback: str | None = None,
+    inputs: list[dict] | None = None,
+    done: bool = False,
+    client_for_provider=None,
+) -> dict:
+    """One more guarded turn of circuit A — fold the user's reaction into the draft. `done`
+    closes the loop (the human says 'good enough, let's make content')."""
+    row = session.get(StrategySession, session_id)
+    if row is None or row.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Strategy session not found.")
+    if done:
+        row.status = "done"
+        row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return _strategy_session_dict(row)
+
+    from core.strategy.loop import StrategyLoop
+
+    provider = get_settings().llm_provider
+    client = (client_for_provider or default_client_for_provider)(provider)
+    loop = StrategyLoop(client)
+    state = await loop.advance(
+        {"inputs": row.inputs, "draft": row.draft, "turns": row.turns, "status": row.status},
+        {"inputs": list(inputs or []), "feedback": feedback},
+    )
+    row.inputs = state["inputs"]
+    row.draft = state["draft"]
+    row.turns = state["turns"]
+    row.status = state.get("status", row.status)
+    row.updated_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return _strategy_session_dict(row)
+
+
+def get_strategy_session(session: Session, actor: Member, session_id: str) -> dict:
+    row = session.get(StrategySession, session_id)
+    if row is None or row.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Strategy session not found.")
+    return _strategy_session_dict(row)

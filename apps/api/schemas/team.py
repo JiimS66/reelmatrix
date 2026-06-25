@@ -739,11 +739,13 @@ class AudienceCandidateRead(BaseModel):
     name: str
     why: str
     pain: str
+    confidence: str = "guess"
 
 
 class PositioningAngleRead(BaseModel):
     angle: str
     rationale: str
+    confidence: str = "guess"
 
 
 class StrategyDraftRead(BaseModel):
@@ -753,4 +755,32 @@ class StrategyDraftRead(BaseModel):
     content_pillars: list[str]
     channels: list[str]
     measure: str
+    assumptions: list[str] = []
     next_questions: list[str]
+
+
+# --- Strategy loop (circuit A) — stateful, multi-turn co-creation ---
+
+
+class StrategyInput(BaseModel):
+    type: str = "text"  # idea | url | text | competitor
+    value: str
+
+
+class StartStrategySessionRequest(BaseModel):
+    inputs: list[StrategyInput]
+
+
+class AdvanceStrategySessionRequest(BaseModel):
+    feedback: str | None = None
+    inputs: list[StrategyInput] = []
+    done: bool = False
+
+
+class StrategySessionRead(BaseModel):
+    id: str
+    goal: str
+    status: str
+    draft: StrategyDraftRead | None = None
+    turns: list[dict] = []
+    turn_count: int = 0

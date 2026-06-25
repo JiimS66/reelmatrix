@@ -558,3 +558,21 @@ class EvalRun(SQLModel, table=True):
     passed: bool = False
     n_cases: int = 0
     created_at: datetime = Field(default_factory=_now)
+
+
+class StrategySession(SQLModel, table=True):
+    """The persisted STATE of the strategy co-creation loop (circuit A) — loop engineering
+    made concrete. Each `advance` is one verified turn; the draft + turn history accrue here
+    so the loop is stateful (not a goldfish), reopenable, and feeds downstream. `status`
+    flips to 'done' when the human says 'good enough, let's make content'."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    member_id: str = Field(foreign_key="member.id")
+    goal: str = ""
+    inputs: list = Field(default_factory=list, sa_column=Column(JSON))  # [{type, value}]
+    draft: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # current StrategyDraft
+    turns: list = Field(default_factory=list, sa_column=Column(JSON))  # [{feedback, draft}]
+    status: str = "active"  # active | done
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
