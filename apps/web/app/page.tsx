@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
+import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
@@ -435,6 +436,7 @@ export default function Workspace() {
                   }
                 }}
               />
+              <ContentPreview tasks={schedule.tasks} />
             </div>
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
