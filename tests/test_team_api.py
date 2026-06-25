@@ -462,6 +462,39 @@ def test_incrementality_debiases_the_flywheel() -> None:
     ).status_code == 403
 
 
+def test_orchestrator_proposes_and_accepts_actions() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    # Cold tenant → the brain proposes warm-start.
+    actions = _req(app, "POST", "/api/v1/team/actions/plan", lead).json()
+    assert actions and any(a["type"] == "import_history" for a in actions)
+    assert all("rationale" in a and "priority" in a for a in actions)
+
+    # After warm-start → it proposes the causal de-bias.
+    rows = [
+        {"title": "Are you shipping blind?", "content": "word " * 50, "cta": "Sign up",
+         "channel": "LinkedIn", "segment": "Eng", "impressions": 1000,
+         "clicks": 200, "conversions": 80}
+        for _ in range(3)
+    ]
+    _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows})
+    actions2 = _req(app, "POST", "/api/v1/team/actions/plan", lead).json()
+    debias = next((a for a in actions2 if a["type"] == "run_incrementality"), None)
+    assert debias
+
+    # Accept it → auto-runs de-bias and leaves the queue.
+    after = _req(app, "POST", f"/api/v1/team/actions/{debias['id']}/accept", lead).json()
+    assert all(a["id"] != debias["id"] for a in after)
+    # Ignore another → also leaves the queue.
+    if after:
+        oid = after[0]["id"]
+        after2 = _req(app, "POST", f"/api/v1/team/actions/{oid}/ignore", lead).json()
+        assert all(a["id"] != oid for a in after2)
+
+    assert _req(app, "POST", "/api/v1/team/actions/plan", sam).status_code == 403
+
+
 def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

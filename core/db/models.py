@@ -508,3 +508,21 @@ class ConsentRecord(SQLModel, table=True):
     legal_basis: str = "consent"  # consent | legitimate_interest
     source: str = "manual"
     created_at: datetime = Field(default_factory=_now)
+
+
+class PlannedAction(SQLModel, table=True):
+    """Phase 14 — the autonomous orchestrator's proposed next action. The brain OBSERVES
+    state across capabilities (flywheel / funnel / segments / market / reliability) and
+    emits a ranked queue; the human Accepts or Ignores (Agent Inbox). Each ``type`` maps to
+    an existing capability — the planner selects + sequences, it doesn't invent."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    type: str  # run_incrementality | draft_whitespace | import_history | validate_segment | review_autonomy
+    title: str
+    rationale: str
+    priority: int = 50
+    autonomy_level: str = "ai_draft_human_review"
+    status: str = "proposed"  # proposed | accepted | ignored
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)

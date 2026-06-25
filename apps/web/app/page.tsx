@@ -10,6 +10,7 @@ import { OnboardingPanel } from "@/components/workspace/OnboardingPanel";
 import { PillarFunnelPanel } from "@/components/workspace/PillarFunnelPanel";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
+import { AgentInbox } from "@/components/workspace/AgentInbox";
 import { HomeView } from "@/components/workspace/HomeView";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
@@ -683,6 +684,8 @@ export default function Workspace() {
         ) : view === "review" ? (
           reviewPane(reviewQueue)
         ) : (
+          <div className="space-y-5">
+          <AgentInbox memberId={currentId} canManage={!!isLead} />
           <HomeView
             role={isLead ? "lead" : "member"}
             board={board}
@@ -701,6 +704,7 @@ export default function Workspace() {
             onError={(m) => setError(m)}
             onClose={() => setSelectedId(null)}
           />
+          </div>
         )}
       </main>
     </div>

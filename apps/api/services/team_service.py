@@ -37,6 +37,7 @@ from core.db.models import (
     Milestone,
     OutboundProspect,
     PillarAsset,
+    PlannedAction,
     Post,
     Task,
     TaskEvent,
@@ -1321,6 +1322,131 @@ def run_incrementality(session: Session, actor: Member) -> dict:
     learn_outcomes(session, actor.tenant_id)  # de-biased re-learn
     results.sort(key=lambda x: x["multiplier"])  # most over-claimed first
     return {"tests": results, "insights": get_growth_insights(session, actor)}
+
+
+# --- Phase 14: the autonomous orchestrator (observe → decide → propose) ---
+
+
+def _planned_dict(a: PlannedAction) -> dict:
+    return {
+        "id": a.id, "type": a.type, "title": a.title, "rationale": a.rationale,
+        "priority": a.priority, "autonomy_level": a.autonomy_level, "status": a.status,
+    }
+
+
+def list_planned_actions(session: Session, actor: Member) -> list[dict]:
+    _require_lead(actor)
+    rows = session.exec(
+        select(PlannedAction)
+        .where(
+            PlannedAction.tenant_id == actor.tenant_id,
+            PlannedAction.status == "proposed",
+        )
+        .order_by(PlannedAction.priority.desc())  # type: ignore[attr-defined]
+    ).all()
+    return [_planned_dict(a) for a in rows]
+
+
+def plan_actions(session: Session, actor: Member) -> list[dict]:
+    """The orchestrator's observe→decide: read the current state across capabilities and
+    emit a ranked queue of proposed next actions. Each maps to an existing capability —
+    the brain selects + sequences, it doesn't invent."""
+    _require_lead(actor)
+    for a in session.exec(
+        select(PlannedAction).where(
+            PlannedAction.tenant_id == actor.tenant_id,
+            PlannedAction.status == "proposed",
+        )
+    ).all():
+        session.delete(a)
+
+    proposals: list[tuple] = []  # (type, title, rationale, priority, payload)
+    insights = get_growth_insights(session, actor)
+    if not insights["attributes"]:
+        proposals.append((
+            "import_history", "Warm-start from historical data",
+            "No outcome data yet — import past content so the flywheel isn't cold-starting.",
+            95, {},
+        ))
+    else:
+        has_test = session.exec(
+            select(IncrementalityTest).where(IncrementalityTest.tenant_id == actor.tenant_id)
+        ).first() is not None
+        if not has_test:
+            proposals.append((
+                "run_incrementality", "De-bias the flywheel (measure causal lift)",
+                "The flywheel learned priors but never measured causal lift — it may be "
+                "amplifying correlation, not causation.",
+                90, {},
+            ))
+
+    scorecard = get_segment_scorecard(session, actor)
+    unproven = next((s for s in scorecard["segments"] if s["status"] == "unproven"), None)
+    if unproven:
+        proposals.append((
+            "validate_segment", f"Validate the '{unproven['segment']}' segment",
+            f"'{unproven['segment']}' is unproven (n={unproven['n_posts']}) — run content "
+            "to test the hypothesis.",
+            70, {"segment": unproven["segment"]},
+        ))
+
+    intel = get_market_intel(session, actor)
+    if intel["whitespace"]:
+        proposals.append((
+            "draft_whitespace", "Address a market whitespace", intel["whitespace"][0],
+            60, {"angle": intel["whitespace"][0]},
+        ))
+
+    weak = next(
+        (r for r in reliability_scorecard(session, actor)
+         if r["recommended_mode"] == "human_only" and r["runs"] >= 3),
+        None,
+    )
+    if weak:
+        proposals.append((
+            "review_autonomy", f"Review {weak['display_name']}'s autonomy",
+            f"Reliability {weak['reliability']} — recommend keeping on human review.",
+            40, {},
+        ))
+
+    for typ, title, rationale, prio, payload in proposals:
+        session.add(
+            PlannedAction(
+                tenant_id=actor.tenant_id, type=typ, title=title, rationale=rationale,
+                priority=prio, payload=payload,
+            )
+        )
+    session.commit()
+    return list_planned_actions(session, actor)
+
+
+def _get_planned_action(session: Session, actor: Member, action_id: str) -> PlannedAction:
+    a = session.get(PlannedAction, action_id)
+    if a is None or a.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Action not found.")
+    return a
+
+
+def accept_action(session: Session, actor: Member, action_id: str) -> list[dict]:
+    """Accept a proposal: auto-run the safe ones (causal de-bias), mark the rest accepted
+    (the human acts in the matching tab)."""
+    _require_lead(actor)
+    a = _get_planned_action(session, actor, action_id)
+    if a.type == "run_incrementality":
+        run_incrementality(session, actor)
+    a.status = "accepted"
+    session.add(a)
+    session.commit()
+    return list_planned_actions(session, actor)
+
+
+def ignore_action(session: Session, actor: Member, action_id: str) -> list[dict]:
+    _require_lead(actor)
+    a = _get_planned_action(session, actor, action_id)
+    a.status = "ignored"
+    session.add(a)
+    session.commit()
+    return list_planned_actions(session, actor)
 
 
 # --- Phase 5b: the experiment ledger (variants → stats → winning patterns) ---

@@ -67,6 +67,7 @@ from apps.api.schemas.team import (
     GrowthInsights,
     IncrementalityResult,
     MarketIntelRead,
+    PlannedActionRead,
     NarrativeRead,
     NarrativeRequest,
     PillarRead,
@@ -452,6 +453,41 @@ def run_incrementality(
 ) -> IncrementalityResult:
     """Measure causal lift + de-bias the flywheel (correlation → causation)."""
     return IncrementalityResult(**team_service.run_incrementality(session, actor))
+
+
+@router.get("/actions", response_model=list[PlannedActionRead])
+def list_planned_actions(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    return [PlannedActionRead(**a) for a in team_service.list_planned_actions(session, actor)]
+
+
+@router.post("/actions/plan", response_model=list[PlannedActionRead])
+def plan_actions_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    """The orchestrator observes state across capabilities and proposes ranked next actions."""
+    return [PlannedActionRead(**a) for a in team_service.plan_actions(session, actor)]
+
+
+@router.post("/actions/{action_id}/accept", response_model=list[PlannedActionRead])
+def accept_action_route(
+    action_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    return [PlannedActionRead(**a) for a in team_service.accept_action(session, actor, action_id)]
+
+
+@router.post("/actions/{action_id}/ignore", response_model=list[PlannedActionRead])
+def ignore_action_route(
+    action_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    return [PlannedActionRead(**a) for a in team_service.ignore_action(session, actor, action_id)]
 
 
 @router.get(

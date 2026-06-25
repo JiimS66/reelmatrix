@@ -464,6 +464,16 @@ class IncrementalityResult(BaseModel):
     insights: GrowthInsights
 
 
+class PlannedActionRead(BaseModel):
+    id: str
+    type: str
+    title: str
+    rationale: str
+    priority: int
+    autonomy_level: str
+    status: str
+
+
 class ExperimentVariantRead(BaseModel):
     key: str
     attributes: dict

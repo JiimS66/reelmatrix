@@ -339,6 +339,35 @@ export const runIncrementality = (memberId: string) =>
     memberId,
   });
 
+export interface PlannedAction {
+  id: string;
+  type: string;
+  title: string;
+  rationale: string;
+  priority: number;
+  autonomy_level: string;
+  status: string;
+}
+
+/** Phase 14 — the autonomous orchestrator's proposed next actions (Agent Inbox). */
+export const getActions = (memberId: string) =>
+  request<PlannedAction[]>("/api/v1/team/actions", { memberId });
+
+export const planActions = (memberId: string) =>
+  request<PlannedAction[]>("/api/v1/team/actions/plan", { method: "POST", memberId });
+
+export const acceptAction = (memberId: string, id: string) =>
+  request<PlannedAction[]>(`/api/v1/team/actions/${id}/accept`, {
+    method: "POST",
+    memberId,
+  });
+
+export const ignoreAction = (memberId: string, id: string) =>
+  request<PlannedAction[]>(`/api/v1/team/actions/${id}/ignore`, {
+    method: "POST",
+    memberId,
+  });
+
 export interface ExperimentVariant {
   key: string;
   attributes: Record<string, string>;
