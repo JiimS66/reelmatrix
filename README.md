@@ -4,16 +4,20 @@
 
 ReelMatrix 已从“填写 brief → 一键生成营销方案”的单次工具，演进为一个**人机混合的营销团队操作系统**（数字营销 ERP）：一场 campaign 是一张**可拆分、可指派**的任务图，由 AI 与人类**同一套接口**的成员在一位人类 market lead 的统筹下协作完成。同一套系统按租户的人:AI 比例不同地配置——无团队的创始人偏 AI，有团队的公司偏协作。
 
-核心能力（均已落地，`mock` provider 下可零外部调用跑通）：
+核心能力（均已落地，`mock` provider 下可零外部调用跑通）。覆盖**从受众定义 → 内容生产 → 热点反应 → 跨活动审核 → 发布度量**的完整闭环：
 
 - **数字员工 + 多 Agent 流水线**：每个 AI 工人是统一 `Agent`（`core/agents/`）——Ideation 策略、Planning 规划、Copywriter 文案、**Auditor 审计**、**Designer 视觉**。编排采用 orchestrator-worker + 共享黑板：**先串行决策 → 锁定共享内容核 → 并行渲染各渠道 → 复核（一致性检查 + 人审）**。
-- **质量护栏（taste 与 truth 分离）**：每条内容带 `format / brand / consistency` **确定性检查**，之上叠加**跨模型 LLM-as-judge Auditor**（用与生成器不同的模型家族审，解耦错误）；任一失败都喂回**自诊断重试**（agent 自我修正重渲染，保留最干净稿）。事实/数字一律走 `claim_check` 真值轨。
+- **受众细分（ICP）驱动每条内容**：品牌维护一份可复用的细分人群库（`BrandProfile.segments`：在哪些平台、痛点、价值主张、异议、触达方式）；每场 campaign 选定目标子集（`brief["target_segments"]`），每条 post 被路由到一个 `(细分, 痛点)`（`assign_segment` / `targeted_segments`），文案以该痛点开场、落到价值主张、预先回应异议。每条 post 都显示定位条：**对应哪类客户 · 哪个痛点/热点 · 在事件中的阶段**。
+- **Post 即唯一交付物（图文一体 + 一键改进）**：一条 post = 文案 + 配图/视频，是一个交付单元（`CampaignAsset.visual`）。Designer 作为 post 渲染的**子步骤**产出配图与品牌契合度评审（与文案自纠错循环**解耦**，不会重复消耗或覆盖已批准的图）。支持**一键“应用 AI 改进”**（按检查/审计问题重渲染成一个新版本，`/tasks/{id}/improve`）、**“同步配图”**（按当前文案重生成图，`/tasks/{id}/sync-visual`）、以及 URL 附加图/视频。视觉模型可换（`core/media/` 的 `MediaProvider` / `VisionProvider` 抽象 + 工厂，业务代码只依赖接口）。
+- **热点 → 快速反应内容（带品牌安全急停）**：检测到的热点话题逐条打分（0–100 品牌契合度）并通过**品牌安全急停**（`core/trends/safety.py`：敏感/悲剧类话题被**一票否决**、禁止蹭热点——是否决而非扣分），安全的话题可一键草拟成**事件计划内的限时 post**（`/campaigns/{id}/trends/draft`），且永远走人审、绝不自动外发。
+- **质量护栏（taste 与 truth 分离）**：每条内容带 `format / brand / consistency / terminology` **确定性检查** + 0–100 内容评分（`content_score`）+ 术语库（`BrandTerm`，禁用/慎用/首选替换）+ 预测表现启发式（`predicted_performance`，与合规分相互独立）；之上叠加**跨模型 LLM-as-judge Auditor**（用与生成器不同的模型家族审，解耦错误）；任一失败都喂回**自诊断重试**（agent 自我修正重渲染，保留最干净稿）。事实/数字一律走 `claim_check` 真值轨（带逐条来源标注的事实核查工作台）。
+- **跨活动统一审核队列 + directive → 可追踪任务**：lead 的“需你处理”跨**所有** campaign 汇总成一个队列（`get_review_queue`，按活动分组、处理即出队，Workfront 式），不再局限于当前活动。给员工下达的 **directive 会自动变成真实任务**：落入每租户的 “Direct assignments” 活动，关联回消息（`DirectMessage.task_id`），AI 员工立即起草并进入审核队列，人类员工得到一条待办。
 - **三层记忆（按租户隔离）**：语义=持久 `BrandProfile`，情景=campaign 内的 lead 反馈/决策（`EpisodicNote`），工作=任务上下文切片；自上而下注入 agent 的上下文。
-- **可配置组织（数字员工）**：组织写在成员自身上（`job_description / reports_to / handles_kinds`）；任务按 `handles_kinds` 路由，换谁负责某类任务即改路由、无需改代码。Team 标签页可查看组织架构、招聘/重配置 AI 员工。
-- **内置视觉生成（为换模型而设计）**：`core/media/` 的 `MediaProvider` / `VisionProvider` 抽象 + 工厂，业务代码只依赖接口；Designer 角色据共享核产出每渠道视觉（创意/prompt/alt + 渲染图）。换真实图像模型只改配置。
-- **有状态 + 多租户 + 协作工作台**：SQLModel 持久化（`core/db/`，行级 `tenant_id`），团队 API（`/api/v1/team`），以及重建的工作台 UI（主页 / 日历 / 看板 / 绩效 / 素材库 / 团队，主页含待办与日程）；AI 是一等成员（assignee），人类可在任意阶段编辑、接管、或插入审核门。从第一天起埋点 `UsageEvent` 计费。
+- **可配置组织 + 车队可观测**：组织写在成员自身上（`job_description / reports_to / handles_kinds`）；任务按 `handles_kinds` 路由，换谁负责某类任务即改路由、无需改代码。Team 标签页可查看组织架构、招聘/重配置 AI 员工，以及每个 AI 员工的车队统计（运行数/任务数/平均分/自纠错次数）。
+- **度量与发布闭环（均为可换 provider + mock）**：GA4 回流（`AnalyticsSource`，按 UTM 把转化接回 post）、安全发布（`PublishProvider`，默认 `human_final` 人审后发，规避平台审核风险）、校对版本栈（`ContentVersion` 不可变快照 + `Annotation` 锚点批注 + 显式内容锁）。
+- **有状态 + 多租户 + 按工作流重排的协作工作台**：SQLModel 持久化（`core/db/`，行级 `tenant_id`），团队 API（`/api/v1/team`），工作台 UI 按营销工作流重排为 **Overview · Plan · Create · Review · Brand · Team**（每个任务只落在一个阶段；Review 徽标为跨活动计数）；AI 是一等成员（assignee），人类可在任意阶段编辑、接管、或插入审核门。从第一天起埋点 `UsageEvent` 计费。
 
-> 详细路线图与决策见 `DESIGN.md`；旧的单次生成接口（`/api/v1/campaign/generate`）与下文 “Phase 1 / Phase 2” 仍保留并可用，但已被上述团队 OS 取代——阅读时请以本节为准。
+> 详细路线图与决策见 `DESIGN.md`；旧的单次生成接口（`/api/v1/campaign/generate`）与下文 “Phase 1 / Phase 2” 仍保留并可用，但已被上述团队 OS 取代——阅读时请以本节为准。当前后端 **151** 个测试 + 前端 typecheck/build/Vitest 全绿。
 
 ## 本地运行（优先阅读）
 
@@ -463,7 +467,7 @@ npm test
 npm run build
 ```
 
-`npm run build` 当前使用 Next.js 的 Webpack production builder，避免 Turbopack 在受限本地环境中创建内部端口。提交代码前应同时通过后端 pytest、前端 14 个 Vitest 测试、TypeScript 检查和 production build。
+`npm run build` 当前使用 Next.js 的 Webpack production builder，避免 Turbopack 在受限本地环境中创建内部端口。提交代码前应同时通过后端 pytest、前端 Vitest 测试、TypeScript 检查和 production build。
 
 ### 代码质量工具现状
 
