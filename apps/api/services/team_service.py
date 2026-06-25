@@ -19,6 +19,7 @@ from core.db.models import (
     BrandTerm,
     Campaign,
     Comment,
+    ConsentRecord,
     ContentAtom,
     ContentVersion,
     DirectMessage,
@@ -43,6 +44,7 @@ from core.db.models import (
     UsageEvent,
     WinningPattern,
 )
+from configs.settings import get_settings
 from core.agents.roles import ROLES
 from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
@@ -52,6 +54,7 @@ from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
 from core.content.repurpose import create_repurpose_provider
 from core.ingest.factory import create_import_provider
+from core.privacy.factory import create_egress_gate
 from core.growth.segments import discover_segments, score_segments
 from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
@@ -1951,6 +1954,22 @@ def send_outbound(session: Session, actor: Member, prospect_id: str) -> dict:
         raise HTTPException(
             status_code=409, detail="Prospect must be enriched + policy-clean before send."
         )
+    # Consent gate: never send to a subject that denied/withdrew (composes pre-send).
+    if consent_status(session, actor.tenant_id, p.domain or p.name, "outbound_email") in (
+        "denied", "withdrawn",
+    ):
+        p.status = "blocked"
+        session.add(p)
+        session.commit()
+        return {"prospects": list_prospects(session, actor, p.campaign_id)}
+    # Egress gate: this send is data leaving the environment (air-gapped blocks it).
+    if not create_egress_gate(get_settings().deployment_profile).evaluate(
+        p.personalized_line, destination="external"
+    ).allow:
+        p.status = "blocked"
+        session.add(p)
+        session.commit()
+        return {"prospects": list_prospects(session, actor, p.campaign_id)}
     sent_today = len(
         session.exec(
             select(OutboundProspect).where(
@@ -2074,4 +2093,62 @@ def ingest_brand_knowledge(session: Session, actor: Member, *, text: str) -> dic
             "messaging_pillars": draft.messaging_pillars, "tone_rules": draft.tone_rules,
         },
         "applied": True,
+    }
+
+
+# --- On-prem deployment posture + privacy gates ---
+
+
+def consent_status(
+    session: Session, tenant_id: str, subject_id: str, purpose: str
+) -> str:
+    """Latest consent basis for a subject+purpose; no record = legitimate_interest."""
+    rec = session.exec(
+        select(ConsentRecord)
+        .where(
+            ConsentRecord.tenant_id == tenant_id,
+            ConsentRecord.subject_id == subject_id,
+            ConsentRecord.purpose == purpose,
+        )
+        .order_by(ConsentRecord.created_at.desc())  # type: ignore[attr-defined]
+    ).first()
+    return rec.status if rec is not None else "legitimate_interest"
+
+
+def record_consent(
+    session: Session, actor: Member, *, subject_id: str, purpose: str = "outbound_email",
+    status: str = "granted", legal_basis: str = "consent",
+) -> dict:
+    _require_lead(actor)
+    session.add(
+        ConsentRecord(
+            tenant_id=actor.tenant_id, subject_id=subject_id, purpose=purpose,
+            status=status, legal_basis=legal_basis, source="manual",
+        )
+    )
+    session.commit()
+    return {"subject_id": subject_id, "purpose": purpose, "status": status}
+
+
+def get_deployment_status(session: Session, actor: Member) -> dict:
+    """The deployment posture + which providers run local vs cloud + the active gates —
+    the 'can it run with nothing leaving our VPC?' answer."""
+    s = get_settings()
+    profile = s.deployment_profile
+    forces_local = profile in ("on_prem", "air_gapped")
+    return {
+        "profile": profile,
+        "providers": {
+            "llm": "local" if (forces_local or s.llm_provider == "local") else s.llm_provider,
+            "image": "local (ComfyUI/FLUX)" if forces_local else "mock",
+            "analytics": "local" if forces_local else "mock",
+            "vector": "local (pgvector)" if forces_local else "n/a",
+        },
+        "gates": {
+            "pii_redaction": True,
+            "egress": profile,
+            "consent": True,
+            "policy": True,
+        },
+        "data_leaves_environment": profile not in ("on_prem", "air_gapped"),
     }

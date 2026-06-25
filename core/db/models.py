@@ -475,3 +475,18 @@ class OutboundProspect(SQLModel, table=True):
     personalized_line: str = ""
     status: str = "new"  # new | enriched | sent | blocked
     created_at: datetime = Field(default_factory=_now)
+
+
+class ConsentRecord(SQLModel, table=True):
+    """A consent receipt (OneTrust / IAB-TCF shape): a marketing subject's basis for a
+    purpose, checked before any outbound activation. Composes with the PolicyGate as a
+    pre-send gate."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    subject_id: str  # email / domain / prospect identifier
+    purpose: str = "outbound_email"  # outbound_email | analytics | personalization
+    status: str = "granted"  # granted | denied | withdrawn
+    legal_basis: str = "consent"  # consent | legitimate_interest
+    source: str = "manual"
+    created_at: datetime = Field(default_factory=_now)

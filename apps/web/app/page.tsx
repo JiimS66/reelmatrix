@@ -17,6 +17,7 @@ import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
 import { OutboundPanel } from "@/components/workspace/OutboundPanel";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
+import { DeploymentCard } from "@/components/workspace/DeploymentCard";
 import { ReliabilityCard } from "@/components/workspace/ReliabilityCard";
 import { TeamView } from "@/components/workspace/TeamView";
 import {
@@ -521,6 +522,7 @@ export default function Workspace() {
           ) : org ? (
             <div className="space-y-5">
             <ReliabilityCard memberId={currentId} />
+            <DeploymentCard memberId={currentId} />
             <TeamView
               org={org}
               fleet={fleet}

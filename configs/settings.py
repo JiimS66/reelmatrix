@@ -19,6 +19,9 @@ class AppSettings(BaseSettings):
     llm_timeout_seconds: float = Field(default=60, gt=0)
     web_origin: str = "http://localhost:3000"
     database_url: str = "sqlite:///./reelmatrix.db"
+    # Enterprise deployment posture — on_prem/air_gapped force local providers + gate any
+    # data leaving the environment (see core/privacy + docs/deployment-onprem.md).
+    deployment_profile: Literal["cloud", "hybrid", "on_prem", "air_gapped"] = "cloud"
 
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o-mini"

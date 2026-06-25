@@ -633,6 +633,17 @@ export const ingestBrandKnowledge = (memberId: string, text: string) =>
     body: { text },
   });
 
+export interface DeploymentStatus {
+  profile: string;
+  providers: Record<string, string>;
+  gates: Record<string, unknown>;
+  data_leaves_environment: boolean;
+}
+
+/** On-prem posture: which providers run local vs cloud + the active privacy gates. */
+export const getDeployment = (memberId: string) =>
+  request<DeploymentStatus>("/api/v1/team/deployment", { memberId });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

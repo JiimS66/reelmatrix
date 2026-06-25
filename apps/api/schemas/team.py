@@ -643,3 +643,17 @@ class BrandDraftRead(BaseModel):
 class BrandKnowledgeResult(BaseModel):
     draft: BrandDraftRead
     applied: bool
+
+
+class DeploymentStatus(BaseModel):
+    profile: str
+    providers: dict
+    gates: dict
+    data_leaves_environment: bool
+
+
+class ConsentRequest(BaseModel):
+    subject_id: str
+    purpose: str = "outbound_email"
+    status: str = "granted"
+    legal_basis: str = "consent"

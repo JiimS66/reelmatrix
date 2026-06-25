@@ -53,6 +53,8 @@ from apps.api.schemas.team import (
     CreatePillarRequest,
     BrandKnowledgeRequest,
     BrandKnowledgeResult,
+    ConsentRequest,
+    DeploymentStatus,
     ImportHistoricalRequest,
     ImportResult,
     AddProspectRequest,
@@ -749,6 +751,26 @@ def import_brand_knowledge_route(
 ) -> BrandKnowledgeResult:
     return BrandKnowledgeResult(
         **team_service.ingest_brand_knowledge(session, actor, text=payload.text)
+    )
+
+
+@router.get("/deployment", response_model=DeploymentStatus)
+def deployment_status(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> DeploymentStatus:
+    return DeploymentStatus(**team_service.get_deployment_status(session, actor))
+
+
+@router.post("/consent")
+def record_consent_route(
+    payload: ConsentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return team_service.record_consent(
+        session, actor, subject_id=payload.subject_id, purpose=payload.purpose,
+        status=payload.status, legal_basis=payload.legal_basis,
     )
 
 

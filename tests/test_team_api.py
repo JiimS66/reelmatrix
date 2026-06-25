@@ -724,6 +724,29 @@ def test_ingest_brand_knowledge_applies_to_brand() -> None:
     assert narrative["value_proposition"] == res["draft"]["value_proposition"]
 
 
+def test_deployment_status_and_consent_gate_blocks_outbound() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    dep = _req(app, "GET", "/api/v1/team/deployment", lead).json()
+    assert dep["profile"] == "cloud" and dep["data_leaves_environment"] is True
+    assert "egress" in dep["gates"] and dep["gates"]["pii_redaction"] is True
+
+    cid, _ = _run_campaign(app, lead)
+    added = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", lead,
+        json={"name": "Dana", "domain": "acme.dev"},
+    ).json()
+    pid = added[0]["id"]
+    _req(app, "POST", f"/api/v1/team/prospects/{pid}/enrich", lead)
+    # Deny consent for the subject → the send is blocked by the consent gate.
+    _req(
+        app, "POST", "/api/v1/team/consent", lead,
+        json={"subject_id": "acme.dev", "purpose": "outbound_email", "status": "denied"},
+    )
+    sent = _req(app, "POST", f"/api/v1/team/prospects/{pid}/send", lead).json()
+    assert next(p for p in sent if p["id"] == pid)["status"] == "blocked"
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
