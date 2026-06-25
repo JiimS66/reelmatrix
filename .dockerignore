@@ -1,0 +1,13 @@
+.git
+.venv
+**/node_modules
+**/.next
+**/__pycache__
+**/*.pyc
+data/
+*.db
+*.webarchive
+.claude/
+.env
+apps/web/.env.local
+scratchpad/
