@@ -48,7 +48,10 @@ from apps.api.schemas.team import (
     DesignExperimentRequest,
     ExperimentRead,
     GrowthInsights,
+    MarketIntelRead,
+    SegmentScorecard,
     TodoItem,
+    WhitespaceRequest,
     TrendAngle,
     TrendDraftRequest,
     TrendRefresh,
@@ -458,6 +461,65 @@ def decide_experiment_route(
     session: Session = Depends(get_session),
 ) -> ExperimentRead:
     return ExperimentRead(**team_service.decide_experiment(session, actor, experiment_id))
+
+
+@router.get("/segments/scorecard", response_model=SegmentScorecard)
+def segment_scorecard(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(**team_service.get_segment_scorecard(session, actor))
+
+
+@router.post("/segments/discover", response_model=SegmentScorecard)
+def discover_segments_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(**team_service.discover_segment_candidates(session, actor))
+
+
+@router.post(
+    "/segments/candidates/{candidate_id}/promote", response_model=SegmentScorecard
+)
+def promote_candidate(
+    candidate_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(
+        **team_service.promote_segment_candidate(session, actor, candidate_id)
+    )
+
+
+@router.post(
+    "/segments/candidates/{candidate_id}/dismiss", response_model=SegmentScorecard
+)
+def dismiss_candidate(
+    candidate_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(
+        **team_service.dismiss_segment_candidate(session, actor, candidate_id)
+    )
+
+
+@router.get("/market", response_model=MarketIntelRead)
+def market_intel(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> MarketIntelRead:
+    return MarketIntelRead(**team_service.get_market_intel(session, actor))
+
+
+@router.post("/market/whitespace/draft")
+async def whitespace_draft(
+    payload: WhitespaceRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.spawn_whitespace_task(session, actor, angle=payload.angle)
 
 
 @router.get("/brand", response_model=BrandRead)

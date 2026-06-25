@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { BrandHub } from "@/components/workspace/BrandHub";
+import { IcpMarketPanel } from "@/components/workspace/IcpMarketPanel";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
@@ -533,7 +534,9 @@ export default function Workspace() {
             <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
           )
         ) : view === "brand" ? (
-          <BrandHub
+          <div className="space-y-5">
+            <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
+            <BrandHub
             terms={terms}
             atoms={atoms}
             currentMemberId={currentId}
@@ -547,6 +550,7 @@ export default function Workspace() {
             }}
             onError={(m) => setError(m)}
           />
+          </div>
         ) : view === "results" ? (
           <div className="space-y-5">
             <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />

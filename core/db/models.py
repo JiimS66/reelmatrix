@@ -424,3 +424,17 @@ class WinningPattern(SQLModel, table=True):
     confidence: float = 0.0  # chance-to-beat-control at decision time
     evidence_experiment_id: str = Field(foreign_key="experiment.id")
     created_at: datetime = Field(default_factory=_now)
+
+
+class DiscoveredSegmentCandidate(SQLModel, table=True):
+    """A data-surfaced audience cluster proposed for promotion to a tracked ICP segment
+    (Phase 6). Mock discovery now (a high-converting sub-cluster of a validated segment);
+    HDBSCAN over behavioral features later. Promotion adds it to BrandProfile.segments."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    name: str
+    rationale: str
+    evidence: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    status: str = "pending"  # pending | promoted | dismissed
+    created_at: datetime = Field(default_factory=_now)

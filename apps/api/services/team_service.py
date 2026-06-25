@@ -22,6 +22,7 @@ from core.db.models import (
     ContentAtom,
     ContentVersion,
     DirectMessage,
+    DiscoveredSegmentCandidate,
     EpisodicNote,
     Experiment,
     ExperimentVariant,
@@ -47,7 +48,9 @@ from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
 from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
+from core.growth.segments import discover_segments, score_segments
 from core.growth.stats import create_stats_provider
+from core.market.factory import create_market_provider
 from core.workflows.campaign_instantiation import (
     assign_segment,
     instantiate_campaign,
@@ -1388,3 +1391,125 @@ def decide_experiment(session: Session, actor: Member, experiment_id: str) -> di
     session.add(exp)
     session.commit()
     return _experiment_dict(session, exp)
+
+
+# --- Phase 6: ICP validation/discovery + market intelligence ---
+
+
+def get_segment_scorecard(session: Session, actor: Member) -> dict:
+    """Each ICP segment's validation status (0–100 + status + attribute drivers) + the
+    pending discovery candidates — ICP as a tested result, not a static assumption."""
+    _require_lead(actor)
+    brand = get_brand(session, actor)
+    names = [s.get("name", "") for s in (brand.segments if brand else [])]
+    candidates = session.exec(
+        select(DiscoveredSegmentCandidate).where(
+            DiscoveredSegmentCandidate.tenant_id == actor.tenant_id,
+            DiscoveredSegmentCandidate.status == "pending",
+        )
+    ).all()
+    return {
+        "segments": score_segments(session, actor.tenant_id, names),
+        "candidates": [
+            {"id": c.id, "name": c.name, "rationale": c.rationale, "evidence": c.evidence}
+            for c in candidates
+        ],
+    }
+
+
+def discover_segment_candidates(session: Session, actor: Member) -> dict:
+    """Surface high-converting sub-clusters as candidate segments (mock clustering)."""
+    _require_lead(actor)
+    brand = get_brand(session, actor)
+    names = [s.get("name", "") for s in (brand.segments if brand else [])]
+    seen = {
+        c.name
+        for c in session.exec(
+            select(DiscoveredSegmentCandidate).where(
+                DiscoveredSegmentCandidate.tenant_id == actor.tenant_id
+            )
+        ).all()
+    }
+    for found in discover_segments(session, actor.tenant_id, names + list(seen)):
+        session.add(
+            DiscoveredSegmentCandidate(
+                tenant_id=actor.tenant_id, name=found["name"],
+                rationale=found["rationale"], evidence=found["evidence"],
+            )
+        )
+    session.commit()
+    return get_segment_scorecard(session, actor)
+
+
+def _get_candidate(
+    session: Session, actor: Member, candidate_id: str
+) -> DiscoveredSegmentCandidate:
+    cand = session.get(DiscoveredSegmentCandidate, candidate_id)
+    if cand is None or cand.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Candidate not found.")
+    return cand
+
+
+def promote_segment_candidate(
+    session: Session, actor: Member, candidate_id: str
+) -> dict:
+    """Promote a discovered candidate into a tracked ICP segment on the brand."""
+    _require_lead(actor)
+    cand = _get_candidate(session, actor, candidate_id)
+    upsert_segment(
+        session, actor, name=cand.name, description=cand.rationale, profile="",
+        platforms=[], pain_points=[], value_props=[], objections=[], reach_tactics=[],
+    )
+    cand.status = "promoted"
+    session.add(cand)
+    session.commit()
+    return get_segment_scorecard(session, actor)
+
+
+def dismiss_segment_candidate(
+    session: Session, actor: Member, candidate_id: str
+) -> dict:
+    _require_lead(actor)
+    cand = _get_candidate(session, actor, candidate_id)
+    cand.status = "dismissed"
+    session.add(cand)
+    session.commit()
+    return get_segment_scorecard(session, actor)
+
+
+def get_market_intel(session: Session, actor: Member) -> dict:
+    """Competitor positioning, share of voice, audience questions, and whitespace — the
+    market context a brief should never be written without (mock provider)."""
+    brand = get_brand(session, actor)
+    intel = create_market_provider().intel(brand_keywords=_brand_keywords(brand))
+    return {
+        "competitors": [
+            {"name": c.name, "positioning": c.positioning, "recent_change": c.recent_change}
+            for c in intel.competitors
+        ],
+        "audience_questions": intel.audience_questions,
+        "share_of_voice": intel.share_of_voice,
+        "whitespace": intel.whitespace,
+    }
+
+
+async def spawn_whitespace_task(
+    session: Session, actor: Member, *, angle: str, client_for_provider=None
+) -> dict:
+    """Turn a market-whitespace angle into a tracked, AI-drafted task (reuses the
+    directive→task machinery), landing in the cross-campaign review queue."""
+    _require_lead(actor)
+    if not (angle or "").strip():
+        raise HTTPException(status_code=400, detail="angle cannot be empty.")
+    routes = route_assignees(session, actor.tenant_id)
+    writer_id = routes.get(TaskKind.ASSET.value)
+    writer = session.get(Member, writer_id) if writer_id else None
+    if writer is None:
+        raise HTTPException(status_code=409, detail="No writer configured for asset work.")
+    task = _directive_task(
+        session, actor, writer,
+        title=f"Whitespace: {angle.strip()[:40]}", body=angle.strip(),
+    )
+    if writer.kind == MemberKind.AI:
+        await TaskRunner(session, client_for_provider).run_ready_tasks(task.campaign_id)
+    return {"task_id": task.id}

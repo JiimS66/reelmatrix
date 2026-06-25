@@ -360,6 +360,71 @@ export const decideExperiment = (memberId: string, experimentId: string) =>
     memberId,
   });
 
+export interface SegmentScore {
+  segment: string;
+  score: number;
+  status: string;
+  n_posts: number;
+  cvr: number;
+  drivers: string[];
+}
+
+export interface SegmentCandidate {
+  id: string;
+  name: string;
+  rationale: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface SegmentScorecard {
+  segments: SegmentScore[];
+  candidates: SegmentCandidate[];
+}
+
+export interface CompetitorCard {
+  name: string;
+  positioning: string;
+  recent_change: string;
+}
+
+export interface MarketIntel {
+  competitors: CompetitorCard[];
+  audience_questions: string[];
+  share_of_voice: Record<string, number>;
+  whitespace: string[];
+}
+
+export const getSegmentScorecard = (memberId: string) =>
+  request<SegmentScorecard>("/api/v1/team/segments/scorecard", { memberId });
+
+export const discoverSegments = (memberId: string) =>
+  request<SegmentScorecard>("/api/v1/team/segments/discover", {
+    method: "POST",
+    memberId,
+  });
+
+export const promoteCandidate = (memberId: string, id: string) =>
+  request<SegmentScorecard>(`/api/v1/team/segments/candidates/${id}/promote`, {
+    method: "POST",
+    memberId,
+  });
+
+export const dismissCandidate = (memberId: string, id: string) =>
+  request<SegmentScorecard>(`/api/v1/team/segments/candidates/${id}/dismiss`, {
+    method: "POST",
+    memberId,
+  });
+
+export const getMarketIntel = (memberId: string) =>
+  request<MarketIntel>("/api/v1/team/market", { memberId });
+
+export const draftWhitespace = (memberId: string, angle: string) =>
+  request<{ task_id: string }>("/api/v1/team/market/whitespace/draft", {
+    method: "POST",
+    memberId,
+    body: { angle },
+  });
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

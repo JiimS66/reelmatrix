@@ -472,6 +472,48 @@ def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
     ).status_code == 403
 
 
+def test_segment_scorecard_validates_and_discovers() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)  # posts carry segments + outcomes
+
+    card = _req(app, "GET", "/api/v1/team/segments/scorecard", lead).json()
+    assert card["segments"]  # every defined segment is scored
+    assert all("status" in s and "score" in s for s in card["segments"])
+
+    discovered = _req(app, "POST", "/api/v1/team/segments/discover", lead).json()
+    assert "candidates" in discovered
+    if discovered["candidates"]:  # discovery is data-dependent
+        cid = discovered["candidates"][0]["id"]
+        promoted = _req(
+            app, "POST", f"/api/v1/team/segments/candidates/{cid}/promote", lead
+        ).json()
+        assert all(c["id"] != cid for c in promoted["candidates"])  # left pending
+        brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+        assert any("responds to" in s["name"] for s in brand["segments"])
+
+    assert _req(app, "GET", "/api/v1/team/segments/scorecard", sam).status_code == 403
+
+
+def test_market_intel_and_whitespace_draft() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _run_campaign(app, lead)
+
+    intel = _req(app, "GET", "/api/v1/team/market", lead).json()
+    assert intel["competitors"] and intel["whitespace"]
+    assert isinstance(intel["share_of_voice"], dict)
+
+    # A whitespace angle becomes a tracked, AI-drafted task in the review queue.
+    res = _req(
+        app, "POST", "/api/v1/team/market/whitespace/draft", lead,
+        json={"angle": intel["whitespace"][0]},
+    ).json()
+    assert res["task_id"]
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    assert any(it["task"]["id"] == res["task_id"] for it in queue)
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

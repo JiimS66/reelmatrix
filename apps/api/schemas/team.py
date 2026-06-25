@@ -475,3 +475,41 @@ class DesignExperimentRequest(BaseModel):
     channel: str = ""
     segment: str = ""
     n: int = 3
+
+
+class SegmentScore(BaseModel):
+    segment: str
+    score: int
+    status: str
+    n_posts: int
+    cvr: float
+    drivers: list[str]
+
+
+class SegmentCandidate(BaseModel):
+    id: str
+    name: str
+    rationale: str
+    evidence: dict
+
+
+class SegmentScorecard(BaseModel):
+    segments: list[SegmentScore]
+    candidates: list[SegmentCandidate]
+
+
+class CompetitorCardRead(BaseModel):
+    name: str
+    positioning: str
+    recent_change: str
+
+
+class MarketIntelRead(BaseModel):
+    competitors: list[CompetitorCardRead]
+    audience_questions: list[str]
+    share_of_voice: dict[str, float]
+    whitespace: list[str]
+
+
+class WhitespaceRequest(BaseModel):
+    angle: str
