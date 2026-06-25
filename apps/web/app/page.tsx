@@ -24,8 +24,10 @@ import {
 } from "@/components/workspace/primitives";
 import {
   createCampaign,
+  draftFromTrend,
   getBoard,
   getInbox,
+  getTrends,
   getFleet,
   getOrg,
   listTerms,
@@ -52,6 +54,7 @@ import {
   type ScheduleData,
   type Task,
   type TaskDetail,
+  type TrendAngle,
 } from "@/lib/teamApi";
 
 type View =
@@ -92,6 +95,7 @@ export default function Workspace() {
   const [fleet, setFleet] = useState<FleetAgent[]>([]);
   const [employeeId, setEmployeeId] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
+  const [trends, setTrends] = useState<TrendAngle[]>([]);
   const [performance, setPerformance] = useState<PerformanceData | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<TaskDetail | null>(null);
@@ -160,6 +164,11 @@ export default function Workspace() {
     if (view === "results" && board) {
       getPerformance(currentId, board.campaign.id)
         .then(setPerformance)
+        .catch((e) => setError(errMessage(e)));
+    }
+    if (view === "plan" && board) {
+      getTrends(currentId, board.campaign.id)
+        .then(setTrends)
         .catch((e) => setError(errMessage(e)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -502,10 +511,21 @@ export default function Workspace() {
                 members={board?.members ?? members}
                 onSelectTask={openTaskOnBoard}
                 canRefresh={!!isLead}
+                angles={trends}
                 onRefreshTrends={async () => {
                   if (!board || !currentId) return;
                   try {
                     await refreshTrends(currentId, board.campaign.id);
+                    setSchedule(await getSchedule(currentId, board.campaign.id));
+                    setTrends(await getTrends(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
+                onDraftAngle={async (angle, channel) => {
+                  if (!board || !currentId) return;
+                  try {
+                    setBoard(await draftFromTrend(currentId, board.campaign.id, { angle, channel }));
                     setSchedule(await getSchedule(currentId, board.campaign.id));
                   } catch (e) {
                     setError(errMessage(e));

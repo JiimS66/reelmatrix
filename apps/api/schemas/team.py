@@ -181,6 +181,18 @@ class TodoItem(BaseModel):
     task: TaskRead
 
 
+class TrendAngle(BaseModel):
+    angle: str
+    safe: bool
+    score: int
+    reason: str
+
+
+class TrendDraftRequest(BaseModel):
+    angle: str
+    channel: str = "X / Twitter"
+
+
 class TrendRefresh(BaseModel):
     campaign_id: str
     timely_angles: list[str]

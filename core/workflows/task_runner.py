@@ -767,6 +767,7 @@ class TaskRunner:
         return {
             "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
+            "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
             "core_message": plan.get("core_message", ""),
             "approved_claims": [
                 claim.get("claim", "")

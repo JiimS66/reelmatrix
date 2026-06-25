@@ -677,7 +677,10 @@ class MockLLMClient(BaseLLMClient):
         product = str(payload.get("product_name") or "the product")
         segment = str(payload.get("segment") or "").strip()
         pain = str(payload.get("pain_point") or "").strip()
+        angle = str(payload.get("angle") or "").strip()
         opener = f"For {segment}: {pain}\n\n" if segment and pain else ""
+        if angle:
+            opener = f"Riding the moment — {angle}.\n\n{opener}"
         return {
             "asset_type": "Post",
             "channel": channel,

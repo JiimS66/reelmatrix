@@ -62,6 +62,7 @@ class CopywriterAgent(Agent):
         payload = {
             "task": "copywriting",
             "channel": context.get("channel", ""),
+            "angle": context.get("angle", ""),
             "core_message": context.get("core_message", ""),
             "product_name": context.get("product_name", ""),
             "platform": context.get("platform", {}),

@@ -46,6 +46,8 @@ from apps.api.schemas.team import (
     TermRead,
     TermRequest,
     TodoItem,
+    TrendAngle,
+    TrendDraftRequest,
     TrendRefresh,
     UpdateOrgMemberRequest,
     VersionRead,
@@ -348,6 +350,29 @@ async def refresh_trends(
     campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
     angles = await refresh_campaign_trends(session, campaign)
     return TrendRefresh(campaign_id=campaign.id, timely_angles=angles)
+
+
+@router.get("/campaigns/{campaign_id}/trends", response_model=list[TrendAngle])
+def scored_trends(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TrendAngle]:
+    return [TrendAngle(**a) for a in team_service.score_angles(session, actor, campaign_id)]
+
+
+@router.post("/campaigns/{campaign_id}/trends/draft", response_model=BoardRead)
+async def draft_from_trend(
+    campaign_id: str,
+    payload: TrendDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    team_service.create_trend_draft(
+        session, actor, campaign_id, angle=payload.angle, channel=payload.channel
+    )
+    await TaskRunner(session).run_ready_tasks(campaign_id)
+    return _board_response(session, actor, campaign_id)
 
 
 @router.get("/todo", response_model=list[TodoItem])

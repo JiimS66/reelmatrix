@@ -40,7 +40,13 @@ from core.agents.roles import ROLES
 from core.content.scoring import content_score
 from core.content.tracking import mock_metrics
 from core.llm.base import BaseLLMClient
-from core.workflows.campaign_instantiation import instantiate_campaign
+from core.trends.safety import angle_safety
+from core.workflows.campaign_instantiation import (
+    assign_segment,
+    instantiate_campaign,
+    route_assignees,
+    targeted_segments,
+)
 from core.workflows.task_runner import (
     complete_task,
     default_client_for_provider,
@@ -137,6 +143,79 @@ def get_campaign_for_lead(session: Session, actor: Member, campaign_id: str) -> 
     """A lead-only, tenant-scoped campaign lookup (e.g. for refreshing trends)."""
     _require_lead(actor)
     return _get_campaign(session, actor, campaign_id)
+
+
+def _brand_keywords(brand: Optional[BrandProfile]) -> list[str]:
+    if brand is None:
+        return []
+    words = list(brand.approved_phrases or [])
+    words += [w for w in (brand.voice or "").replace(",", " ").split() if len(w) > 3]
+    return words
+
+
+def _planning_task(session: Session, campaign_id: str) -> Optional[Task]:
+    return session.exec(
+        select(Task).where(
+            Task.campaign_id == campaign_id, Task.kind == TaskKind.PLANNING
+        )
+    ).first()
+
+
+def score_angles(session: Session, actor: Member, campaign_id: str) -> list[dict]:
+    """The campaign's detected trend angles, each with a safety verdict + fit score —
+    so the UI can gate the 'draft a rapid post' action on a safe, on-brand angle."""
+    campaign = _get_campaign(session, actor, campaign_id)
+    planning = _planning_task(session, campaign.id)
+    angles = ((planning.output or {}).get("timely_angles") if planning else None) or []
+    keywords = _brand_keywords(get_brand(session, actor))
+    return [{"angle": a, **angle_safety(a, keywords)} for a in angles]
+
+
+def create_trend_draft(
+    session: Session, actor: Member, campaign_id: str, *, angle: str, channel: str
+) -> Task:
+    """Turn a safe trend angle into a near-term ASSET task in the plan, ALWAYS
+    review-gated (a trend post never auto-ships), tagged with the hot topic."""
+    _require_lead(actor)
+    campaign = _get_campaign(session, actor, campaign_id)
+    if not (angle or "").strip():
+        raise HTTPException(status_code=400, detail="angle cannot be empty.")
+    verdict = angle_safety(angle, _brand_keywords(get_brand(session, actor)))
+    if not verdict["safe"]:
+        raise HTTPException(status_code=409, detail=f"Blocked — {verdict['reason']}.")
+
+    planning = _planning_task(session, campaign.id)
+    routes = route_assignees(session, actor.tenant_id)
+    segments = targeted_segments(session, actor.tenant_id, campaign.brief or {})
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == campaign.id)
+        ).all()),
+        default=0,
+    )
+    task = Task(
+        tenant_id=actor.tenant_id,
+        campaign_id=campaign.id,
+        kind=TaskKind.ASSET,
+        title=f"{channel} rapid post — {angle[:40]}",
+        execution_mode=ExecutionMode.AI_DRAFT_HUMAN_REVIEW,  # trend posts are never auto
+        depends_on=[planning.id] if planning is not None else [],
+        assignee_id=routes.get(TaskKind.ASSET.value),
+        params={
+            "channel": channel,
+            "angle": angle,
+            "provenance": "trend",
+            **assign_segment(channel, segments),
+        },
+        due_date=campaign.event_date,
+        phase="launch",
+        sequence=last + 1,
+    )
+    session.add(task)
+    _record_event(session, task, TaskEventType.CREATED, actor_id=actor.id, payload={"trend": angle})
+    session.commit()
+    session.refresh(task)
+    return task
 
 
 def get_schedule(

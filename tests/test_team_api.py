@@ -192,6 +192,33 @@ def test_schedule_backplans_calendar_and_timely_angles() -> None:
     assert any(t["due_date"] for t in sched["tasks"])
 
 
+def test_trend_safety_gate_and_rapid_draft() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # planning emits timely_angles
+
+    angles = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/trends", lead).json()
+    assert angles and all({"safe", "score", "reason"} <= a.keys() for a in angles)
+    safe = next(a for a in angles if a["safe"])
+
+    # Drafting a safe angle creates a forced-review rapid post that ran + came back.
+    board = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/trends/draft", lead,
+        json={"angle": safe["angle"], "channel": "X / Twitter"},
+    ).json()
+    rapid = next(t for t in board["tasks"] if (t["params"] or {}).get("provenance") == "trend")
+    assert rapid["params"]["angle"] == safe["angle"]
+    assert rapid["execution_mode"] == "ai_draft_human_review"  # never auto-publish
+    assert rapid["status"] == "needs_review"
+
+    # A sensitive angle is blocked by the brand-safety kill-switch.
+    blocked = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/trends/draft", lead,
+        json={"angle": "Brands react to the factory explosion tragedy", "channel": "X / Twitter"},
+    )
+    assert blocked.status_code == 409
+
+
 def test_refresh_trends_updates_timely_angles() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

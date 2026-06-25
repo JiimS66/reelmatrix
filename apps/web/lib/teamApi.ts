@@ -253,6 +253,27 @@ export const createCampaign = (
   },
 ) => request<Board>("/api/v1/team/campaigns", { method: "POST", memberId, body });
 
+export interface TrendAngle {
+  angle: string;
+  safe: boolean;
+  score: number;
+  reason: string;
+}
+
+export const getTrends = (memberId: string, campaignId: string) =>
+  request<TrendAngle[]>(`/api/v1/team/campaigns/${campaignId}/trends`, { memberId });
+
+export const draftFromTrend = (
+  memberId: string,
+  campaignId: string,
+  body: { angle: string; channel: string },
+) =>
+  request<Board>(`/api/v1/team/campaigns/${campaignId}/trends/draft`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
 export const getSchedule = (memberId: string, campaignId: string) =>
   request<ScheduleData>(`/api/v1/team/campaigns/${campaignId}/schedule`, {
     memberId,

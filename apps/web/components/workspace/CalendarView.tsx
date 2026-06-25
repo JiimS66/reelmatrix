@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { Member, ScheduleData, Task } from "@/lib/teamApi";
+import type { Member, ScheduleData, Task, TrendAngle } from "@/lib/teamApi";
 
 import { KIND_LABEL, StatusBadge } from "./primitives";
 
@@ -20,14 +20,19 @@ export function CalendarView({
   onSelectTask,
   canRefresh = false,
   onRefreshTrends,
+  angles,
+  onDraftAngle,
 }: {
   schedule: ScheduleData;
   members: Member[];
   onSelectTask: (id: string) => void;
   canRefresh?: boolean;
   onRefreshTrends?: () => Promise<void> | void;
+  angles?: TrendAngle[];
+  onDraftAngle?: (angle: string, channel: string) => Promise<void> | void;
 }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [drafting, setDrafting] = useState<string | null>(null);
   async function refresh() {
     if (!onRefreshTrends) return;
     setRefreshing(true);
@@ -35,6 +40,15 @@ export function CalendarView({
       await onRefreshTrends();
     } finally {
       setRefreshing(false);
+    }
+  }
+  async function draft(angle: string) {
+    if (!onDraftAngle) return;
+    setDrafting(angle);
+    try {
+      await onDraftAngle(angle, "X / Twitter");
+    } finally {
+      setDrafting(null);
     }
   }
 
@@ -70,7 +84,37 @@ export function CalendarView({
               </button>
             )}
           </div>
-          {schedule.timely_angles.length > 0 ? (
+          {angles && angles.length > 0 ? (
+            <ul className="mt-1.5 space-y-1.5">
+              {angles.map((a, i) => (
+                <li
+                  key={i}
+                  className="flex items-start justify-between gap-2 rounded-lg border border-ink/10 bg-canvas px-2.5 py-1.5"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm text-ink/80">{a.angle}</p>
+                    <p
+                      className={`font-mono text-[10px] ${
+                        a.safe ? "text-ink/45" : "text-red-600"
+                      }`}
+                    >
+                      {a.safe ? `fit ${a.score} · ${a.reason}` : `⛔ ${a.reason}`}
+                    </p>
+                  </div>
+                  {canRefresh && onDraftAngle && (
+                    <button
+                      className="btn-line shrink-0 px-2.5 py-1 text-xs disabled:opacity-40"
+                      disabled={!a.safe || drafting !== null}
+                      title={a.safe ? "Draft a rapid post" : "Blocked by brand-safety"}
+                      onClick={() => draft(a.angle)}
+                    >
+                      {drafting === a.angle ? "Drafting…" : "Draft a rapid post"}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : schedule.timely_angles.length > 0 ? (
             <ul className="mt-1.5 space-y-1">
               {schedule.timely_angles.map((angle, i) => (
                 <li key={i} className="text-sm text-ink/80">
