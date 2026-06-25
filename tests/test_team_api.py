@@ -313,6 +313,25 @@ def test_brand_endpoint_exposes_proof_points() -> None:
     assert any("TestSprite" in str(p.get("claim", "")) for p in brand["proof_points"])
 
 
+def test_strategy_draft_offers_audiences_and_angles_to_any_member() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]  # strategy co-creation is open to any member, not lead-only
+    resp = _req(
+        app, "POST", "/api/v1/team/strategy/draft", sam,
+        json={"idea": "AI testing tool for dev teams"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["understanding"]
+    # The advisor OFFERS choices (audiences + angles), it doesn't demand a form.
+    assert len(data["audience_candidates"]) >= 2
+    assert all(a["name"] and a["why"] and a["pain"] for a in data["audience_candidates"])
+    assert len(data["positioning_angles"]) >= 2
+    assert all(a["angle"] and a["rationale"] for a in data["positioning_angles"])
+    assert data["content_pillars"] and data["measure"]
+    assert len(data["next_questions"]) >= 1
+
+
 def test_brand_segments_crud_and_post_tailoring() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

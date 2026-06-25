@@ -22,6 +22,7 @@ class MockLLMClient(BaseLLMClient):
             "CampaignAsset": self._build_asset,
             "AuditVerdict": self._build_audit_verdict,
             "VisualAsset": self._build_visual_asset,
+            "StrategyDraft": self._build_strategy_draft,
         }
         builder = builders.get(response_model.__name__)
         if builder is None:
@@ -43,6 +44,62 @@ class MockLLMClient(BaseLLMClient):
                 "MockLLMClient expected a JSON object prompt payload"
             )
         return payload
+
+    @staticmethod
+    def _build_strategy_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+        idea = (str(payload.get("idea", "")).strip() or "your offering")[:70]
+        return {
+            "understanding": (
+                f"You want to take «{idea}» to market and need a clear plan — "
+                "let's start from who it's really for."
+            ),
+            "audience_candidates": [
+                {
+                    "name": "Hands-on practitioners",
+                    "why": "They feel the pain daily and adopt fast.",
+                    "pain": f"They waste time on what «{idea}» fixes, with no good alternative.",
+                },
+                {
+                    "name": "Team leads / buyers",
+                    "why": "They hold budget and care about team outcomes.",
+                    "pain": "They must justify ROI and de-risk the choice to their boss.",
+                },
+                {
+                    "name": "Skeptical late adopters",
+                    "why": "A larger but slower group — reach them once proof exists.",
+                    "pain": "They've been burned by tools that overpromised and underdelivered.",
+                },
+            ],
+            "positioning_angles": [
+                {
+                    "angle": "The fastest path to the outcome",
+                    "rationale": "Speed-to-value lands with busy practitioners.",
+                },
+                {
+                    "angle": "Built for this audience, not a generic tool",
+                    "rationale": "Specificity beats broad claims and is more believable.",
+                },
+                {
+                    "angle": "Proof over promises",
+                    "rationale": "Directly counters the skeptics with evidence.",
+                },
+            ],
+            "content_pillars": [
+                "The hidden cost of the status quo",
+                "How it actually works (concrete, no hand-waving)",
+                "Proof: results, customers, numbers",
+            ],
+            "channels": ["LinkedIn", "Email", "Community"],
+            "measure": (
+                "Start simple — qualified signups per week. Once volume builds, watch which "
+                "angle and pillar actually convert, and double down there."
+            ),
+            "next_questions": [
+                "Which audience above feels most right — or is it someone else entirely?",
+                "What's the single biggest pain you hear from them, in their own words?",
+                "Do you have any proof yet (results, customers, a number) we can lead with?",
+            ],
+        }
 
     @staticmethod
     def _build_ideation_result(payload: Dict[str, Any]) -> Dict[str, Any]:

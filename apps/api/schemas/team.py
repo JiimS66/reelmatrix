@@ -728,3 +728,29 @@ class ConsentRequest(BaseModel):
     purpose: str = "outbound_email"
     status: str = "granted"
     legal_basis: str = "consent"
+
+
+class StrategyDraftRequest(BaseModel):
+    idea: str
+    answers: list[dict] = []
+
+
+class AudienceCandidateRead(BaseModel):
+    name: str
+    why: str
+    pain: str
+
+
+class PositioningAngleRead(BaseModel):
+    angle: str
+    rationale: str
+
+
+class StrategyDraftRead(BaseModel):
+    understanding: str
+    audience_candidates: list[AudienceCandidateRead]
+    positioning_angles: list[PositioningAngleRead]
+    content_pillars: list[str]
+    channels: list[str]
+    measure: str
+    next_questions: list[str]

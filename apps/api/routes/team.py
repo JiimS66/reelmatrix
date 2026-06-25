@@ -12,6 +12,10 @@ from sqlmodel import Session
 from apps.api.schemas.team import (
     AgentRoleRead,
     AnnotationRead,
+    AudienceCandidateRead,
+    PositioningAngleRead,
+    StrategyDraftRead,
+    StrategyDraftRequest,
     AnnotationRequest,
     AssignRequest,
     AtomRead,
@@ -1108,3 +1112,15 @@ def record_metrics(
     return _performance_response(
         session, actor, snapshot.campaign_id, note="Manual metrics recorded."
     )
+
+
+@router.post("/strategy/draft", response_model=StrategyDraftRead)
+async def draft_strategy_route(
+    body: StrategyDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategyDraftRead:
+    """Strategy co-creation — a fuzzy idea becomes a structured, editable draft (audience
+    candidates + positioning angles to pick from, not a form to fill). Any member."""
+    draft = await team_service.draft_strategy(actor, idea=body.idea, answers=body.answers)
+    return StrategyDraftRead(**draft)

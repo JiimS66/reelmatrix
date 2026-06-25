@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
+import { StrategyAdvisorPanel } from "@/components/workspace/StrategyAdvisorPanel";
 import { BrandHub } from "@/components/workspace/BrandHub";
 import { BrandNarrativeCard } from "@/components/workspace/BrandNarrativeCard";
 import { IcpMarketPanel } from "@/components/workspace/IcpMarketPanel";
@@ -75,6 +76,7 @@ import {
 
 type View =
   | "overview"
+  | "strategy"
   | "plan"
   | "create"
   | "review"
@@ -86,6 +88,7 @@ type View =
 // with brand (the truth backbone) and team alongside.
 const VIEW_LABEL: Record<View, string> = {
   overview: "Overview",
+  strategy: "Strategy",
   plan: "Plan",
   create: "Create",
   review: "Review",
@@ -489,7 +492,7 @@ export default function Workspace() {
             {/* Sidebar — the marketing workflow */}
             <nav className="flex flex-col gap-1">
           {(
-            ["overview", "plan", "create", "review", "results", "brand", "team"] as View[]
+            ["overview", "strategy", "plan", "create", "review", "results", "brand", "team"] as View[]
           ).map((v) => (
             <button
               key={v}
@@ -706,6 +709,8 @@ export default function Workspace() {
           </div>
         ) : view === "review" ? (
           reviewPane(reviewQueue)
+        ) : view === "strategy" ? (
+          <StrategyAdvisorPanel memberId={currentId} />
         ) : (
           <div className="space-y-5">
           <AgentInbox memberId={currentId} canManage={!!isLead} />
@@ -734,7 +739,7 @@ export default function Workspace() {
       </main>
       <CommandPalette
         commands={(
-          ["overview", "plan", "create", "review", "results", "brand", "team"] as View[]
+          ["overview", "strategy", "plan", "create", "review", "results", "brand", "team"] as View[]
         ).map((v) => ({
           id: v,
           group: "Go to",

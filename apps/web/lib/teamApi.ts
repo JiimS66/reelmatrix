@@ -1031,6 +1031,40 @@ export const sendMemberMessage = (
     body,
   });
 
+export interface AudienceCandidate {
+  name: string;
+  why: string;
+  pain: string;
+}
+
+export interface PositioningAngle {
+  angle: string;
+  rationale: string;
+}
+
+export interface StrategyDraft {
+  understanding: string;
+  audience_candidates: AudienceCandidate[];
+  positioning_angles: PositioningAngle[];
+  content_pillars: string[];
+  channels: string[];
+  measure: string;
+  next_questions: string[];
+}
+
+/** Strategy co-creation — a fuzzy idea becomes a structured, editable draft (audience
+ * candidates + positioning angles to pick from). The only "data" it needs is an LLM. */
+export const draftStrategy = (
+  memberId: string,
+  idea: string,
+  answers: Record<string, unknown>[] = [],
+) =>
+  request<StrategyDraft>("/api/v1/team/strategy/draft", {
+    method: "POST",
+    memberId,
+    body: { idea, answers },
+  });
+
 export const TESTSPRITE_BRIEF: Record<string, unknown> = {
   product_name: "TestSprite",
   product_description:

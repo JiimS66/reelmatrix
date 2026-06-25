@@ -2402,3 +2402,20 @@ def get_deployment_status(session: Session, actor: Member) -> dict:
         },
         "data_leaves_environment": profile not in ("on_prem", "air_gapped"),
     }
+
+
+async def draft_strategy(
+    actor: Member,
+    *,
+    idea: str,
+    answers: list[dict] | None = None,
+    client_for_provider=None,
+) -> dict:
+    """Strategy co-creation — one advisor pass over a fuzzy idea. The whole feature's only
+    'data' is an LLM, which makes it the most data-accessible capability we have: a fit for
+    SMB / mid-market with no big-data foundation. Any member may use it (no lead gate)."""
+    from core.strategy.advisor import draft_strategy as _advisor_draft
+
+    provider = get_settings().llm_provider
+    client = (client_for_provider or default_client_for_provider)(provider)
+    return await _advisor_draft(client, idea=idea, answers=answers)
