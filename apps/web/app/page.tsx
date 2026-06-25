@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
+import { BrandHub } from "@/components/workspace/BrandHub";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
@@ -10,16 +11,13 @@ import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TeamView } from "@/components/workspace/TeamView";
-import { TerminologyPanel } from "@/components/workspace/TerminologyPanel";
 import {
-  ATOM_KIND_LABEL,
   AssigneeChip,
   CheckBadges,
   KIND_LABEL,
   ScoreBadge,
   StatusBadge,
   averageScore,
-  cap,
   checkCount,
   statusAccent,
   statusTint,
@@ -56,14 +54,24 @@ import {
   type TaskDetail,
 } from "@/lib/teamApi";
 
-type View = "home" | "calendar" | "board" | "performance" | "library" | "team";
+type View =
+  | "overview"
+  | "plan"
+  | "create"
+  | "review"
+  | "results"
+  | "brand"
+  | "team";
 
+// Navigation follows the marketing workflow: plan → create → review → publish/measure,
+// with brand (the truth backbone) and team alongside.
 const VIEW_LABEL: Record<View, string> = {
-  home: "Home",
-  calendar: "Calendar",
-  board: "Board",
-  performance: "Performance",
-  library: "Library",
+  overview: "Overview",
+  plan: "Plan",
+  create: "Create",
+  review: "Review",
+  results: "Results",
+  brand: "Brand",
   team: "Team",
 };
 
@@ -75,7 +83,7 @@ function errMessage(error: unknown): string {
 export default function Workspace() {
   const [members, setMembers] = useState<Member[]>([]);
   const [currentId, setCurrentId] = useState("");
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>("overview");
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -141,7 +149,7 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!currentId) return;
-    if (view === "library") {
+    if (view === "brand") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
       listTerms(currentId).then(setTerms).catch((e) => setError(errMessage(e)));
     }
@@ -149,7 +157,7 @@ export default function Workspace() {
       getOrg(currentId).then(setOrg).catch((e) => setError(errMessage(e)));
       getFleet(currentId).then(setFleet).catch((e) => setError(errMessage(e)));
     }
-    if (view === "performance" && board) {
+    if (view === "results" && board) {
       getPerformance(currentId, board.campaign.id)
         .then(setPerformance)
         .catch((e) => setError(errMessage(e)));
@@ -169,9 +177,16 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId, board?.campaign.id]);
 
+  function stageOf(task: Task | undefined): View {
+    if (!task) return "create";
+    if (task.status === "needs_review" || task.kind === "claim_check") return "review";
+    if (task.kind === "ideation" || task.kind === "planning") return "plan";
+    return "create";
+  }
+
   function openTaskOnBoard(id: string) {
     setSelectedId(id);
-    setView("board");
+    setView(stageOf((board?.tasks ?? []).find((t) => t.id === id)));
   }
 
   async function onChanged() {
@@ -237,7 +252,7 @@ export default function Workspace() {
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);
-      setView("home");
+      setView("overview");
       setSelectedId(null);
     } catch (e) {
       setError(errMessage(e));
@@ -263,20 +278,67 @@ export default function Workspace() {
     setCurrentId(id);
     setSelectedId(null);
     setEmployeeId(null);
-    setView("home");
+    setView("overview");
   }
 
   const boardTasks = board?.tasks ?? [];
-  const needsYou = isLead
-    ? boardTasks.filter(
-        (t) =>
-          t.status === "needs_review" ||
-          t.status === "blocked" ||
-          (t.assignee_id === currentId &&
-            (t.status === "todo" || t.status === "in_progress")),
-      )
-    : inbox.filter((t) => t.status === "todo" || t.status === "in_progress");
-  const needsYouCount = needsYou.length;
+  // Tasks routed to their workflow stage (a task lives in exactly one).
+  const reviewTasks = boardTasks.filter(
+    (t) => t.status === "needs_review" || t.kind === "claim_check",
+  );
+  const planTasks = boardTasks.filter(
+    (t) =>
+      t.status !== "needs_review" &&
+      (t.kind === "ideation" || t.kind === "planning"),
+  );
+  const createTasks = boardTasks.filter(
+    (t) =>
+      t.status !== "needs_review" && (t.kind === "asset" || t.kind === "visual"),
+  );
+
+  // Shared master-detail: a filtered task list (left) + the task detail (right).
+  function taskPane(tasks: Task[], header: ReactNode, empty: string) {
+    return (
+      <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="space-y-4">
+          {header}
+          {tasks.length > 0 ? (
+            <ul className="space-y-2.5">
+              {tasks.map((task) => (
+                <li key={task.id}>
+                  <TaskRow
+                    task={task}
+                    members={board?.members ?? members}
+                    selected={task.id === selectedId}
+                    onClick={() => setSelectedId(task.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="surface p-6 text-sm text-ink/60">{empty}</p>
+          )}
+        </div>
+        <div className="lg:sticky lg:top-6">
+          {detail ? (
+            <div className="surface p-5">
+              <TaskDetailPanel
+                detail={detail}
+                members={board?.members ?? members}
+                currentMemberId={currentId}
+                onChanged={onChanged}
+                onError={(m) => setError(m)}
+              />
+            </div>
+          ) : (
+            <div className="surface border-dashed p-6 text-sm text-ink/55">
+              Select a task to view, edit, review, reassign, or comment.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen gridbg">
@@ -315,10 +377,11 @@ export default function Workspace() {
           </h1>
         </header>
 
-        {/* Tabs */}
+        {/* Tabs — the marketing workflow */}
         <nav className="mb-5 flex flex-wrap gap-1.5">
-          {(["home", "calendar", "board", "performance", "library", "team"] as View[]).map(
-            (v) => (
+          {(
+            ["overview", "plan", "create", "review", "results", "brand", "team"] as View[]
+          ).map((v) => (
             <button
               key={v}
               onClick={() => {
@@ -333,13 +396,13 @@ export default function Workspace() {
               }`}
             >
               {VIEW_LABEL[v]}
-              {v === "home" && needsYouCount > 0 && (
+              {v === "review" && reviewTasks.length > 0 && (
                 <span
                   className={`rounded-full px-1.5 text-[10px] ${
                     view === v ? "bg-white/20 text-white" : "bg-forest text-white"
                   }`}
                 >
-                  {needsYouCount}
+                  {reviewTasks.length}
                 </span>
               )}
             </button>
@@ -388,24 +451,22 @@ export default function Workspace() {
           ) : (
             <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
           )
-        ) : view === "library" ? (
-          <div className="space-y-5">
-            <TerminologyPanel
-              terms={terms}
-              currentMemberId={currentId}
-              isLead={!!isLead}
-              onChanged={async () => {
-                try {
-                  setTerms(await listTerms(currentId));
-                } catch (e) {
-                  setError(errMessage(e));
-                }
-              }}
-              onError={(m) => setError(m)}
-            />
-            <AtomLibrary atoms={atoms} />
-          </div>
-        ) : view === "performance" ? (
+        ) : view === "brand" ? (
+          <BrandHub
+            terms={terms}
+            atoms={atoms}
+            currentMemberId={currentId}
+            isLead={!!isLead}
+            onChanged={async () => {
+              try {
+                setTerms(await listTerms(currentId));
+              } catch (e) {
+                setError(errMessage(e));
+              }
+            }}
+            onError={(m) => setError(m)}
+          />
+        ) : view === "results" ? (
           performance ? (
             <PerformanceView
               data={performance}
@@ -429,12 +490,10 @@ export default function Workspace() {
             />
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
-              {board
-                ? "Loading performance…"
-                : "Create a campaign to see performance."}
+              {board ? "Loading results…" : "Create a campaign to see results."}
             </p>
           )
-        ) : view === "calendar" ? (
+        ) : view === "plan" ? (
           schedule ? (
             <div className="space-y-5">
               <MonthCalendar schedule={schedule} onSelectTask={openTaskOnBoard} />
@@ -453,16 +512,44 @@ export default function Workspace() {
                   }
                 }}
               />
-              <ContentPreview tasks={schedule.tasks} />
+              {(planTasks.length > 0 || selectedId) &&
+                taskPane(
+                  planTasks,
+                  <p className="tlabel">Strategy — ideation & planning</p>,
+                  "No strategy tasks.",
+                )}
             </div>
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
               {board
                 ? "Loading schedule…"
-                : "Create a campaign with an event date to see the calendar."}
+                : "Create a campaign with an event date to see the plan."}
             </p>
           )
-        ) : view === "home" ? (
+        ) : view === "create" ? (
+          <div className="space-y-5">
+            {taskPane(
+              createTasks,
+              <BoardHeader
+                board={board}
+                isLead={!!isLead}
+                busy={busy}
+                onCreate={createAndRun}
+                onRun={runAgain}
+              />,
+              board ? "No content tasks yet — run the AI team." : "",
+            )}
+            {schedule && <ContentPreview tasks={schedule.tasks} />}
+          </div>
+        ) : view === "review" ? (
+          taskPane(
+            reviewTasks,
+            <p className="tlabel">Review & fact-check — approvals + the truth rail</p>,
+            board
+              ? "Nothing needs review — you're all caught up."
+              : "Create a campaign first.",
+          )
+        ) : (
           <HomeView
             role={isLead ? "lead" : "member"}
             board={board}
@@ -481,52 +568,6 @@ export default function Workspace() {
             onError={(m) => setError(m)}
             onClose={() => setSelectedId(null)}
           />
-        ) : (
-          <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-            {/* Left: board list */}
-            <div className="space-y-4">
-              <BoardHeader
-                board={board}
-                isLead={!!isLead}
-                busy={busy}
-                onCreate={createAndRun}
-                onRun={runAgain}
-              />
-              {boardTasks.length > 0 && (
-                <ul className="space-y-2.5">
-                  {boardTasks.map((task) => (
-                    <li key={task.id}>
-                      <TaskRow
-                        task={task}
-                        members={board?.members ?? members}
-                        selected={task.id === selectedId}
-                        onClick={() => setSelectedId(task.id)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Right: detail */}
-            <div className="lg:sticky lg:top-6">
-              {detail ? (
-                <div className="surface p-5">
-                  <TaskDetailPanel
-                    detail={detail}
-                    members={board?.members ?? members}
-                    currentMemberId={currentId}
-                    onChanged={onChanged}
-                    onError={(m) => setError(m)}
-                  />
-                </div>
-              ) : (
-                <div className="surface border-dashed p-6 text-sm text-ink/55">
-                  Select a task to view, edit, review, reassign, or comment.
-                </div>
-              )}
-            </div>
-          </div>
         )}
       </main>
     </div>
@@ -636,45 +677,3 @@ function TaskRow({
   );
 }
 
-function AtomLibrary({ atoms }: { atoms: Atom[] }) {
-  if (atoms.length === 0) {
-    return (
-      <p className="surface p-6 text-sm text-ink/60">
-        No atoms yet. Approve assets and reusable hooks, headlines, and CTAs land
-        here for the next campaign.
-      </p>
-    );
-  }
-  const byKind = atoms.reduce<Record<string, Atom[]>>((acc, atom) => {
-    (acc[atom.kind] ||= []).push(atom);
-    return acc;
-  }, {});
-  return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {Object.entries(byKind).map(([kind, items]) => (
-        <div key={kind} className="surface p-4">
-          <p className="tlabel">{ATOM_KIND_LABEL[kind] ?? cap(kind)}</p>
-          <ul className="mt-2 space-y-2">
-            {items.map((atom) => (
-              <li
-                key={atom.id}
-                className="rounded-lg border border-ink/10 bg-canvas p-2.5 text-sm text-ink"
-              >
-                {atom.text}
-                {atom.tags.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {atom.tags.map((tag) => (
-                      <span key={tag} className="font-mono text-[10px] text-forest">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
