@@ -354,6 +354,35 @@ export const addComment = (memberId: string, taskId: string, bodyText: string) =
     body: { body: bodyText },
   });
 
+export interface BrandTermItem {
+  id: string;
+  term: string;
+  term_type: string;
+  replacement: string | null;
+  case_sensitive: boolean;
+  note: string;
+}
+
+export const listTerms = (memberId: string) =>
+  request<BrandTermItem[]>("/api/v1/team/terms", { memberId });
+
+export const createTerm = (
+  memberId: string,
+  body: {
+    term: string;
+    term_type: string;
+    replacement?: string | null;
+    case_sensitive?: boolean;
+    note?: string;
+  },
+) => request<BrandTermItem[]>("/api/v1/team/terms", { method: "POST", memberId, body });
+
+export const deleteTerm = (memberId: string, termId: string) =>
+  request<BrandTermItem[]>(`/api/v1/team/terms/${termId}`, {
+    method: "DELETE",
+    memberId,
+  });
+
 export const listAtoms = (
   memberId: string,
   params?: { kind?: string; tag?: string },

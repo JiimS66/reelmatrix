@@ -26,6 +26,7 @@ from configs.settings import get_settings
 from core.agents.employees import agent_for_role
 from core.db.models import (
     BrandProfile,
+    BrandTerm,
     Campaign,
     ContentAtom,
     EpisodicNote,
@@ -46,6 +47,7 @@ from core.content.brand import forbidden_word_issues
 from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
+from core.content.terminology import term_issues
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
 from core.media.base import VisionProvider
@@ -143,12 +145,19 @@ def _campaign_lead_id(session: Session, tenant_id: str) -> Optional[str]:
     return lead.id if lead is not None else None
 
 
-def asset_checks(asset: dict, channel: str, forbidden: list[str], approved_text: str) -> dict:
-    """The format/brand/consistency checks recorded on every asset task."""
+def asset_checks(
+    asset: dict,
+    channel: str,
+    forbidden: list[str],
+    approved_text: str,
+    terms: Optional[list[dict]] = None,
+) -> dict:
+    """The format/brand/consistency/terminology checks recorded on every asset task."""
     return {
         "format": format_checks(asset, channel),
         "brand": forbidden_word_issues(asset, forbidden),
         "consistency": unsourced_stat_issues(asset, approved_text),
+        "terminology": term_issues(asset, terms or []),
     }
 
 
@@ -169,8 +178,19 @@ def checks_for_output(session: Session, task: Task, output: dict) -> dict:
     ).first()
     plan = (planning.output if planning is not None else None) or {}
     approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
+    terms = [
+        {
+            "term": t.term,
+            "term_type": t.term_type,
+            "replacement": t.replacement,
+            "case_sensitive": t.case_sensitive,
+        }
+        for t in session.exec(
+            select(BrandTerm).where(BrandTerm.tenant_id == task.tenant_id)
+        ).all()
+    ]
     return asset_checks(
-        output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text
+        output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text, terms
     )
 
 

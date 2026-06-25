@@ -203,6 +203,22 @@ class BrandProfile(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_now)
 
 
+class BrandTerm(SQLModel, table=True):
+    """A typed terminology rule — the richer governance layer above
+    ``BrandProfile.forbidden_words``. ``avoid`` terms are flagged (with a preferred
+    ``replacement`` to suggest); ``use_carefully`` terms are flagged for a human
+    double-check; ``approved`` terms document the house style."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    term: str
+    term_type: str = "avoid"  # approved | avoid | use_carefully
+    replacement: Optional[str] = None  # preferred swap for an avoid term
+    case_sensitive: bool = False
+    note: str = ""
+    created_at: datetime = Field(default_factory=_now)
+
+
 class ContentAtom(SQLModel, table=True):
     """A reusable named content block harvested from an approved asset.
 

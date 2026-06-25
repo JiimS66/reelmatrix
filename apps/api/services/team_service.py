@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from core.db.models import (
+    BrandTerm,
     Campaign,
     Comment,
     ContentAtom,
@@ -589,6 +590,57 @@ def add_comment(session: Session, actor: Member, task_id: str, *, body: str) -> 
     _record_event(session, task, TaskEventType.COMMENTED, actor_id=actor.id)
     session.commit()
     return comment
+
+
+_TERM_TYPES = ("approved", "avoid", "use_carefully")
+
+
+def list_terms(session: Session, actor: Member) -> list[BrandTerm]:
+    return list(
+        session.exec(
+            select(BrandTerm)
+            .where(BrandTerm.tenant_id == actor.tenant_id)
+            .order_by(BrandTerm.term)
+        ).all()
+    )
+
+
+def create_term(
+    session: Session,
+    actor: Member,
+    *,
+    term: str,
+    term_type: str,
+    replacement: Optional[str],
+    case_sensitive: bool,
+    note: str,
+) -> BrandTerm:
+    _require_lead(actor)
+    if term_type not in _TERM_TYPES:
+        raise HTTPException(status_code=400, detail=f"term_type must be one of {_TERM_TYPES}.")
+    if not (term or "").strip():
+        raise HTTPException(status_code=400, detail="term cannot be empty.")
+    row = BrandTerm(
+        tenant_id=actor.tenant_id,
+        term=term.strip(),
+        term_type=term_type,
+        replacement=(replacement or "").strip() or None,
+        case_sensitive=case_sensitive,
+        note=note or "",
+    )
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    return row
+
+
+def delete_term(session: Session, actor: Member, term_id: str) -> None:
+    _require_lead(actor)
+    row = session.get(BrandTerm, term_id)
+    if row is None or row.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Term not found.")
+    session.delete(row)
+    session.commit()
 
 
 def list_atoms(

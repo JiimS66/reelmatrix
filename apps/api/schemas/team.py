@@ -92,6 +92,25 @@ class AtomRead(BaseModel):
     created_at: datetime
 
 
+class TermRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    term: str
+    term_type: str
+    replacement: Optional[str]
+    case_sensitive: bool
+    note: str
+
+
+class TermRequest(BaseModel):
+    term: str
+    term_type: str = "avoid"
+    replacement: Optional[str] = None
+    case_sensitive: bool = False
+    note: str = ""
+
+
 class CampaignRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

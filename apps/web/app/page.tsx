@@ -8,6 +8,7 @@ import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { PerformanceView } from "@/components/workspace/PerformanceView";
 import { TaskDetailPanel } from "@/components/workspace/TaskDetailPanel";
 import { TeamView } from "@/components/workspace/TeamView";
+import { TerminologyPanel } from "@/components/workspace/TerminologyPanel";
 import {
   ATOM_KIND_LABEL,
   AssigneeChip,
@@ -27,6 +28,7 @@ import {
   getInbox,
   getFleet,
   getOrg,
+  listTerms,
   getPerformance,
   getSchedule,
   getTask,
@@ -42,6 +44,7 @@ import {
   TESTSPRITE_BRIEF,
   type Atom,
   type Board,
+  type BrandTermItem,
   type FleetAgent,
   type Member,
   type OrgData,
@@ -74,6 +77,7 @@ export default function Workspace() {
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
+  const [terms, setTerms] = useState<BrandTermItem[]>([]);
   const [org, setOrg] = useState<OrgData | null>(null);
   const [fleet, setFleet] = useState<FleetAgent[]>([]);
   const [schedule, setSchedule] = useState<ScheduleData | null>(null);
@@ -136,6 +140,7 @@ export default function Workspace() {
     if (!currentId) return;
     if (view === "library") {
       listAtoms(currentId).then(setAtoms).catch((e) => setError(errMessage(e)));
+      listTerms(currentId).then(setTerms).catch((e) => setError(errMessage(e)));
     }
     if (view === "team") {
       getOrg(currentId).then(setOrg).catch((e) => setError(errMessage(e)));
@@ -366,7 +371,22 @@ export default function Workspace() {
             <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
           )
         ) : view === "library" ? (
-          <AtomLibrary atoms={atoms} />
+          <div className="space-y-5">
+            <TerminologyPanel
+              terms={terms}
+              currentMemberId={currentId}
+              isLead={!!isLead}
+              onChanged={async () => {
+                try {
+                  setTerms(await listTerms(currentId));
+                } catch (e) {
+                  setError(errMessage(e));
+                }
+              }}
+              onError={(m) => setError(m)}
+            />
+            <AtomLibrary atoms={atoms} />
+          </div>
         ) : view === "performance" ? (
           performance ? (
             <PerformanceView

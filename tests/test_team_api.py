@@ -275,6 +275,40 @@ def test_performance_groups_published_posts_by_platform() -> None:
     assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
 
 
+def test_terminology_crud_is_lead_only() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    seeded = _req(app, "GET", "/api/v1/team/terms", lead).json()
+    assert any(t["term"] == "utilize" and t["term_type"] == "avoid" for t in seeded)
+
+    added = _req(
+        app, "POST", "/api/v1/team/terms", lead,
+        json={"term": "world-class", "term_type": "avoid", "replacement": "proven"},
+    ).json()
+    term = next(t for t in added if t["term"] == "world-class")
+
+    assert (
+        _req(app, "POST", "/api/v1/team/terms", sam, json={"term": "x"}).status_code == 403
+    )
+    after = _req(app, "DELETE", f"/api/v1/team/terms/{term['id']}", lead).json()
+    assert not any(t["term"] == "world-class" for t in after)
+
+
+def test_terminology_check_flags_an_edited_post() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    edited = _req(
+        app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
+        json={"output": {**asset["output"], "content": "We utilize this approach."}},
+    ).json()
+    assert any(i["code"] == "avoid_term" for i in edited["checks"]["terminology"])
+    assert edited["score"]["overall"] < 100
+
+
 def test_fleet_reports_per_agent_observability() -> None:
     app, members = _build()
     lead = members["Adam (Lead)"]

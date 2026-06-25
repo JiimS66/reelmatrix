@@ -11,8 +11,8 @@ from typing import Optional
 
 # Per-dimension tolerance (lower = each issue hurts more) and weight in the overall.
 # Truth/brand dimensions matter more than format.
-_BASE = {"format": 5, "brand": 2, "consistency": 2, "audit": 3, "brand_fit": 3}
-_WEIGHT = {"format": 1, "brand": 2, "consistency": 2, "audit": 2, "brand_fit": 2}
+_BASE = {"format": 5, "brand": 2, "consistency": 2, "audit": 3, "brand_fit": 3, "terminology": 4}
+_WEIGHT = {"format": 1, "brand": 2, "consistency": 2, "audit": 2, "brand_fit": 2, "terminology": 1}
 
 
 def _dimension_score(dimension: str, issue_count: int) -> int:

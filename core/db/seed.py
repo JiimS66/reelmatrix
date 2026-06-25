@@ -15,6 +15,7 @@ from sqlmodel import Session, select
 from core.db.engine import get_engine, init_db
 from core.db.models import (
     BrandProfile,
+    BrandTerm,
     Member,
     MemberKind,
     MemberRole,
@@ -171,6 +172,36 @@ def _get_or_create_member(
     return member
 
 
+# Typed terminology (richer than forbidden_words): avoid terms carry a preferred swap.
+TERMS = [
+    {"term": "utilize", "term_type": "avoid", "replacement": "use"},
+    {"term": "leverage", "term_type": "avoid", "replacement": "use"},
+    {"term": "synergy", "term_type": "avoid", "replacement": None},
+    {"term": "guarantee", "term_type": "use_carefully", "replacement": None},
+    {"term": "agentic testing", "term_type": "approved", "replacement": None},
+]
+
+
+def _get_or_create_brand_terms(session: Session, tenant_id: str) -> None:
+    existing = {
+        term.term
+        for term in session.exec(
+            select(BrandTerm).where(BrandTerm.tenant_id == tenant_id)
+        ).all()
+    }
+    for spec in TERMS:
+        if spec["term"] in existing:
+            continue
+        session.add(
+            BrandTerm(
+                tenant_id=tenant_id,
+                term=spec["term"],
+                term_type=spec["term_type"],
+                replacement=spec["replacement"],
+            )
+        )
+
+
 def _get_or_create_brand_profile(session: Session, tenant_id: str) -> BrandProfile:
     existing = session.exec(
         select(BrandProfile).where(BrandProfile.tenant_id == tenant_id)
@@ -236,6 +267,7 @@ def seed_testsprite(session: Session) -> Tenant:
 
     session.flush()  # tenant.id is set, but ensure rows exist before the brand FK
     _get_or_create_brand_profile(session, tenant.id)
+    _get_or_create_brand_terms(session, tenant.id)
 
     session.commit()
     return tenant

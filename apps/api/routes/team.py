@@ -34,6 +34,8 @@ from apps.api.schemas.team import (
     SubmitRequest,
     TaskDetailRead,
     TaskRead,
+    TermRead,
+    TermRequest,
     TodoItem,
     TrendRefresh,
     UpdateOrgMemberRequest,
@@ -307,6 +309,38 @@ def get_todo(
         TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
         for name, task in team_service.get_todo(session, actor)
     ]
+
+
+@router.get("/terms", response_model=list[TermRead])
+def list_terms(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
+
+
+@router.post("/terms", response_model=list[TermRead])
+def create_term(
+    payload: TermRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    team_service.create_term(
+        session, actor,
+        term=payload.term, term_type=payload.term_type, replacement=payload.replacement,
+        case_sensitive=payload.case_sensitive, note=payload.note,
+    )
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
+
+
+@router.delete("/terms/{term_id}", response_model=list[TermRead])
+def delete_term(
+    term_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    team_service.delete_term(session, actor, term_id)
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
 
 
 @router.get("/atoms", response_model=list[AtomRead])
