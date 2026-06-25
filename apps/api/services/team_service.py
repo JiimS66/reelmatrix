@@ -32,6 +32,7 @@ from core.db.models import (
     MemberRole,
     MetricSnapshot,
     Milestone,
+    PillarAsset,
     Post,
     Task,
     TaskEvent,
@@ -48,6 +49,7 @@ from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
 from core.growth.experiments import design_variants, simulated_outcome
 from core.growth.learner import attribute_insights, learn_outcomes, learned_priors
+from core.content.repurpose import create_repurpose_provider
 from core.growth.segments import discover_segments, score_segments
 from core.growth.stats import create_stats_provider
 from core.market.factory import create_market_provider
@@ -1513,3 +1515,192 @@ async def spawn_whitespace_task(
     if writer.kind == MemberKind.AI:
         await TaskRunner(session, client_for_provider).run_ready_tasks(task.campaign_id)
     return {"task_id": task.id}
+
+
+# --- Phase 7: brand narrative, funnel coverage, content atomization ---
+
+_FUNNEL_STAGES = ("TOFU", "MOFU", "BOFU")
+_FUNNEL_ACTION = {
+    "TOFU": "build awareness — earn a click/follow",
+    "MOFU": "earn consideration — drive a signup/trial",
+    "BOFU": "drive conversion — get a paid start",
+}
+
+
+def get_brand_narrative(session: Session, actor: Member) -> dict:
+    brand = get_brand(session, actor)
+    return {
+        "value_proposition": brand.value_proposition if brand else "",
+        "messaging_pillars": brand.messaging_pillars if brand else [],
+    }
+
+
+def set_brand_narrative(
+    session: Session, actor: Member, *, value_proposition: str, messaging_pillars: list[dict]
+) -> dict:
+    """The persistent messaging pyramid above any one campaign (lead only)."""
+    _require_lead(actor)
+    brand = get_brand(session, actor)
+    if brand is None:
+        brand = BrandProfile(tenant_id=actor.tenant_id)
+        session.add(brand)
+    brand.value_proposition = value_proposition or ""
+    brand.messaging_pillars = messaging_pillars or []
+    session.add(brand)
+    session.commit()
+    return get_brand_narrative(session, actor)
+
+
+def funnel_coverage(session: Session, actor: Member, campaign_id: str) -> dict:
+    """A funnel × segment matrix of asset counts; empty cells are coverage gaps."""
+    campaign = _get_campaign(session, actor, campaign_id)
+    tasks = list(
+        session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).all()
+    )
+    segments = sorted(
+        {(t.params or {}).get("segment", "") or "(untargeted)" for t in tasks}
+    ) or ["(untargeted)"]
+    matrix = {st: {sg: 0 for sg in segments} for st in _FUNNEL_STAGES}
+    for t in tasks:
+        st = (t.params or {}).get("funnel_stage", "")
+        sg = (t.params or {}).get("segment", "") or "(untargeted)"
+        if st in matrix and sg in matrix[st]:
+            matrix[st][sg] += 1
+    gaps = [
+        {"funnel_stage": st, "segment": sg}
+        for st in _FUNNEL_STAGES
+        for sg in segments
+        if matrix[st][sg] == 0
+    ]
+    return {
+        "stages": list(_FUNNEL_STAGES),
+        "segments": segments,
+        "matrix": matrix,
+        "gaps": gaps,
+    }
+
+
+async def draft_for_gap(
+    session: Session,
+    actor: Member,
+    campaign_id: str,
+    *,
+    funnel_stage: str,
+    segment: str,
+    client_for_provider=None,
+) -> dict:
+    """Fill a funnel×segment coverage gap with a new AI-drafted asset task."""
+    _require_lead(actor)
+    campaign = _get_campaign(session, actor, campaign_id)
+    planning = _planning_task(session, campaign.id)
+    routes = route_assignees(session, actor.tenant_id)
+    brand = get_brand(session, actor)
+    seg_obj = next(
+        (s for s in (brand.segments if brand else []) if s.get("name") == segment), {}
+    )
+    channel = (seg_obj.get("platforms") or ["LinkedIn"])[0]
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == campaign.id)
+        ).all()),
+        default=0,
+    )
+    task = Task(
+        tenant_id=actor.tenant_id, campaign_id=campaign.id, kind=TaskKind.ASSET,
+        title=f"{funnel_stage} · {segment} post",
+        execution_mode=ExecutionMode.AI_DRAFT_HUMAN_REVIEW,
+        depends_on=[planning.id] if planning is not None else [],
+        assignee_id=routes.get(TaskKind.ASSET.value),
+        params={
+            "channel": channel, "funnel_stage": funnel_stage,
+            "desired_action": _FUNNEL_ACTION.get(funnel_stage, ""),
+            "segment": segment, "pain_point": (seg_obj.get("pain_points") or [""])[0],
+        },
+        phase="followup", sequence=last + 1,
+    )
+    session.add(task)
+    _record_event(session, task, TaskEventType.CREATED, actor_id=actor.id, payload={"gap": True})
+    session.commit()
+    await TaskRunner(session, client_for_provider).run_ready_tasks(campaign.id)
+    return funnel_coverage(session, actor, campaign_id)
+
+
+def list_pillars(session: Session, actor: Member, campaign_id: str) -> list[dict]:
+    campaign = _get_campaign(session, actor, campaign_id)
+    pillars = list(
+        session.exec(
+            select(PillarAsset).where(PillarAsset.campaign_id == campaign.id)
+        ).all()
+    )
+    return [
+        {
+            "id": p.id, "title": p.title, "kind": p.kind,
+            "derivatives": len(
+                session.exec(select(Task).where(Task.pillar_id == p.id)).all()
+            ),
+        }
+        for p in pillars
+    ]
+
+
+def create_pillar(
+    session: Session, actor: Member, campaign_id: str, *, title: str, kind: str, source_text: str
+) -> dict:
+    _require_lead(actor)
+    campaign = _get_campaign(session, actor, campaign_id)
+    if not (title or "").strip():
+        raise HTTPException(status_code=400, detail="pillar title cannot be empty.")
+    pillar = PillarAsset(
+        tenant_id=actor.tenant_id, campaign_id=campaign.id,
+        title=title.strip(), kind=kind or "doc", source_text=source_text or "",
+    )
+    session.add(pillar)
+    session.commit()
+    return {"created": pillar.id, "pillars": list_pillars(session, actor, campaign_id)}
+
+
+async def atomize_pillar(
+    session: Session, actor: Member, pillar_id: str, *, channels: list[str], client_for_provider=None
+) -> dict:
+    """Atomize one pillar into channel derivatives — a hub-and-spoke fan-out where each
+    spoke carries pillar_id back to the hub and a rotating funnel stage."""
+    _require_lead(actor)
+    pillar = session.get(PillarAsset, pillar_id)
+    if pillar is None or pillar.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Pillar not found.")
+    planning = _planning_task(session, pillar.campaign_id)
+    routes = route_assignees(session, actor.tenant_id)
+    derivs = create_repurpose_provider().atomize(
+        pillar_title=pillar.title, source_text=pillar.source_text,
+        channels=channels or ["LinkedIn", "Email", "X / Twitter"],
+    )
+    last = max(
+        (t.sequence for t in session.exec(
+            select(Task).where(Task.campaign_id == pillar.campaign_id)
+        ).all()),
+        default=0,
+    )
+    for d in derivs:
+        last += 1
+        session.add(
+            Task(
+                tenant_id=actor.tenant_id, campaign_id=pillar.campaign_id,
+                kind=TaskKind.ASSET, title=d.title,
+                execution_mode=ExecutionMode.AI_DRAFT_HUMAN_REVIEW,
+                depends_on=[planning.id] if planning is not None else [],
+                assignee_id=routes.get(TaskKind.ASSET.value),
+                params={
+                    "channel": d.channel, "funnel_stage": d.funnel_stage,
+                    "desired_action": _FUNNEL_ACTION.get(d.funnel_stage, ""),
+                    "provenance": "repurpose",
+                },
+                pillar_id=pillar.id, phase="followup", sequence=last,
+            )
+        )
+    session.commit()
+    await TaskRunner(session, client_for_provider).run_ready_tasks(pillar.campaign_id)
+    return {"pillar_id": pillar.id, "derivatives": len(derivs)}

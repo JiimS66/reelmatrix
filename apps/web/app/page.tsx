@@ -4,7 +4,9 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { BrandHub } from "@/components/workspace/BrandHub";
+import { BrandNarrativeCard } from "@/components/workspace/BrandNarrativeCard";
 import { IcpMarketPanel } from "@/components/workspace/IcpMarketPanel";
+import { PillarFunnelPanel } from "@/components/workspace/PillarFunnelPanel";
 import { ContentPreview } from "@/components/workspace/ContentPreview";
 import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { HomeView } from "@/components/workspace/HomeView";
@@ -536,6 +538,7 @@ export default function Workspace() {
         ) : view === "brand" ? (
           <div className="space-y-5">
             <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
+            <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
             <BrandHub
             terms={terms}
             atoms={atoms}
@@ -646,6 +649,14 @@ export default function Workspace() {
               board ? "No content tasks yet — run the AI team." : "",
             )}
             {schedule && <ContentPreview tasks={schedule.tasks} />}
+            {board && (
+              <PillarFunnelPanel
+                memberId={currentId}
+                campaignId={board.campaign.id}
+                canManage={!!isLead}
+                onChanged={onChanged}
+              />
+            )}
           </div>
         ) : view === "review" ? (
           reviewPane(reviewQueue)

@@ -513,3 +513,42 @@ class MarketIntelRead(BaseModel):
 
 class WhitespaceRequest(BaseModel):
     angle: str
+
+
+class NarrativeRequest(BaseModel):
+    value_proposition: str = ""
+    messaging_pillars: list[dict] = []
+
+
+class NarrativeRead(BaseModel):
+    value_proposition: str
+    messaging_pillars: list[dict]
+
+
+class FunnelCoverage(BaseModel):
+    stages: list[str]
+    segments: list[str]
+    matrix: dict
+    gaps: list[dict]
+
+
+class GapRequest(BaseModel):
+    funnel_stage: str
+    segment: str
+
+
+class PillarRead(BaseModel):
+    id: str
+    title: str
+    kind: str
+    derivatives: int
+
+
+class CreatePillarRequest(BaseModel):
+    title: str
+    kind: str = "doc"
+    source_text: str = ""
+
+
+class AtomizeRequest(BaseModel):
+    channels: list[str] = []

@@ -774,6 +774,14 @@ class TaskRunner:
                 self._session, task.tenant_id, channel,
                 (task.params or {}).get("segment", ""),
             ),
+            "funnel_stage": (task.params or {}).get("funnel_stage", ""),
+            "desired_action": (task.params or {}).get("desired_action", ""),
+            "value_proposition": brand.value_proposition if brand is not None else "",
+            "messaging_pillars": (
+                [p.get("name", "") for p in (brand.messaging_pillars or [])]
+                if brand is not None
+                else []
+            ),
             # A directive task has no planning step — its instruction IS the brief.
             "core_message": plan.get("core_message")
             or (task.params or {}).get("directive", ""),

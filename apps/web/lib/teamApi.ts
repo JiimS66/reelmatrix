@@ -425,6 +425,80 @@ export const draftWhitespace = (memberId: string, angle: string) =>
     body: { angle },
   });
 
+export interface MessagingPillar {
+  name: string;
+  proof_points?: string[];
+}
+
+export interface Narrative {
+  value_proposition: string;
+  messaging_pillars: MessagingPillar[];
+}
+
+export const getNarrative = (memberId: string) =>
+  request<Narrative>("/api/v1/team/brand/narrative", { memberId });
+
+export const setNarrative = (memberId: string, body: Narrative) =>
+  request<Narrative>("/api/v1/team/brand/narrative", {
+    method: "PUT",
+    memberId,
+    body,
+  });
+
+export interface FunnelCoverage {
+  stages: string[];
+  segments: string[];
+  matrix: Record<string, Record<string, number>>;
+  gaps: { funnel_stage: string; segment: string }[];
+}
+
+export const getFunnelCoverage = (memberId: string, campaignId: string) =>
+  request<FunnelCoverage>(`/api/v1/team/campaigns/${campaignId}/funnel-coverage`, {
+    memberId,
+  });
+
+export const draftFunnelGap = (
+  memberId: string,
+  campaignId: string,
+  gap: { funnel_stage: string; segment: string },
+) =>
+  request<FunnelCoverage>(`/api/v1/team/campaigns/${campaignId}/funnel-gap/draft`, {
+    method: "POST",
+    memberId,
+    body: gap,
+  });
+
+export interface Pillar {
+  id: string;
+  title: string;
+  kind: string;
+  derivatives: number;
+}
+
+export const getPillars = (memberId: string, campaignId: string) =>
+  request<Pillar[]>(`/api/v1/team/campaigns/${campaignId}/pillars`, { memberId });
+
+export const createPillar = (
+  memberId: string,
+  campaignId: string,
+  body: { title: string; kind?: string; source_text?: string },
+) =>
+  request<Pillar[]>(`/api/v1/team/campaigns/${campaignId}/pillars`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const atomizePillar = (
+  memberId: string,
+  pillarId: string,
+  channels: string[],
+) =>
+  request<{ pillar_id: string; derivatives: number }>(
+    `/api/v1/team/pillars/${pillarId}/atomize`,
+    { method: "POST", memberId, body: { channels } },
+  );
+
 export const getPerformance = (memberId: string, campaignId: string) =>
   request<PerformanceData>(
     `/api/v1/team/campaigns/${campaignId}/performance`,

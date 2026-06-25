@@ -147,6 +147,7 @@ class Task(SQLModel, table=True):
     checks: dict = Field(default_factory=dict, sa_column=Column(JSON))
     due_date: Optional[str] = None  # ISO date the task is scheduled for
     phase: Optional[str] = None  # prep | warmup | buildup | prelaunch | launch | followup
+    pillar_id: Optional[str] = Field(default=None, foreign_key="pillarasset.id")  # hub-spoke
     locked: bool = False  # proofing sign-off: output is immutable until unlocked
     locked_version_id: Optional[str] = Field(default=None, foreign_key="contentversion.id")
     created_at: datetime = Field(default_factory=_now)
@@ -255,6 +256,11 @@ class BrandProfile(SQLModel, table=True):
     # {name, description, platforms[], pain_points[], reach_tactics[]}. A campaign
     # targets a subset (brief["target_segments"]); each post is routed to one.
     segments: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
+    # Persistent brand narrative (Phase 7): the messaging pyramid that spans every
+    # campaign — a value proposition over a few messaging pillars. term_bank lives in
+    # BrandTerm. Each pillar = {name, proof_points[]}.
+    value_proposition: str = ""
+    messaging_pillars: list[dict] = Field(default_factory=list, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -437,4 +443,18 @@ class DiscoveredSegmentCandidate(SQLModel, table=True):
     rationale: str
     evidence: dict = Field(default_factory=dict, sa_column=Column(JSON))
     status: str = "pending"  # pending | promoted | dismissed
+    created_at: datetime = Field(default_factory=_now)
+
+
+class PillarAsset(SQLModel, table=True):
+    """A long-form source asset (research doc, transcript, webinar) that atomizes into
+    many channel posts — the hub of a hub-and-spoke content graph (HubSpot Content
+    Remix). Derivative asset Tasks carry pillar_id back to it, inheriting its terms."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    campaign_id: str = Field(index=True, foreign_key="campaign.id")
+    title: str
+    kind: str = "doc"  # doc | transcript | webinar
+    source_text: str
     created_at: datetime = Field(default_factory=_now)

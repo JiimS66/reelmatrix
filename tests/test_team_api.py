@@ -514,6 +514,64 @@ def test_market_intel_and_whitespace_draft() -> None:
     assert any(it["task"]["id"] == res["task_id"] for it in queue)
 
 
+def test_funnel_coverage_assigns_stages_and_fills_gaps() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+
+    cov = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/funnel-coverage", lead).json()
+    assert cov["stages"] == ["TOFU", "MOFU", "BOFU"]
+    total = sum(sum(row.values()) for row in cov["matrix"].values())
+    assert total >= 1  # assets got funnel stages at instantiation
+    if cov["gaps"]:
+        gap = cov["gaps"][0]
+        after = _req(
+            app, "POST", f"/api/v1/team/campaigns/{cid}/funnel-gap/draft", lead, json=gap
+        ).json()
+        assert after["matrix"][gap["funnel_stage"]][gap["segment"]] >= 1
+
+
+def test_brand_narrative_roundtrips() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    saved = _req(
+        app, "PUT", "/api/v1/team/brand/narrative", lead,
+        json={
+            "value_proposition": "Verify every AI change",
+            "messaging_pillars": [{"name": "Trust", "proof_points": ["audited"]}],
+        },
+    ).json()
+    assert saved["value_proposition"] == "Verify every AI change"
+    assert saved["messaging_pillars"][0]["name"] == "Trust"
+    got = _req(app, "GET", "/api/v1/team/brand/narrative", lead).json()
+    assert got["value_proposition"] == "Verify every AI change"
+    assert _req(
+        app, "PUT", "/api/v1/team/brand/narrative", sam, json={"value_proposition": "x"}
+    ).status_code == 403
+
+
+def test_pillar_atomizes_into_linked_derivatives() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+
+    pillars = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/pillars", lead,
+        json={"title": "State of AI testing 2026",
+              "source_text": "Teams ship AI code faster than they can verify it."},
+    ).json()
+    assert pillars and pillars[0]["title"] == "State of AI testing 2026"
+    pid = pillars[0]["id"]
+
+    res = _req(
+        app, "POST", f"/api/v1/team/pillars/{pid}/atomize", lead,
+        json={"channels": ["LinkedIn", "Email", "X / Twitter"]},
+    ).json()
+    assert res["derivatives"] == 3
+    after = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/pillars", lead).json()
+    assert after[0]["derivatives"] == 3  # spokes link back to the hub
+
+
 def test_terminology_crud_is_lead_only() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

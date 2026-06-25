@@ -53,6 +53,14 @@ def _pick_segment(channel: str, segments: list[dict]) -> dict:
     )
 
 
+_FUNNEL_STAGES = ("TOFU", "MOFU", "BOFU")
+_FUNNEL_ACTION = {
+    "TOFU": "build awareness — earn a click/follow",
+    "MOFU": "earn consideration — drive a signup/trial",
+    "BOFU": "drive conversion — get a paid start",
+}
+
+
 def assign_segment(channel: str, segments: list[dict], idx: int = 0) -> dict:
     """Reach mode: route a channel-post to one segment (by platform match) with a
     rotated pain point. Returns {} when the brand has no segments."""
@@ -182,8 +190,9 @@ def instantiate_campaign(
         ]
 
     sequence = 3
-    for channel, seg_params in post_specs:
+    for i, (channel, seg_params) in enumerate(post_specs):
         seg_name = seg_params.get("segment", "")
+        funnel = _FUNNEL_STAGES[i % len(_FUNNEL_STAGES)]  # spread coverage across the funnel
         session.add(
             Task(
                 tenant_id=tenant_id,
@@ -193,7 +202,12 @@ def instantiate_campaign(
                 execution_mode=asset_mode,
                 depends_on=[planning.id],
                 assignee_id=routes.get(TaskKind.ASSET.value),
-                params={"channel": channel, **seg_params},
+                params={
+                    "channel": channel,
+                    "funnel_stage": funnel,
+                    "desired_action": _FUNNEL_ACTION[funnel],
+                    **seg_params,
+                },
                 sequence=sequence,
             )
         )

@@ -47,8 +47,15 @@ from apps.api.schemas.team import (
     TermRequest,
     DesignExperimentRequest,
     ExperimentRead,
+    AtomizeRequest,
+    CreatePillarRequest,
+    FunnelCoverage,
+    GapRequest,
     GrowthInsights,
     MarketIntelRead,
+    NarrativeRead,
+    NarrativeRequest,
+    PillarRead,
     SegmentScorecard,
     TodoItem,
     WhitespaceRequest,
@@ -520,6 +527,88 @@ async def whitespace_draft(
     session: Session = Depends(get_session),
 ) -> dict:
     return await team_service.spawn_whitespace_task(session, actor, angle=payload.angle)
+
+
+@router.get("/brand/narrative", response_model=NarrativeRead)
+def get_narrative(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> NarrativeRead:
+    return NarrativeRead(**team_service.get_brand_narrative(session, actor))
+
+
+@router.put("/brand/narrative", response_model=NarrativeRead)
+def put_narrative(
+    payload: NarrativeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> NarrativeRead:
+    return NarrativeRead(
+        **team_service.set_brand_narrative(
+            session, actor,
+            value_proposition=payload.value_proposition,
+            messaging_pillars=payload.messaging_pillars,
+        )
+    )
+
+
+@router.get("/campaigns/{campaign_id}/funnel-coverage", response_model=FunnelCoverage)
+def get_funnel_coverage(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> FunnelCoverage:
+    return FunnelCoverage(**team_service.funnel_coverage(session, actor, campaign_id))
+
+
+@router.post("/campaigns/{campaign_id}/funnel-gap/draft", response_model=FunnelCoverage)
+async def draft_funnel_gap(
+    campaign_id: str,
+    payload: GapRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> FunnelCoverage:
+    return FunnelCoverage(
+        **await team_service.draft_for_gap(
+            session, actor, campaign_id,
+            funnel_stage=payload.funnel_stage, segment=payload.segment,
+        )
+    )
+
+
+@router.get("/campaigns/{campaign_id}/pillars", response_model=list[PillarRead])
+def get_pillars(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PillarRead]:
+    return [PillarRead(**p) for p in team_service.list_pillars(session, actor, campaign_id)]
+
+
+@router.post("/campaigns/{campaign_id}/pillars", response_model=list[PillarRead])
+def create_pillar_route(
+    campaign_id: str,
+    payload: CreatePillarRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PillarRead]:
+    result = team_service.create_pillar(
+        session, actor, campaign_id,
+        title=payload.title, kind=payload.kind, source_text=payload.source_text,
+    )
+    return [PillarRead(**p) for p in result["pillars"]]
+
+
+@router.post("/pillars/{pillar_id}/atomize")
+async def atomize_pillar_route(
+    pillar_id: str,
+    payload: AtomizeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.atomize_pillar(
+        session, actor, pillar_id, channels=payload.channels
+    )
 
 
 @router.get("/brand", response_model=BrandRead)
