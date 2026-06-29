@@ -2536,7 +2536,7 @@ async def handoff_strategy_to_campaign(
     """Circuit A → B (the 'five-minute hook'): lock the strategy and draft the first content
     from the human's chosen audience + angle. Idempotent — if this session already produced a
     campaign, it returns that one instead of making a second."""
-    from core.strategy.handoff import brief_from_strategy
+    from core.strategy.handoff import brand_updates_from_strategy, brief_from_strategy
 
     row = session.get(StrategySession, session_id)
     if row is None or row.tenant_id != actor.tenant_id:
@@ -2555,8 +2555,25 @@ async def handoff_strategy_to_campaign(
             angle_index=angle_index,
             channels=channels,
         )
+        updates = brand_updates_from_strategy(
+            row.draft, audience_index=audience_index, angle_index=angle_index
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    # Locking the strategy reshapes the operating context so the strategy — not a
+    # pre-existing brand — drives the content: chosen audience → ICP segment, positioning →
+    # value proposition, pillars → messaging pillars. The campaign then TARGETS the promoted
+    # segment (brief["target_segments"]) so it leads over any pre-seeded segments.
+    brand = get_brand(session, actor) or BrandProfile(tenant_id=actor.tenant_id)
+    seg = updates["segment"]
+    brand.segments = [
+        s for s in (brand.segments or []) if s.get("name") != seg["name"]
+    ] + [seg]
+    brand.value_proposition = updates["value_proposition"]
+    brand.messaging_pillars = updates["messaging_pillars"]
+    session.add(brand)
+    session.flush()  # so instantiate_campaign's targeted_segments sees the promoted segment
 
     asset_mode = (
         ExecutionMode.AI_DRAFT_HUMAN_REVIEW if review_assets else ExecutionMode.AI_AUTO

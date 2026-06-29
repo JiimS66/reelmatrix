@@ -392,6 +392,9 @@ def test_strategy_handoff_drafts_first_content_and_is_idempotent() -> None:
     posts = [t for t in board["tasks"] if t["kind"] == "asset"]
     assert posts, "handoff should create post tasks"
     assert any(t["output"] for t in posts), "at least one post should be drafted"
+    # 2c: locking the strategy reshaped the brand, so the posts lead with the strategy's
+    # chosen audience (the mock's highest-confidence pick), not a pre-seeded segment.
+    assert any("Hands-on practitioners" in str(t["output"]) for t in posts)
     campaign_id = board["campaign"]["id"]
 
     # The session records the handoff and the loop is now closed.

@@ -2,7 +2,12 @@
 
 import pytest
 
-from core.strategy.handoff import best_index, brief_from_strategy, supported_channels
+from core.strategy.handoff import (
+    best_index,
+    brand_updates_from_strategy,
+    brief_from_strategy,
+    supported_channels,
+)
 
 DRAFT = {
     "understanding": "You want to take an AI proofreader to market.",
@@ -43,11 +48,28 @@ def test_brief_defaults_to_the_confident_audience_and_angle() -> None:
     assert brief["user_prompt"].startswith("ready for planning:")  # ideation proceeds
     # All three proposed channels have specs, so all survive.
     assert brief["selected_channels"] == ["LinkedIn", "Email", "Community"]
+    # The campaign targets the promoted segment (the chosen audience), so it wins over any
+    # pre-existing brand segments instead of falling back to all of them.
+    assert brief["target_segments"] == ["Practitioners"]
     # Only keys circuit B understands — nothing that would break the strict agent schema.
     assert set(brief) == {
-        "product_name", "product_description", "target_audience",
-        "marketing_goal", "user_prompt", "selected_channels",
+        "product_name", "product_description", "target_audience", "marketing_goal",
+        "user_prompt", "selected_channels", "target_segments",
     }
+
+
+def test_brand_updates_promote_audience_angle_and_pillars() -> None:
+    u = brand_updates_from_strategy(DRAFT)
+    seg = u["segment"]
+    assert seg["name"] == "Practitioners"  # the confirmed audience
+    assert seg["pain_points"] == ["wasting time"]
+    assert seg["value_props"] == ["Fastest path to value"]  # the likely angle
+    assert "LinkedIn" in seg["platforms"]
+    assert u["value_proposition"].startswith("Fastest path to value")
+    assert [p["name"] for p in u["messaging_pillars"]] == [
+        "Cost of the status quo",
+        "How it works",
+    ]
 
 
 def test_brief_honors_an_explicit_pick() -> None:
