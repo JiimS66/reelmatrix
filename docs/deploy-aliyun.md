@@ -72,6 +72,12 @@ chmod +x deploy.sh
 - **你本地**：改完代码 → `git push`
 - **服务器上**：`cd reelmatrix && ./deploy.sh`（它自动 `git pull` + 重建重启）
 
+> ⚠️ **如果这次更新动了数据库结构**（`core/db/models.py` 里加/改了字段）：本项目没有数据库迁移，挂载卷里的旧 `data/reelmatrix.db` 不会自动加新列，更新后相关功能会报错。这时改用：
+> ```bash
+> docker compose down && rm -f data/reelmatrix.db && ./deploy.sh
+> ```
+> 它会重建数据库并重新 seed 演示数据（**会清掉服务器上已有数据**）。只改业务逻辑或前端时不需要这步。
+
 ## 出问题怎么查
 
 ```bash
