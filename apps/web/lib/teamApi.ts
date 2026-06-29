@@ -1083,6 +1083,7 @@ export interface StrategySession {
   draft: StrategyDraft | null;
   turns: { feedback: string | null; draft: StrategyDraft }[];
   turn_count: number;
+  campaign_id: string | null; // set once the strategy is handed off to a campaign
 }
 
 /** Open the strategy loop over whatever the user fed; returns the first draft to react to. */
@@ -1100,6 +1101,25 @@ export const advanceStrategySession = (
   body: { feedback?: string; inputs?: StrategyInput[]; done?: boolean },
 ) =>
   request<StrategySession>(`/api/v1/team/strategy/sessions/${sessionId}/advance`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+/** Circuit A → B (the five-minute hook): lock the strategy and draft the first content from
+ * it. Returns the new campaign's board so the marketer sees their first posts immediately. */
+export const handoffStrategySession = (
+  memberId: string,
+  sessionId: string,
+  body: {
+    audience_index?: number;
+    angle_index?: number;
+    product_name?: string;
+    channels?: string[];
+    review_assets?: boolean;
+  } = {},
+) =>
+  request<Board>(`/api/v1/team/strategy/sessions/${sessionId}/handoff`, {
     method: "POST",
     memberId,
     body,

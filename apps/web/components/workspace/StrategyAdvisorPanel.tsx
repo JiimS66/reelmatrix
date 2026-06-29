@@ -4,7 +4,9 @@ import { useState } from "react";
 
 import {
   advanceStrategySession,
+  handoffStrategySession,
   startStrategySession,
+  type Board,
   type StrategySession,
 } from "@/lib/teamApi";
 
@@ -29,14 +31,22 @@ function Confidence({ c }: { c: string }) {
   );
 }
 
-export function StrategyAdvisorPanel({ memberId }: { memberId: string }) {
+export function StrategyAdvisorPanel({
+  memberId,
+  onOpenContent,
+}: {
+  memberId: string;
+  onOpenContent?: (board: Board) => void;
+}) {
   const [idea, setIdea] = useState("");
   const [session, setSession] = useState<StrategySession | null>(null);
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [content, setContent] = useState<Board | null>(null);
 
   const draft = session?.draft ?? null;
+  const firstPosts = (content?.tasks ?? []).filter((t) => t.kind === "asset" && t.output);
 
   async function run(fn: () => Promise<StrategySession>) {
     setBusy(true);
@@ -57,8 +67,23 @@ export function StrategyAdvisorPanel({ memberId }: { memberId: string }) {
     session &&
     feedback.trim() &&
     run(() => advanceStrategySession(memberId, session.id, { feedback: feedback.trim() }));
-  const finish = () =>
-    session && run(() => advanceStrategySession(memberId, session.id, { done: true }));
+  // The five-minute hook: lock the strategy AND draft the first content from it in one move.
+  async function lockAndCreate() {
+    if (!session) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const board = await handoffStrategySession(memberId, session.id, {
+        review_assets: false,
+      });
+      setContent(board);
+      setSession({ ...session, status: "done", campaign_id: board.campaign.id });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -238,24 +263,65 @@ export function StrategyAdvisorPanel({ memberId }: { memberId: string }) {
                   {busy ? "Rethinking…" : "Refine with this"}
                 </button>
                 <button
-                  className="btn-line px-3 py-2 text-xs"
+                  className="rounded-lg border border-forest bg-forest/5 px-4 py-2 text-sm text-forest transition hover:bg-forest/10 disabled:opacity-50"
                   disabled={busy}
-                  onClick={finish}
-                  title="Lock this strategy — next: generate content from it"
+                  onClick={lockAndCreate}
+                  title="Lock this strategy and draft your first content from it"
                 >
-                  Good enough — lock it
+                  {busy ? "Drafting…" : "Lock it → draft my first content"}
                 </button>
               </div>
             </div>
           ) : (
-            <div className="rounded-lg border border-forest/30 bg-forest/5 p-5">
-              <p className="text-sm text-ink">
-                ✓ Strategy locked after {session.turn_count} turn
-                {session.turn_count === 1 ? "" : "s"}.{" "}
-                <span className="text-ink/55">
-                  Next (phase 2): generate your first content straight from this.
-                </span>
-              </p>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-forest/30 bg-forest/5 p-5">
+                <p className="text-sm text-ink">
+                  ✓ Strategy locked after {session.turn_count} turn
+                  {session.turn_count === 1 ? "" : "s"} — and here&apos;s your first content,
+                  drafted straight from it.
+                </p>
+              </div>
+              {content && (
+                <div className="surface p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="tlabel">
+                      First content · {firstPosts.length} draft
+                      {firstPosts.length === 1 ? "" : "s"}
+                    </p>
+                    {onOpenContent && (
+                      <button
+                        className="btn-line px-3 py-1.5 text-xs"
+                        onClick={() => onOpenContent(content)}
+                      >
+                        Open in workspace →
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    {firstPosts.map((t) => {
+                      const o = t.output ?? {};
+                      const channel = String(o.channel ?? t.title);
+                      const title = o.title ? String(o.title) : "";
+                      const body = String(o.content ?? "");
+                      const cta = o.call_to_action ? String(o.call_to_action) : "";
+                      return (
+                        <div key={t.id} className="rounded-lg border border-ink/12 p-3">
+                          <p className="font-mono text-xs text-forest">{channel}</p>
+                          {title && (
+                            <p className="mt-1 text-sm font-medium text-ink">{title}</p>
+                          )}
+                          <p className="mt-1 whitespace-pre-wrap text-sm text-ink/80">{body}</p>
+                          {cta && <p className="mt-1.5 text-xs text-forest">CTA: {cta}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-3 text-xs text-ink/50">
+                    These are drafts to react to — open the workspace to edit, review, or
+                    schedule them.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </>

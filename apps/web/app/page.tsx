@@ -710,7 +710,14 @@ export default function Workspace() {
         ) : view === "review" ? (
           reviewPane(reviewQueue)
         ) : view === "strategy" ? (
-          <StrategyAdvisorPanel memberId={currentId} />
+          <StrategyAdvisorPanel
+            memberId={currentId}
+            onOpenContent={(b) => {
+              setBoard(b);
+              setSelectedId(null);
+              setView("create");
+            }}
+          />
         ) : (
           <div className="space-y-5">
           <AgentInbox memberId={currentId} canManage={!!isLead} />
