@@ -777,6 +777,17 @@ class AdvanceStrategySessionRequest(BaseModel):
     done: bool = False
 
 
+class HandoffStrategyRequest(BaseModel):
+    """Lock the strategy and draft the first content (circuit A → B). Indices pick which
+    audience/angle to lead with; omit them to default to the highest-confidence option."""
+
+    audience_index: int | None = None
+    angle_index: int | None = None
+    product_name: str | None = None
+    channels: list[str] | None = None
+    review_assets: bool = True
+
+
 class StrategySessionRead(BaseModel):
     id: str
     goal: str
@@ -784,3 +795,4 @@ class StrategySessionRead(BaseModel):
     draft: StrategyDraftRead | None = None
     turns: list[dict] = []
     turn_count: int = 0
+    campaign_id: str | None = None  # set once the strategy is handed off to a campaign

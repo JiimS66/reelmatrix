@@ -372,6 +372,48 @@ def test_strategy_loop_iterates_and_folds_in_feedback() -> None:
     assert done.json()["status"] == "done"
 
 
+def test_strategy_handoff_drafts_first_content_and_is_idempotent() -> None:
+    app, members = _build()
+    adam = members["Adam (Lead)"]
+    started = _req(
+        app, "POST", "/api/v1/team/strategy/sessions", adam,
+        json={"inputs": [{"type": "idea", "value": "AI tool that drafts marketing emails"}]},
+    )
+    sid = started.json()["id"]
+
+    # Lock the strategy → first content is drafted FROM it (the five-minute hook).
+    handoff = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/handoff", adam,
+        json={"channels": ["LinkedIn", "Email"]},
+    )
+    assert handoff.status_code == 200
+    board = handoff.json()
+    assert board["campaign"]["template"] == "strategy"
+    posts = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert posts, "handoff should create post tasks"
+    assert any(t["output"] for t in posts), "at least one post should be drafted"
+    campaign_id = board["campaign"]["id"]
+
+    # The session records the handoff and the loop is now closed.
+    got = _req(app, "GET", f"/api/v1/team/strategy/sessions/{sid}", adam).json()
+    assert got["status"] == "done"
+    assert got["campaign_id"] == campaign_id
+
+    # Idempotent — a second handoff returns the SAME campaign, not a duplicate.
+    again = _req(app, "POST", f"/api/v1/team/strategy/sessions/{sid}/handoff", adam, json={})
+    assert again.status_code == 200
+    assert again.json()["campaign"]["id"] == campaign_id
+
+
+def test_strategy_handoff_needs_a_draft_first() -> None:
+    app, members = _build()
+    adam = members["Adam (Lead)"]
+    missing = _req(
+        app, "POST", "/api/v1/team/strategy/sessions/does-not-exist/handoff", adam, json={},
+    )
+    assert missing.status_code == 404
+
+
 def test_brand_segments_crud_and_post_tailoring() -> None:
     app, members = _build()
     lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]

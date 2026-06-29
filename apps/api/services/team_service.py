@@ -2430,6 +2430,7 @@ def _strategy_session_dict(row: StrategySession) -> dict:
         "draft": row.draft,
         "turns": row.turns,
         "turn_count": len(row.turns or []),
+        "campaign_id": row.campaign_id,
     }
 
 
@@ -2508,4 +2509,73 @@ def get_strategy_session(session: Session, actor: Member, session_id: str) -> di
     row = session.get(StrategySession, session_id)
     if row is None or row.tenant_id != actor.tenant_id:
         raise HTTPException(status_code=404, detail="Strategy session not found.")
+    return _strategy_session_dict(row)
+
+
+def _strategy_product_name(row: StrategySession) -> str:
+    """A short product name to seed the campaign from — the first thing the user fed."""
+    for item in row.inputs or []:
+        val = str(item.get("value", "")).strip() if isinstance(item, dict) else ""
+        if val:
+            return val[:60]
+    return ""
+
+
+async def handoff_strategy_to_campaign(
+    session: Session,
+    actor: Member,
+    session_id: str,
+    *,
+    audience_index: Optional[int] = None,
+    angle_index: Optional[int] = None,
+    product_name: Optional[str] = None,
+    channels: Optional[list[str]] = None,
+    review_assets: bool = True,
+    client_for_provider=None,
+) -> dict:
+    """Circuit A → B (the 'five-minute hook'): lock the strategy and draft the first content
+    from the human's chosen audience + angle. Idempotent — if this session already produced a
+    campaign, it returns that one instead of making a second."""
+    from core.strategy.handoff import brief_from_strategy
+
+    row = session.get(StrategySession, session_id)
+    if row is None or row.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Strategy session not found.")
+    if row.campaign_id:  # already handed off — don't double-create
+        return _strategy_session_dict(row)
+    if not row.draft:
+        raise HTTPException(status_code=409, detail="No strategy yet — run a turn first.")
+
+    name = (product_name or _strategy_product_name(row)).strip() or "Strategy launch"
+    try:
+        brief = brief_from_strategy(
+            row.draft,
+            product_name=name,
+            audience_index=audience_index,
+            angle_index=angle_index,
+            channels=channels,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    asset_mode = (
+        ExecutionMode.AI_DRAFT_HUMAN_REVIEW if review_assets else ExecutionMode.AI_AUTO
+    )
+    campaign = instantiate_campaign(
+        session,
+        tenant_id=actor.tenant_id,
+        name=name[:120],
+        brief=brief,
+        template="strategy",
+        created_by=actor.id,
+        asset_mode=asset_mode,
+    )  # commits
+    await TaskRunner(session, client_for_provider).run_ready_tasks(campaign.id)
+
+    row.campaign_id = campaign.id
+    row.status = "done"  # locking the strategy is implicit in handing it off
+    row.updated_at = datetime.now(timezone.utc)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
     return _strategy_session_dict(row)

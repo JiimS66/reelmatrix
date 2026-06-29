@@ -574,5 +574,6 @@ class StrategySession(SQLModel, table=True):
     draft: Optional[dict] = Field(default=None, sa_column=Column(JSON))  # current StrategyDraft
     turns: list = Field(default_factory=list, sa_column=Column(JSON))  # [{feedback, draft}]
     status: str = "active"  # active | done
+    campaign_id: Optional[str] = Field(default=None, foreign_key="campaign.id")  # A→B handoff target
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)

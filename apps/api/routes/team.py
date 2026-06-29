@@ -15,6 +15,7 @@ from apps.api.schemas.team import (
     AudienceCandidateRead,
     PositioningAngleRead,
     AdvanceStrategySessionRequest,
+    HandoffStrategyRequest,
     StartStrategySessionRequest,
     StrategyDraftRead,
     StrategyDraftRequest,
@@ -1172,3 +1173,26 @@ def get_strategy_session_route(
     return StrategySessionRead(
         **team_service.get_strategy_session(session, actor, session_id)
     )
+
+
+@router.post("/strategy/sessions/{session_id}/handoff", response_model=BoardRead)
+async def handoff_strategy_session_route(
+    session_id: str,
+    body: HandoffStrategyRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    """Circuit A → B (the five-minute hook): lock the strategy and draft the first content
+    from the chosen audience + angle. Returns the new campaign's board so the marketer sees
+    their first posts right away."""
+    data = await team_service.handoff_strategy_to_campaign(
+        session,
+        actor,
+        session_id,
+        audience_index=body.audience_index,
+        angle_index=body.angle_index,
+        product_name=body.product_name,
+        channels=body.channels,
+        review_assets=body.review_assets,
+    )
+    return _board_response(session, actor, data["campaign_id"])
