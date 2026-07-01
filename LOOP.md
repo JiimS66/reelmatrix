@@ -23,8 +23,30 @@ reconstructed afterwards.
 | --- | --- | --- | --- | --- | --- |
 | _pending_ | | | | | |
 
-_Suite creation is scheduled after the current build ships to the live server, so tests are
-banked against the UX being submitted. Rounds will be logged below as they run._
+_Fix rounds are logged as they happen. The initial 4-test slice below ran green against
+the live deployment; the suite deepens (edge inputs, review flow, brand hub, `/health`
+deploy marker) after the next deploy, per the honesty rule — coverage grows until real
+failures surface._
+
+## Initial suite — first runs (2026-07-01, live target)
+
+| Test ID | Type | Behavior | First terminal verdict |
+| --- | --- | --- | --- |
+| `cddeeaee-7b01-45ab-bbbe-1038ea716adc` | backend | Team roster reads + a strategy session write (turn-1 draft offers audiences & angles) | **passed** (after the suite-setup fix below) |
+| `bfd1970e-5d37-4c6c-8577-71d6bb356d34` | backend | Legacy `POST /api/v1/campaign/generate` returns a full plan | **passed** |
+| `e9256603-ea41-4c86-b6cd-ad7866575c25` | frontend | Strategy advisor drafts a one-page strategy and folds in a feedback round | **passed** |
+| `2e6a5f9d-d537-4d5a-a195-07f3d9797005` | frontend | Locking the strategy drafts first cross-channel content | **passed** (run `835ee1da`, 7/7 steps) |
+
+### Suite-setup note (not counted as a fix round — test-harness config, not a product bug)
+
+The first backend run came back `blocked` with `name 'BASE_URL' is not defined`. Pulling
+the failure bundle (`testsprite test artifact get …`) showed the platform rewrites backend
+code to read an injected `BASE_URL` sourced from the project's default URL — which was
+empty because `project create --type backend` had been called without `--url`. Fix: made
+the test code self-contained (it defines its own target base URL) via
+`testsprite test code put … --expected-version v1`, and set the project default URL with
+`project update`. Rerun → **passed**. Kept here as evidence of the create → run → bundle →
+fix → rerun mechanics; product-bug rounds are logged below as they occur.
 
 ## Rounds
 
