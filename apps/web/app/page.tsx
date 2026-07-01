@@ -105,7 +105,9 @@ function errMessage(error: unknown): string {
 export default function Workspace() {
   const [members, setMembers] = useState<Member[]>([]);
   const [currentId, setCurrentId] = useState("");
-  const [view, setView] = useState<View>("overview");
+  // Demo-first: land on the strategy loop — the golden path starts with "type an idea",
+  // not a dashboard of someone else's tasks.
+  const [view, setView] = useState<View>("strategy");
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
