@@ -1,3 +1,35 @@
+# ReelMatrix — AI Marketing Strategy Copilot + Human-AI Marketing Team OS
+
+> Type one sentence about your product. Co-create a one-page strategy with an AI CMO that
+> **offers options and flags its own guesses** — then lock it and watch an AI marketing
+> team draft your first cross-channel content, on a human↔AI team OS with review gates
+> and brand guardrails underneath.
+
+**Built for TestSprite Hackathon Season 3 (Build the Loop).**
+
+**Live Demo:** http://121.43.99.199:3000 · API: http://121.43.99.199:8000 (health: [`/health`](http://121.43.99.199:8000/health))
+
+### Team
+
+| Name | GitHub | Discord |
+| --- | --- | --- |
+| Pengcheng Lu | [pengchenglu1997](https://github.com/pengchenglu1997) | `davidlu97` |
+| Taixin Zhang | [HarryZ66](https://github.com/HarryZ66) | `harryzhang2595` |
+
+### How the TestSprite CLI loop was used
+
+We use the open-source TestSprite CLI as the checker for the live deployment: banked
+frontend tests drive the real strategy-co-creation flow (idea → advisor draft → feedback
+round → lock → first content) and backend tests hit the team-OS API, then every failure's
+bundle is pulled locally, root-caused, fixed in a dedicated commit citing the test ID,
+redeployed (verified via the commit hash in `/health`), and rerun until green. The full
+create → run → failure-bundle → fix → rerun log, with per-round evidence, lives in
+[LOOP.md](LOOP.md).
+
+---
+
+> 以下为详细中文文档(产品、架构、本地运行、部署)。 Detailed docs below are in Chinese.
+
 # ReelMatrix — AI 营销策略副驾 + 人机协同营销团队 OS
 
 > **一句话**：帮不懂营销的中小团队**把策略想清楚**，并立刻把策略变成**第一批内容**——背后是一个人机协同、会自我迭代的营销团队操作系统。
