@@ -1106,6 +1106,23 @@ export const advanceStrategySession = (
     body,
   });
 
+export interface LlmProviderInfo {
+  provider_id: string;
+  display_name: string;
+  model_name: string;
+  kind: string;
+  configured: boolean;
+  is_default: boolean;
+}
+
+/** The live model catalog — powers the "live on …" badge (and the swappable-model story). */
+export const getLlmProviders = async (): Promise<LlmProviderInfo[]> => {
+  const res = await fetch(`${BASE_URL}/api/v1/llm/providers`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { providers?: LlmProviderInfo[] };
+  return data.providers ?? [];
+};
+
 /** Circuit A → B (the five-minute hook): lock the strategy and draft the first content from
  * it. Returns the new campaign's board so the marketer sees their first posts immediately. */
 export const handoffStrategySession = (

@@ -357,6 +357,25 @@ export function StrategyAdvisorPanel({
 
       {draft && (
         <>
+          {/* The loop, visible: every steer you gave and that the advisor re-thought */}
+          {session && session.turns.length > 1 && (
+            <div className="surface p-4">
+              <p className="tlabel">How we got here</p>
+              <ol className="mt-2 space-y-1.5">
+                {session.turns.map((t, i) => (
+                  <li key={i} className="flex gap-2 text-xs text-ink/70">
+                    <span className="shrink-0 font-mono text-forest">T{i + 1}</span>
+                    <span>
+                      {t.feedback
+                        ? `You said: “${t.feedback}” — I re-thought the draft around it.`
+                        : "First draft from what you gave me + industry priors."}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
           {/* Understanding */}
           <div className={`surface border-l-2 border-forest p-5 ${veil(1)}`}>
             <p className="tlabel">What I heard</p>
@@ -542,21 +561,33 @@ export function StrategyAdvisorPanel({
                   <div className="mt-3 space-y-3">
                     {firstPosts.map((t) => {
                       const o = t.output ?? {};
+                      const audit = t.checks?.audit;
+                      const provenance =
+                        audit === undefined
+                          ? "Drafted by your AI copywriter"
+                          : audit.length === 0
+                            ? "Drafted by your AI copywriter · Auditor ✓ clean"
+                            : `Drafted by your AI copywriter · Auditor: ${audit.length} note${audit.length === 1 ? "" : "s"}`;
                       return (
-                        <PlatformCard
-                          key={t.id}
-                          brand={brandName}
-                          channel={String(o.channel ?? t.title)}
-                          title={o.title ? String(o.title) : ""}
-                          body={String(o.content ?? "")}
-                          cta={o.call_to_action ? String(o.call_to_action) : ""}
-                        />
+                        <div key={t.id}>
+                          <PlatformCard
+                            brand={brandName}
+                            channel={String(o.channel ?? t.title)}
+                            title={o.title ? String(o.title) : ""}
+                            body={String(o.content ?? "")}
+                            cta={o.call_to_action ? String(o.call_to_action) : ""}
+                          />
+                          <p className="mt-1 px-1 font-mono text-[10px] text-ink/40">
+                            {provenance} · waiting on a human — you
+                          </p>
+                        </div>
                       );
                     })}
                   </div>
                   <p className="mt-3 text-xs text-ink/50">
-                    These are drafts to react to — open the workspace to edit, review, or
-                    schedule them.
+                    These are drafts to react to — open the workspace to edit them yourself,
+                    hand one to a teammate for review, or schedule them. The AI team drafts;
+                    your team decides.
                   </p>
                 </div>
               )}

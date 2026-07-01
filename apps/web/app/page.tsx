@@ -41,6 +41,7 @@ import {
   createCampaign,
   draftFromTrend,
   getBoard,
+  getLlmProviders,
   getInbox,
   getReviewQueue,
   getTrends,
@@ -108,6 +109,20 @@ export default function Workspace() {
   // Demo-first: land on the strategy loop — the golden path starts with "type an idea",
   // not a dashboard of someone else's tasks.
   const [view, setView] = useState<View>("strategy");
+  const [liveModel, setLiveModel] = useState<string | null>(null);
+
+  // The "live on …" badge: which model actually powers the copilot right now.
+  useEffect(() => {
+    getLlmProviders()
+      .then((ps) => {
+        const d = ps.find((p) => p.is_default);
+        if (!d) return;
+        setLiveModel(
+          d.provider_id === "mock" ? "mock (offline demo)" : `${d.display_name} · ${d.model_name}`,
+        );
+      })
+      .catch(() => {});
+  }, []);
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -450,6 +465,15 @@ export default function Workspace() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            {liveModel && (
+              <span
+                className="mr-1 rounded-full border border-white/20 px-2.5 py-1 font-mono text-[11px] text-white/70"
+                title="The live LLM behind the copilot — swappable by config (mock / OpenAI / Qwen / local)"
+              >
+                <span className="mr-1.5 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-forest align-middle" />
+                live on {liveModel}
+              </span>
+            )}
             <span className="font-mono text-[11px] text-white/55">acting as</span>
             {humans.map((m) => (
               <button
