@@ -29,7 +29,10 @@ async def request(
 def test_health_endpoint() -> None:
     response = asyncio.run(request("GET", "/health"))
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    # Deploy marker: the deployed commit (or "unknown" outside a stamped release).
+    assert isinstance(body["commit"], str) and body["commit"]
 
 
 def test_cors_preflight_allows_configured_web_origin() -> None:

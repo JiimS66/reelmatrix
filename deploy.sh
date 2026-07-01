@@ -3,8 +3,16 @@
 set -e
 cd "$(dirname "$0")"
 
-echo "→ Pulling latest code…"
-git pull
+if [ -d .git ]; then
+  echo "→ Pulling latest code…"
+  git pull
+  git rev-parse --short HEAD > VERSION
+else
+  # Tar-archive deploy (no .git): code updates arrive by re-uploading the archive,
+  # which carries a stamped VERSION file already.
+  echo "→ No git checkout — skipping pull (tar deploy)."
+  [ -f VERSION ] || echo unknown > VERSION
+fi
 
 echo "→ Building + restarting (the first run takes a few minutes)…"
 docker compose up -d --build

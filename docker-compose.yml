@@ -12,6 +12,7 @@ services:
       APP_ENV: production
     volumes:
       - ./data:/app/data          # SQLite lives here so it survives rebuilds
+      - ./VERSION:/app/VERSION:ro # deploy marker (commit sha) surfaced at /health
     ports:
       - "8000:8000"
     restart: unless-stopped
