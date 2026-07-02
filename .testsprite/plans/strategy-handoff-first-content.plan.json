@@ -1,0 +1,57 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Strategy handoff drafts first content",
+  "description": "Verify that a marketer can start the strategy co-creation loop, refine the draft, lock the strategy, and see first content drafted from it.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Strategy view is visible with the heading \"Let's think your strategy through\"."
+    },
+    {
+      "type": "action",
+      "description": "In the idea textarea, enter: \"I built an AI tool that verifies AI-generated code before teams ship it.\""
+    },
+    {
+      "type": "action",
+      "description": "Click the \"Think it through\" button and wait for the strategy draft to finish loading."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the generated draft shows \"What I heard\", \"Who it's really for\", \"Angles to stand out\", \"Content pillars\", and \"How we'll know it's working\" sections."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that at least one audience candidate and at least one positioning angle are visible."
+    },
+    {
+      "type": "action",
+      "description": "Enter feedback: \"Focus on engineering managers who need confidence before merging AI-authored pull requests.\""
+    },
+    {
+      "type": "action",
+      "description": "Click \"Refine with this\" and wait for the refined strategy draft."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page shows the \"How we got here\" loop history and includes the submitted feedback."
+    },
+    {
+      "type": "action",
+      "description": "Click \"Lock it → draft my first content\" and wait for the AI team handoff to complete."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page confirms the strategy was locked."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that a \"First content\" section appears with at least one drafted content item."
+    }
+  ]
+}
