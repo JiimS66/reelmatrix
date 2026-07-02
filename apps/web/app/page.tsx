@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { StrategyAdvisorPanel } from "@/components/workspace/StrategyAdvisorPanel";
@@ -64,6 +64,7 @@ import {
   type Atom,
   type Board,
   type BrandTermItem,
+  type Campaign,
   type FleetAgent,
   type Member,
   type OrgData,
@@ -75,28 +76,35 @@ import {
   type TrendAngle,
 } from "@/lib/teamApi";
 
-type View =
-  | "overview"
-  | "strategy"
-  | "plan"
-  | "create"
-  | "review"
-  | "results"
-  | "brand"
-  | "team";
+// Object-centric navigation (OA/ERP style): the nav lists BUSINESS OBJECTS — my desk,
+// projects, the brand, the team. Workflow stages live INSIDE a campaign (kanban columns),
+// where they explain themselves; people and decisions float up to Home.
+type View = "home" | "campaigns" | "brand" | "team";
 
-// Navigation follows the marketing workflow: plan → create → review → publish/measure,
-// with brand (the truth backbone) and team alongside.
 const VIEW_LABEL: Record<View, string> = {
-  overview: "Overview",
-  strategy: "Strategy",
-  plan: "Plan",
-  create: "Create",
-  review: "Review",
-  results: "Results",
+  home: "Home",
+  campaigns: "Campaigns",
   brand: "Brand",
   team: "Team",
 };
+
+type CampTab = "board" | "calendar" | "results";
+
+// The campaign pipeline as kanban columns — a task lives in exactly one.
+const KANBAN_COLS = [
+  { key: "plan", label: "Plan", hint: "ideation & planning" },
+  { key: "draft", label: "Draft", hint: "the AI team is writing" },
+  { key: "review", label: "In review", hint: "waiting on a human" },
+  { key: "done", label: "Approved", hint: "ready to publish" },
+] as const;
+type ColKey = (typeof KANBAN_COLS)[number]["key"];
+
+function kanbanColOf(t: Task): ColKey {
+  if (t.status === "needs_review") return "review";
+  if (t.kind === "ideation" || t.kind === "planning") return "plan";
+  if (t.status === "done") return "done";
+  return "draft";
+}
 
 function errMessage(error: unknown): string {
   if (error instanceof TeamApiError) return error.message;
@@ -106,9 +114,7 @@ function errMessage(error: unknown): string {
 export default function Workspace() {
   const [members, setMembers] = useState<Member[]>([]);
   const [currentId, setCurrentId] = useState("");
-  // Demo-first: land on the strategy loop — the golden path starts with "type an idea",
-  // not a dashboard of someone else's tasks.
-  const [view, setView] = useState<View>("strategy");
+  const [view, setView] = useState<View>("home");
   const [liveModel, setLiveModel] = useState<string | null>(null);
 
   // The "live on …" badge: which model actually powers the copilot right now.
@@ -123,6 +129,10 @@ export default function Workspace() {
       })
       .catch(() => {});
   }, []);
+  const [campaignList, setCampaignList] = useState<Campaign[]>([]);
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
+  const [campTab, setCampTab] = useState<CampTab>("board");
+  const [wizard, setWizard] = useState(false); // the strategy co-creation wizard (circuit A)
   const [board, setBoard] = useState<Board | null>(null);
   const [inbox, setInbox] = useState<Task[]>([]);
   const [atoms, setAtoms] = useState<Atom[]>([]);
@@ -142,6 +152,8 @@ export default function Workspace() {
   const current = members.find((m) => m.id === currentId) ?? null;
   const isLead = current?.role === "lead";
   const humans = members.filter((m) => m.kind === "human");
+  // Cold start: a tenant with no campaigns opens straight into "think it through".
+  const showWizard = wizard || campaignList.length === 0;
 
   useEffect(() => {
     listMembers()
@@ -171,7 +183,7 @@ export default function Workspace() {
     }
   }, [selectedId, currentId]);
 
-  // The cross-campaign review queue feeds both the tenant-wide badge and the Review tab.
+  // The cross-campaign review queue feeds the lead's Home desk + the sidebar count.
   const refreshQueue = useCallback(async () => {
     if (!currentId) return;
     try {
@@ -186,19 +198,31 @@ export default function Workspace() {
     else setDetail(null);
   }, [selectedId, refreshDetail]);
 
-  // On member change: load my inbox + the latest campaign so Home is populated.
+  // On member change: my inbox + the campaign roster; open the latest campaign's board.
   useEffect(() => {
     if (!currentId) return;
     getInbox(currentId).then(setInbox).catch((e) => setError(errMessage(e)));
     refreshQueue();
     listCampaigns(currentId)
-      .then((cs) => (cs.length > 0 ? getBoard(currentId, cs[0].id) : null))
-      .then((b) => {
-        if (b) setBoard(b);
+      .then((cs) => {
+        setCampaignList(cs);
+        if (cs.length > 0) setActiveCampaignId((prev) => prev ?? cs[0].id);
       })
       .catch((e) => setError(errMessage(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
+
+  // The board follows the active campaign.
+  useEffect(() => {
+    if (!currentId || !activeCampaignId) {
+      setBoard(null);
+      return;
+    }
+    getBoard(currentId, activeCampaignId)
+      .then(setBoard)
+      .catch((e) => setError(errMessage(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentId, activeCampaignId]);
 
   useEffect(() => {
     if (!currentId) return;
@@ -210,21 +234,21 @@ export default function Workspace() {
       getOrg(currentId).then(setOrg).catch((e) => setError(errMessage(e)));
       getFleet(currentId).then(setFleet).catch((e) => setError(errMessage(e)));
     }
-    if (view === "results" && board) {
+    if (view === "campaigns" && campTab === "results" && board) {
       getPerformance(currentId, board.campaign.id)
         .then(setPerformance)
         .catch((e) => setError(errMessage(e)));
     }
-    if (view === "plan" && board) {
+    if (view === "campaigns" && campTab === "calendar" && board) {
       getTrends(currentId, board.campaign.id)
         .then(setTrends)
         .catch((e) => setError(errMessage(e)));
     }
-    refreshQueue(); // keep the sidebar "Needs you" count live across all views
+    refreshQueue(); // keep the "Needs you" count live across views
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, currentId, board?.campaign.id]);
+  }, [view, campTab, currentId, board?.campaign.id]);
 
-  // The schedule powers both Home (status strip + calendar) and the Calendar tab.
+  // The schedule powers the member desk strip + the campaign Calendar tab.
   useEffect(() => {
     if (!currentId || !board) {
       setSchedule(null);
@@ -236,16 +260,10 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId, board?.campaign.id]);
 
-  function stageOf(task: Task | undefined): View {
-    if (!task) return "create";
-    if (task.status === "needs_review" || task.kind === "claim_check") return "review";
-    if (task.kind === "ideation" || task.kind === "planning") return "plan";
-    return "create";
-  }
-
   function openTaskOnBoard(id: string) {
     setSelectedId(id);
-    setView(stageOf((board?.tasks ?? []).find((t) => t.id === id)));
+    setView("campaigns");
+    setCampTab("board");
   }
 
   async function onChanged() {
@@ -312,7 +330,10 @@ export default function Workspace() {
       });
       const ran = await runCampaign(currentId, created.campaign.id);
       setBoard(ran);
-      setView("overview");
+      setActiveCampaignId(ran.campaign.id);
+      setCampaignList(await listCampaigns(currentId));
+      setView("campaigns");
+      setCampTab("board");
       setSelectedId(null);
     } catch (e) {
       setError(errMessage(e));
@@ -338,23 +359,13 @@ export default function Workspace() {
     setCurrentId(id);
     setSelectedId(null);
     setEmployeeId(null);
-    setView("overview");
+    setWizard(false);
+    setView("home");
   }
 
   const boardTasks = board?.tasks ?? [];
-  // Tasks routed to their workflow stage (a task lives in exactly one). Review is
-  // tenant-wide (the reviewQueue), so it isn't filtered from the current board here.
-  const planTasks = boardTasks.filter(
-    (t) =>
-      t.status !== "needs_review" &&
-      (t.kind === "ideation" || t.kind === "planning"),
-  );
-  const createTasks = boardTasks.filter(
-    (t) =>
-      t.status !== "needs_review" && (t.kind === "asset" || t.kind === "visual"),
-  );
 
-  // Shared master-detail: a filtered task list (left) + the task detail (right).
+  // Shared master-detail: a task list (left) + the task detail (right).
   const detailColumn = (
     <div className="lg:sticky lg:top-6">
       {detail ? (
@@ -375,35 +386,8 @@ export default function Workspace() {
     </div>
   );
 
-  function taskPane(tasks: Task[], header: ReactNode, empty: string) {
-    return (
-      <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="space-y-4">
-          {header}
-          {tasks.length > 0 ? (
-            <ul className="space-y-2.5">
-              {tasks.map((task) => (
-                <li key={task.id}>
-                  <TaskRow
-                    task={task}
-                    members={board?.members ?? members}
-                    selected={task.id === selectedId}
-                    onClick={() => setSelectedId(task.id)}
-                  />
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="surface p-6 text-sm text-ink/60">{empty}</p>
-          )}
-        </div>
-        {detailColumn}
-      </div>
-    );
-  }
-
-  // The cross-campaign review queue: every campaign's awaiting-review work in one place,
-  // grouped under its campaign so a decision anywhere empties that row.
+  // The lead's desk: every campaign's awaiting-review work in one place, grouped under
+  // its campaign so a decision anywhere empties that row.
   function reviewPane(items: TodoItem[]) {
     const groups: { name: string; tasks: Task[] }[] = [];
     for (const it of items) {
@@ -418,7 +402,7 @@ export default function Workspace() {
       <div className="grid items-start gap-6 lg:grid-cols-[1.05fr_0.95fr]">
         <div className="space-y-4">
           <p className="tlabel">
-            Review &amp; fact-check — every campaign&apos;s approvals + the truth rail
+            Needs you — approvals &amp; fact-checks across every campaign
           </p>
           {groups.length > 0 ? (
             <div className="space-y-5">
@@ -444,7 +428,7 @@ export default function Workspace() {
             </div>
           ) : (
             <p className="surface p-6 text-sm text-ink/60">
-              Nothing needs review across your campaigns — you&apos;re all caught up.
+              Nothing needs you across your campaigns — all caught up.
             </p>
           )}
         </div>
@@ -452,6 +436,300 @@ export default function Workspace() {
       </div>
     );
   }
+
+  // ---- Home: the role-aware desk. Lead = decisions; member = my tasks. ----
+  const homePane = showWizard ? (
+    <div className="space-y-4">
+      {campaignList.length > 0 && (
+        <button className="btn-line px-3 py-1.5 text-xs" onClick={() => setWizard(false)}>
+          ← Back to my desk
+        </button>
+      )}
+      <StrategyAdvisorPanel
+        memberId={currentId}
+        onOpenContent={(b) => {
+          setBoard(b);
+          setActiveCampaignId(b.campaign.id);
+          setSelectedId(null);
+          setWizard(false);
+          setCampTab("board");
+          setView("campaigns");
+          listCampaigns(currentId).then(setCampaignList).catch(() => {});
+        }}
+      />
+    </div>
+  ) : (
+    <div className="space-y-5">
+      <div className="surface flex flex-wrap items-center justify-between gap-3 p-5">
+        <div>
+          <p className="tlabel">Start something</p>
+          <p className="mt-1 max-w-lg text-sm text-ink/65">
+            Have an idea? Think the strategy through with the copilot — it ends with your
+            first drafts, not a form.
+          </p>
+        </div>
+        <button className="btn-dark" onClick={() => setWizard(true)}>
+          ✨ New campaign from an idea
+        </button>
+      </div>
+      {isLead ? (
+        <>
+          <AgentInbox memberId={currentId} canManage={!!isLead} />
+          {reviewPane(reviewQueue)}
+        </>
+      ) : (
+        <HomeView
+          role="member"
+          board={board}
+          schedule={schedule}
+          inbox={inbox}
+          members={board?.members ?? members}
+          currentMemberId={currentId}
+          selectedId={selectedId}
+          detail={detail}
+          busy={busy}
+          onSelect={setSelectedId}
+          onApprove={approve}
+          onBulkApprove={bulkApprove}
+          onStart={createAndRun}
+          onChanged={onChanged}
+          onError={(m) => setError(m)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
+    </div>
+  );
+
+  // ---- Campaigns: the project list, and inside a project the pipeline kanban. ----
+  const activeCampaign = campaignList.find((c) => c.id === activeCampaignId) ?? null;
+  const campaignsPane =
+    !activeCampaign || !board ? (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="tlabel">Campaigns — every project in one place</p>
+          <div className="flex gap-2">
+            <button
+              className="btn-line text-xs"
+              onClick={() => {
+                setView("home");
+                setWizard(true);
+              }}
+            >
+              ✨ New from an idea
+            </button>
+            {isLead && (
+              <button className="btn-dark text-xs" disabled={busy} onClick={createAndRun}>
+                {busy ? "Drafting…" : "New TestSprite campaign"}
+              </button>
+            )}
+          </div>
+        </div>
+        {campaignList.length > 0 ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {campaignList.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => {
+                  setActiveCampaignId(c.id);
+                  setSelectedId(null);
+                  setCampTab("board");
+                }}
+                className="surface p-4 text-left transition hover:border-forest/40"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="tlabel">{c.template}</span>
+                  <span className="font-mono text-[11px] text-ink/45">{c.status}</span>
+                </div>
+                <p className="mt-1.5 font-semibold leading-snug text-ink">{c.name}</p>
+                {c.event_date && (
+                  <p className="mt-1 text-xs text-ink/50">Event: {c.event_date}</p>
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="surface p-6 text-sm text-ink/60">
+            No campaigns yet — start one from an idea and the AI team drafts the rest.
+          </p>
+        )}
+      </div>
+    ) : (
+      <div className="space-y-5">
+        {/* Campaign header: back · name · score · run · tabs */}
+        <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="flex items-center gap-3">
+            <button
+              className="btn-line px-2.5 py-1 text-xs"
+              onClick={() => {
+                setActiveCampaignId(null);
+                setSelectedId(null);
+              }}
+              title="All campaigns"
+            >
+              ←
+            </button>
+            <div>
+              <p className="tlabel">Campaign</p>
+              <h2 className="mt-0.5 font-semibold text-ink">{board.campaign.name}</h2>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            {averageScore(board.tasks) !== null && (
+              <div className="text-right">
+                <p className="tlabel">Avg score</p>
+                <p
+                  className={`font-mono text-lg font-semibold ${
+                    (averageScore(board.tasks) ?? 0) >= 85
+                      ? "text-forest"
+                      : (averageScore(board.tasks) ?? 0) >= 60
+                        ? "text-amber-700"
+                        : "text-red-600"
+                  }`}
+                >
+                  {averageScore(board.tasks)}
+                </p>
+              </div>
+            )}
+            {isLead && (
+              <button className="btn-line" disabled={busy} onClick={runAgain}>
+                {busy ? "Running…" : "Run AI ↻"}
+              </button>
+            )}
+            <div className="flex rounded-lg border border-ink/15 p-0.5">
+              {(["board", "calendar", "results"] as CampTab[]).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setCampTab(t)}
+                  className={`rounded-md px-3 py-1 text-xs transition ${
+                    campTab === t ? "bg-ink text-white" : "text-ink/60 hover:text-ink"
+                  }`}
+                >
+                  {t === "board" ? "Board" : t === "calendar" ? "Calendar" : "Results"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {campTab === "board" ? (
+          <div className="space-y-5">
+            {/* The pipeline, as columns — each card carries who owns it (human or AI). */}
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {KANBAN_COLS.map((col) => {
+                const items = boardTasks.filter((t) => kanbanColOf(t) === col.key);
+                return (
+                  <div key={col.key} className="rounded-xl bg-ink/[0.04] p-2.5">
+                    <p className="tlabel px-1">
+                      {col.label} <span className="text-ink/35">· {items.length}</span>
+                    </p>
+                    <p className="px-1 text-[11px] text-ink/40">{col.hint}</p>
+                    <ul className="mt-2 space-y-2">
+                      {items.map((t) => (
+                        <li key={t.id}>
+                          <KanbanCard
+                            task={t}
+                            members={board.members}
+                            selected={t.id === selectedId}
+                            onClick={() => setSelectedId(t.id)}
+                          />
+                        </li>
+                      ))}
+                    </ul>
+                    {items.length === 0 && (
+                      <p className="px-1 py-3 text-xs text-ink/35">—</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {selectedId && detailColumn}
+          </div>
+        ) : campTab === "calendar" ? (
+          schedule ? (
+            <div className="space-y-5">
+              <MonthCalendar schedule={schedule} onSelectTask={openTaskOnBoard} />
+              <CalendarView
+                schedule={schedule}
+                members={board.members}
+                onSelectTask={openTaskOnBoard}
+                canRefresh={!!isLead}
+                angles={trends}
+                onRefreshTrends={async () => {
+                  if (!currentId) return;
+                  try {
+                    await refreshTrends(currentId, board.campaign.id);
+                    setSchedule(await getSchedule(currentId, board.campaign.id));
+                    setTrends(await getTrends(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
+                onDraftAngle={async (angle, channel) => {
+                  if (!currentId) return;
+                  try {
+                    setBoard(
+                      await draftFromTrend(currentId, board.campaign.id, { angle, channel }),
+                    );
+                    setSchedule(await getSchedule(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
+              />
+              <ContentPreview tasks={schedule.tasks} />
+            </div>
+          ) : (
+            <p className="surface p-6 text-sm text-ink/60">Loading schedule…</p>
+          )
+        ) : (
+          <div className="space-y-5">
+            {performance ? (
+              <PerformanceView
+                data={performance}
+                canSync={!!isLead}
+                onSync={async () => {
+                  if (!currentId) return;
+                  try {
+                    setPerformance(await syncAnalytics(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
+                onPublish={async () => {
+                  if (!currentId) return;
+                  try {
+                    setPerformance(await publishCampaign(currentId, board.campaign.id));
+                  } catch (e) {
+                    setError(errMessage(e));
+                  }
+                }}
+              />
+            ) : (
+              <p className="surface p-6 text-sm text-ink/60">Loading results…</p>
+            )}
+            <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />
+            <ExperimentsPanel
+              memberId={currentId}
+              campaignId={board.campaign.id}
+              canManage={!!isLead}
+            />
+            <PillarFunnelPanel
+              memberId={currentId}
+              campaignId={board.campaign.id}
+              canManage={!!isLead}
+              onChanged={onChanged}
+            />
+            <IncrementalityPanel memberId={currentId} canManage={!!isLead} />
+            <BudgetOptimizerPanel memberId={currentId} canManage={!!isLead} />
+            <OutboundPanel
+              memberId={currentId}
+              campaignId={board.campaign.id}
+              canManage={!!isLead}
+            />
+          </div>
+        )}
+      </div>
+    );
 
   return (
     <div className="min-h-screen gridbg">
@@ -499,12 +777,13 @@ export default function Workspace() {
           </h1>
         </header>
 
-        <div className="flex gap-6">
-          <aside className="w-44 shrink-0">
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6">
+          <aside className="w-full shrink-0 lg:w-44">
             {!!isLead && reviewQueue.length > 0 && (
               <button
                 onClick={() => {
-                  setView("review");
+                  setView("home");
+                  setWizard(false);
                   setSelectedId(null);
                 }}
                 className="mb-3 w-full rounded-lg border border-forest/25 bg-forest/10 px-3 py-2 text-left transition hover:bg-forest/15"
@@ -515,333 +794,205 @@ export default function Workspace() {
                 </p>
               </button>
             )}
-            {/* Sidebar — the marketing workflow */}
-            <nav className="flex flex-col gap-1">
-          {(
-            ["overview", "strategy", "plan", "create", "review", "results", "brand", "team"] as View[]
-          ).map((v) => (
-            <button
-              key={v}
-              onClick={() => {
-                setView(v);
-                setSelectedId(null);
-                setEmployeeId(null);
-              }}
-              className={`flex w-full items-center gap-1.5 rounded-lg px-3 py-2 text-left text-[13px] transition ${
-                view === v
-                  ? "bg-ink text-white"
-                  : "text-ink/70 hover:bg-ink/5 hover:text-ink"
-              }`}
-            >
-              {VIEW_LABEL[v]}
-              {v === "review" && reviewQueue.length > 0 && (
-                <span
-                  className={`rounded-full px-1.5 text-[10px] ${
-                    view === v ? "bg-white/20 text-white" : "bg-forest text-white"
+            {/* Sidebar — business objects, not workflow stages */}
+            <nav className="flex flex-row flex-wrap gap-1 lg:flex-col">
+              {(["home", "campaigns", "brand", "team"] as View[]).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => {
+                    setView(v);
+                    setWizard(false);
+                    setSelectedId(null);
+                    setEmployeeId(null);
+                  }}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-2 text-left text-[13px] transition lg:w-full ${
+                    view === v
+                      ? "bg-ink text-white"
+                      : "text-ink/70 hover:bg-ink/5 hover:text-ink"
                   }`}
                 >
-                  {reviewQueue.length}
-                </span>
-              )}
-            </button>
-          ))}
+                  {VIEW_LABEL[v]}
+                  {v === "home" && !!isLead && reviewQueue.length > 0 && (
+                    <span
+                      className={`rounded-full px-1.5 text-[10px] ${
+                        view === v ? "bg-white/20 text-white" : "bg-forest text-white"
+                      }`}
+                    >
+                      {reviewQueue.length}
+                    </span>
+                  )}
+                  {v === "campaigns" && campaignList.length > 0 && (
+                    <span
+                      className={`rounded-full px-1.5 text-[10px] ${
+                        view === v ? "bg-white/20 text-white" : "bg-ink/10 text-ink/60"
+                      }`}
+                    >
+                      {campaignList.length}
+                    </span>
+                  )}
+                </button>
+              ))}
             </nav>
           </aside>
 
           <div className="min-w-0 flex-1">
-        {error && (
-          <div
-            role="alert"
-            className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
-          >
-            {error}
-          </div>
-        )}
+            {error && (
+              <div
+                role="alert"
+                className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            )}
 
-        {view === "team" ? (
-          employeeId ? (
-            <EmployeePage
-              memberId={employeeId}
-              currentMemberId={currentId}
-              isLead={!!isLead}
-              onBack={() => setEmployeeId(null)}
-              onOpenTask={(id) => {
-                setEmployeeId(null);
-                openTaskOnBoard(id);
-              }}
-              onError={(m) => setError(m)}
-            />
-          ) : org ? (
-            <div className="space-y-5">
-            <ReliabilityCard memberId={currentId} />
-            <EvalPanel memberId={currentId} canManage={!!isLead} />
-            <DeploymentCard memberId={currentId} />
-            <TeamView
-              org={org}
-              fleet={fleet}
-              currentMemberId={currentId}
-              isLead={!!isLead}
-              onOpen={setEmployeeId}
-              onChanged={async () => {
-                try {
-                  setOrg(await getOrg(currentId));
-                  setFleet(await getFleet(currentId));
-                } catch (e) {
-                  setError(errMessage(e));
-                }
-              }}
-              onError={(m) => setError(m)}
-            />
-            </div>
-          ) : (
-            <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
-          )
-        ) : view === "brand" ? (
-          <div className="space-y-5">
-            <OnboardingPanel
-              memberId={currentId}
-              canManage={!!isLead}
-              onChanged={onChanged}
-            />
-            <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
-            <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
-            <BrandHub
-            terms={terms}
-            atoms={atoms}
-            currentMemberId={currentId}
-            isLead={!!isLead}
-            onChanged={async () => {
-              try {
-                setTerms(await listTerms(currentId));
-              } catch (e) {
-                setError(errMessage(e));
-              }
-            }}
-            onError={(m) => setError(m)}
-          />
-          </div>
-        ) : view === "results" ? (
-          <div className="space-y-5">
-            <GrowthInsightsCard memberId={currentId} canLearn={!!isLead} />
-            <IncrementalityPanel memberId={currentId} canManage={!!isLead} />
-            <BudgetOptimizerPanel memberId={currentId} canManage={!!isLead} />
-            {board && (
-              <ExperimentsPanel
-                memberId={currentId}
-                campaignId={board.campaign.id}
-                canManage={!!isLead}
-              />
+            {view === "team" ? (
+              employeeId ? (
+                <EmployeePage
+                  memberId={employeeId}
+                  currentMemberId={currentId}
+                  isLead={!!isLead}
+                  onBack={() => setEmployeeId(null)}
+                  onOpenTask={(id) => {
+                    setEmployeeId(null);
+                    openTaskOnBoard(id);
+                  }}
+                  onError={(m) => setError(m)}
+                />
+              ) : org ? (
+                <div className="space-y-5">
+                  <TeamView
+                    org={org}
+                    fleet={fleet}
+                    currentMemberId={currentId}
+                    isLead={!!isLead}
+                    onOpen={setEmployeeId}
+                    onChanged={async () => {
+                      try {
+                        setOrg(await getOrg(currentId));
+                        setFleet(await getFleet(currentId));
+                      } catch (e) {
+                        setError(errMessage(e));
+                      }
+                    }}
+                    onError={(m) => setError(m)}
+                  />
+                  <ReliabilityCard memberId={currentId} />
+                  <EvalPanel memberId={currentId} canManage={!!isLead} />
+                  <DeploymentCard memberId={currentId} />
+                </div>
+              ) : (
+                <p className="surface p-6 text-sm text-ink/60">Loading team…</p>
+              )
+            ) : view === "brand" ? (
+              <div className="space-y-5">
+                <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
+                <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
+                <OnboardingPanel
+                  memberId={currentId}
+                  canManage={!!isLead}
+                  onChanged={onChanged}
+                />
+                <BrandHub
+                  terms={terms}
+                  atoms={atoms}
+                  currentMemberId={currentId}
+                  isLead={!!isLead}
+                  onChanged={async () => {
+                    try {
+                      setTerms(await listTerms(currentId));
+                    } catch (e) {
+                      setError(errMessage(e));
+                    }
+                  }}
+                  onError={(m) => setError(m)}
+                />
+              </div>
+            ) : view === "campaigns" ? (
+              campaignsPane
+            ) : (
+              homePane
             )}
-            {performance ? (
-            <PerformanceView
-              data={performance}
-              canSync={!!isLead}
-              onSync={async () => {
-                if (!board || !currentId) return;
-                try {
-                  setPerformance(await syncAnalytics(currentId, board.campaign.id));
-                } catch (e) {
-                  setError(errMessage(e));
-                }
-              }}
-              onPublish={async () => {
-                if (!board || !currentId) return;
-                try {
-                  setPerformance(await publishCampaign(currentId, board.campaign.id));
-                } catch (e) {
-                  setError(errMessage(e));
-                }
-              }}
-            />
-          ) : (
-            <p className="surface p-6 text-sm text-ink/60">
-              {board ? "Loading results…" : "Create a campaign to see results."}
-            </p>
-          )}
-          </div>
-        ) : view === "plan" ? (
-          schedule ? (
-            <div className="space-y-5">
-              <MonthCalendar schedule={schedule} onSelectTask={openTaskOnBoard} />
-              <CalendarView
-                schedule={schedule}
-                members={board?.members ?? members}
-                onSelectTask={openTaskOnBoard}
-                canRefresh={!!isLead}
-                angles={trends}
-                onRefreshTrends={async () => {
-                  if (!board || !currentId) return;
-                  try {
-                    await refreshTrends(currentId, board.campaign.id);
-                    setSchedule(await getSchedule(currentId, board.campaign.id));
-                    setTrends(await getTrends(currentId, board.campaign.id));
-                  } catch (e) {
-                    setError(errMessage(e));
-                  }
-                }}
-                onDraftAngle={async (angle, channel) => {
-                  if (!board || !currentId) return;
-                  try {
-                    setBoard(await draftFromTrend(currentId, board.campaign.id, { angle, channel }));
-                    setSchedule(await getSchedule(currentId, board.campaign.id));
-                  } catch (e) {
-                    setError(errMessage(e));
-                  }
-                }}
-              />
-              {(planTasks.length > 0 || selectedId) &&
-                taskPane(
-                  planTasks,
-                  <p className="tlabel">Strategy — ideation & planning</p>,
-                  "No strategy tasks.",
-                )}
-            </div>
-          ) : (
-            <p className="surface p-6 text-sm text-ink/60">
-              {board
-                ? "Loading schedule…"
-                : "Create a campaign with an event date to see the plan."}
-            </p>
-          )
-        ) : view === "create" ? (
-          <div className="space-y-5">
-            {taskPane(
-              createTasks,
-              <BoardHeader
-                board={board}
-                isLead={!!isLead}
-                busy={busy}
-                onCreate={createAndRun}
-                onRun={runAgain}
-              />,
-              board ? "No content tasks yet — run the AI team." : "",
-            )}
-            {schedule && <ContentPreview tasks={schedule.tasks} />}
-            {board && (
-              <PillarFunnelPanel
-                memberId={currentId}
-                campaignId={board.campaign.id}
-                canManage={!!isLead}
-                onChanged={onChanged}
-              />
-            )}
-            {board && (
-              <OutboundPanel
-                memberId={currentId}
-                campaignId={board.campaign.id}
-                canManage={!!isLead}
-              />
-            )}
-          </div>
-        ) : view === "review" ? (
-          reviewPane(reviewQueue)
-        ) : view === "strategy" ? (
-          <StrategyAdvisorPanel
-            memberId={currentId}
-            onOpenContent={(b) => {
-              setBoard(b);
-              setSelectedId(null);
-              setView("create");
-            }}
-          />
-        ) : (
-          <div className="space-y-5">
-          <AgentInbox memberId={currentId} canManage={!!isLead} />
-          <HomeView
-            role={isLead ? "lead" : "member"}
-            board={board}
-            schedule={schedule}
-            inbox={inbox}
-            members={board?.members ?? members}
-            currentMemberId={currentId}
-            selectedId={selectedId}
-            detail={detail}
-            busy={busy}
-            onSelect={setSelectedId}
-            onApprove={approve}
-            onBulkApprove={bulkApprove}
-            onStart={createAndRun}
-            onChanged={onChanged}
-            onError={(m) => setError(m)}
-            onClose={() => setSelectedId(null)}
-          />
-          </div>
-        )}
           </div>
         </div>
       </main>
       <CommandPalette
-        commands={(
-          ["overview", "strategy", "plan", "create", "review", "results", "brand", "team"] as View[]
-        ).map((v) => ({
-          id: v,
-          group: "Go to",
-          label: v.charAt(0).toUpperCase() + v.slice(1),
-          run: () => setView(v),
-        }))}
+        commands={[
+          ...(["home", "campaigns", "brand", "team"] as View[]).map((v) => ({
+            id: v,
+            group: "Go to",
+            label: VIEW_LABEL[v],
+            run: () => {
+              setView(v);
+              setWizard(false);
+            },
+          })),
+          {
+            id: "new-idea",
+            group: "Create",
+            label: "New campaign from an idea",
+            run: () => {
+              setView("home");
+              setWizard(true);
+            },
+          },
+        ]}
       />
     </div>
   );
 }
 
-function BoardHeader({
-  board,
-  isLead,
-  busy,
-  onCreate,
-  onRun,
+// A compact pipeline card: what it is, who owns it (human or AI), how it scores.
+function KanbanCard({
+  task,
+  members,
+  selected,
+  onClick,
 }: {
-  board: Board | null;
-  isLead: boolean;
-  busy: boolean;
-  onCreate: () => void;
-  onRun: () => void;
+  task: Task;
+  members: Member[];
+  selected: boolean;
+  onClick: () => void;
 }) {
-  if (!board) {
-    return (
-      <div className="surface p-6">
-        <p className="tlabel">Start</p>
-        <h2 className="mt-1 text-lg font-semibold text-ink">Spin up a campaign</h2>
-        <p className="mt-1 max-w-md text-sm text-ink/60">
-          {isLead
-            ? "Create the TestSprite launch and let the AI team draft the whole package."
-            : "Only the lead can create a campaign. Switch to the lead to start one."}
-        </p>
-        {isLead && (
-          <button className="btn-dark mt-4" disabled={busy} onClick={onCreate}>
-            {busy ? "Drafting…" : "New TestSprite campaign →"}
-          </button>
-        )}
-      </div>
-    );
-  }
-  const avg = averageScore(board.tasks);
+  const assignee = members.find((m) => m.id === task.assignee_id) ?? null;
+  const firstName = assignee?.display_name.split(" ")[0] ?? "";
   return (
-    <div className="surface flex flex-wrap items-center justify-between gap-3 p-4">
-      <div>
-        <p className="tlabel">Campaign</p>
-        <h2 className="mt-0.5 font-semibold text-ink">{board.campaign.name}</h2>
+    <button
+      onClick={onClick}
+      className={`w-full rounded-xl border border-l-4 border-ink/10 bg-white p-3 text-left transition ${statusAccent(
+        task.status,
+      )} ${selected ? "ring-2 ring-forest/30" : "hover:border-ink/25"}`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="tlabel">{KIND_LABEL[task.kind] ?? task.kind}</span>
+        <StatusBadge status={task.status} />
       </div>
-      <div className="flex items-center gap-3">
-        {avg !== null && (
-          <div className="text-right">
-            <p className="tlabel">Avg score</p>
-            <p
-              className={`font-mono text-lg font-semibold ${
-                avg >= 85 ? "text-forest" : avg >= 60 ? "text-amber-700" : "text-red-600"
+      <p className="mt-1 text-sm font-medium leading-snug text-ink">{task.title}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {assignee && (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+              assignee.kind === "ai" ? "bg-ink/10 text-ink/60" : "bg-forest/15 text-forest"
+            }`}
+            title={`${assignee.display_name} (${assignee.kind === "ai" ? "AI employee" : "human"})`}
+          >
+            <span
+              className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ${
+                assignee.kind === "ai" ? "bg-ink/70" : "bg-forest"
               }`}
             >
-              {avg}
-            </p>
-          </div>
+              {assignee.kind === "ai" ? "⚙" : firstName.charAt(0)}
+            </span>
+            {firstName}
+          </span>
         )}
-        {isLead && (
-          <button className="btn-line" disabled={busy} onClick={onRun}>
-            {busy ? "Running…" : "Run AI ↻"}
-          </button>
-        )}
+        <ScoreBadge score={task.score} />
       </div>
-    </div>
+      {task.status === "needs_review" && assignee && (
+        <p className="mt-1.5 font-mono text-[10px] text-amber-700">
+          waiting on {firstName}
+        </p>
+      )}
+    </button>
   );
 }
 
@@ -886,4 +1037,3 @@ function TaskRow({
     </button>
   );
 }
-

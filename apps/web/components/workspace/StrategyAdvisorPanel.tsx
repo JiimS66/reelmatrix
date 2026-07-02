@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   advanceStrategySession,
@@ -192,15 +192,29 @@ export function StrategyAdvisorPanel({
   const [thinkStep, setThinkStep] = useState(0);
   const [reveal, setReveal] = useState(99); // sections visible by default; animated per draft
   const [handoffStage, setHandoffStage] = useState(-1); // -1 = not handing off
+  const [picked, setPicked] = useState<string | null>(null); // which option card was clicked
+  const loopRef = useRef<HTMLDivElement | null>(null);
 
   const draft = session?.draft ?? null;
   const firstPosts = (content?.tasks ?? []).filter((t) => t.kind === "asset" && t.output);
-  const brandName =
-    (content?.campaign.name ?? "Your brand")
-      .split(/\s+/)
-      .slice(0, 4)
-      .join(" ")
-      .slice(0, 26) || "Your brand";
+  // Brand display name: whole words only, never a mid-word cut.
+  const brandName = (() => {
+    const words = (content?.campaign.name ?? "Your brand").split(/\s+/);
+    let out = words[0] ?? "Your brand";
+    for (const w of words.slice(1)) {
+      if (`${out} ${w}`.length > 24) break;
+      out = `${out} ${w}`;
+    }
+    return out;
+  })();
+
+  // Picking a card must respond where the user is looking, then carry them to the next
+  // step — the feedback box can be far below the fold.
+  function pickOption(key: string, feedbackText: string) {
+    setPicked(key);
+    setFeedback(feedbackText);
+    loopRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
 
   // Cycle the "what I'm doing" line while a turn runs.
   useEffect(() => {
@@ -246,6 +260,7 @@ export function StrategyAdvisorPanel({
     try {
       setSession(await fn());
       setFeedback("");
+      setPicked(null); // the steer was folded in; cards reset for the next turn
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -295,6 +310,7 @@ export function StrategyAdvisorPanel({
     setFeedback("");
     setContent(null);
     setHandoffStage(-1);
+    setPicked(null);
     setError(null);
   }
 
@@ -406,8 +422,14 @@ export function StrategyAdvisorPanel({
               {draft.audience_candidates.map((a, i) => (
                 <button
                   key={i}
-                  onClick={() => setFeedback(`The audience is "${a.name}" — focus there.`)}
-                  className="rounded-lg border border-ink/12 p-3 text-left transition hover:border-forest/40"
+                  onClick={() =>
+                    pickOption(`aud-${i}`, `The audience is "${a.name}" — focus there.`)
+                  }
+                  className={`rounded-lg border p-3 text-left transition ${
+                    picked === `aud-${i}`
+                      ? "border-forest bg-forest/5 ring-1 ring-forest/30"
+                      : "border-ink/12 hover:border-forest/40"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium text-ink">{a.name}</p>
@@ -427,8 +449,12 @@ export function StrategyAdvisorPanel({
               {draft.positioning_angles.map((a, i) => (
                 <button
                   key={i}
-                  onClick={() => setFeedback(`Let's go with the angle "${a.angle}".`)}
-                  className="rounded-lg border border-ink/12 p-3 text-left transition hover:border-forest/40"
+                  onClick={() => pickOption(`ang-${i}`, `Let's go with the angle "${a.angle}".`)}
+                  className={`rounded-lg border p-3 text-left transition ${
+                    picked === `ang-${i}`
+                      ? "border-forest bg-forest/5 ring-1 ring-forest/30"
+                      : "border-ink/12 hover:border-forest/40"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-medium text-ink">{a.angle}</p>
@@ -505,7 +531,7 @@ export function StrategyAdvisorPanel({
               </ul>
             </div>
           ) : session?.status !== "done" ? (
-            <div className={`surface border border-forest/30 p-5 ${veil(6)}`}>
+            <div ref={loopRef} className={`surface border border-forest/30 p-5 ${veil(6)}`}>
               <p className="tlabel">Your turn — correct me, answer, or add anything</p>
               <textarea
                 className="mt-2 w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm"

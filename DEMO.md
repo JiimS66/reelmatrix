@@ -15,12 +15,15 @@ DATABASE_URL=sqlite:////tmp/rm_demo.db LLM_PROVIDER=mock WEB_ORIGIN=http://local
 cd apps/web && npm run dev
 ```
 
-Open http://localhost:3000 → it lands on **Strategy**. The badge in the top bar shows which
-model is live ("live on mock (offline demo)" / "live on Qwen · qwen-plus") — one env var
-swaps it; that's the provider-factory story.
+Open http://localhost:3000 → it lands on **Home**, the role-aware desk (lead = approvals
+across campaigns; writer = their own tasks). The top-bar badge shows which model is live
+("live on mock (offline demo)" / "live on Qwen · qwen-plus") — one env var swaps it;
+that's the provider-factory story.
 
 ## Beat 1 — "I have an idea, not a strategy" (the hook)
 
+0. **Click "✨ New campaign from an idea"** — the strategy copilot opens. (A brand-new
+   tenant lands here automatically — thinking the strategy through IS onboarding.)
 1. **Click the first suggestion chip** — *"An agentic testing platform that verifies
    AI-generated code"* (yes, that's TestSprite — the demo customer is the audience).
 2. **Think it through** → the advisor drafts a one-page strategy live: what it heard,
@@ -43,11 +46,15 @@ swaps it; that's the provider-factory story.
 
 TestSprite has a real marketing team — this is the part built for them.
 
-5. **Open in workspace →** the drafts live in **Create** as normal tasks. Click one: full
-   detail — checks (format / brand / terminology / audit), versions, comments, reassign.
-6. Top bar: **switch "acting as" Adam (Lead) → Sam (Writer)** — same system, role-scoped
-   views: the lead sees the cross-campaign review queue ("Needs you"), the writer sees only
-   their tasks. AI teammates are just members here — same assignment, same review gates.
+5. **Open in workspace →** the campaign opens on its **Board**: a pipeline kanban
+   (Plan → Draft → In review → Approved) where **every card is stamped with its owner** —
+   a human avatar (Adam's claim-check) or an AI ⚙ mark (Ideation / Planning / the
+   copywriters). Division of labor at a glance. Click a card: full detail — checks,
+   versions, comments, reassign.
+6. Top bar: **switch "acting as" Adam (Lead) → Sam (Writer)** — same system, role-shaped
+   desks: the lead's Home is the cross-campaign approvals queue ("Needs you"), the
+   writer's Home is their own task list. AI teammates are just members here — same
+   assignment, same review gates.
    > "Every AI draft is reviewable, editable, and attributable. Humans decide; the AI team
    > does the drafting and the checking (a cross-model Auditor audits the copywriter)."
 7. (Optional) **Team** tab — the org: human + AI employees, who handles what, per-agent
