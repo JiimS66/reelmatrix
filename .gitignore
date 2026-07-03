@@ -64,3 +64,4 @@ VERSION
 
 # TestSprite runtime artifacts
 .testsprite/failure/
+!.env.deploy.example
