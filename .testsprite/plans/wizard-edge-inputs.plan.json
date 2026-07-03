@@ -1,0 +1,15 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "Wizard edge inputs: empty, very long, non-Latin",
+  "description": "The wizard refuses empty input gracefully, and survives a very long idea and a Chinese-language idea without layout breakage or errors.",
+  "priority": "p2",
+  "planSteps": [
+    { "type": "action", "description": "Open the strategy wizard for a new campaign." },
+    { "type": "assertion", "description": "Verify that with an empty idea box the 'Think it through' button is disabled or produces a graceful validation message, never a crash." },
+    { "type": "action", "description": "Paste a very long idea of roughly 150 words describing a fictional product, then click 'Think it through' and wait." },
+    { "type": "assertion", "description": "Verify a draft renders with no overlapping or clipped layout and no error banner." },
+    { "type": "action", "description": "Click 'Start over', then enter this Chinese idea: '我做了一个帮助小团队自动验证 AI 生成代码的测试平台', and click 'Think it through'." },
+    { "type": "assertion", "description": "Verify the advisor still produces a structured draft (sections render; non-Latin input does not break the flow)." }
+  ]
+}

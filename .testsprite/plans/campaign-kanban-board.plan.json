@@ -1,0 +1,17 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "Campaign board shows the pipeline kanban",
+  "description": "A campaign opens on its Board with the four pipeline columns, cards stamped with an owner, and working Calendar and Results tabs.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app and go to the Campaigns view." },
+    { "type": "action", "description": "Open the first campaign in the list (or the campaign that is already active)." },
+    { "type": "assertion", "description": "Verify the campaign opens on a Board tab showing kanban columns named Plan, Draft, In review, and Approved." },
+    { "type": "assertion", "description": "Verify at least one card is visible on the board and that cards carry an owner (a member name or avatar stamp)." },
+    { "type": "action", "description": "Switch to the campaign's Calendar tab." },
+    { "type": "assertion", "description": "Verify the calendar renders without errors." },
+    { "type": "action", "description": "Switch to the campaign's Results tab." },
+    { "type": "assertion", "description": "Verify the results view renders without errors (empty-state copy is acceptable, a crash or blank screen is not)." }
+  ]
+}
