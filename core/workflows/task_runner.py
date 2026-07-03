@@ -129,6 +129,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def provider_for(member: Optional[Member]) -> str:
+    """The provider an AI employee runs on: their own configured one if the org pinned
+    it, else the deployment's default. A member must never silently fall back to mock
+    while the app is configured for a real model — the badge would lie."""
+    configured = (member.agent_config or {}).get("provider") if member else None
+    return configured or get_settings().llm_provider
+
+
 def default_client_for_provider(provider: str) -> BaseLLMClient:
     settings = get_settings().model_copy(update={"llm_provider": provider})
     return create_llm_client(settings)
@@ -163,7 +171,7 @@ def _record_usage(session: Session, task: Task, member: Optional[Member]) -> Non
             tenant_id=task.tenant_id,
             task_id=task.id,
             member_id=member.id if member else task.assignee_id,
-            provider=config.get("provider", "mock"),
+            provider=provider_for(member),
             model=config.get("model"),
         )
     )
@@ -465,7 +473,7 @@ class TaskRunner:
             return None
 
         member = self._session.get(Member, task.assignee_id)
-        provider = (member.agent_config or {}).get("provider", "mock") if member else "mock"
+        provider = provider_for(member)
         client = self._client_for_provider(provider)
         task.status = TaskStatus.IN_PROGRESS
 
@@ -513,7 +521,7 @@ class TaskRunner:
         designer = self._designer_member(task.tenant_id)
         if designer is None:
             return output
-        provider = (designer.agent_config or {}).get("provider", "mock")
+        provider = provider_for(designer)
         client = self._client_for_provider(provider)
         ctx = {**self._designer_context(task, campaign), "post_copy": output.get("content", "")}
         visual = await agent_for_role("designer", client).run(ctx)
@@ -540,7 +548,7 @@ class TaskRunner:
         designer = self._designer_member(task.tenant_id)
         if campaign is None or designer is None:
             raise LookupError("No campaign or Designer to sync the visual.")
-        client = self._client_for_provider((designer.agent_config or {}).get("provider", "mock"))
+        client = self._client_for_provider(provider_for(designer))
         ctx = {**self._designer_context(task, campaign), "post_copy": (task.output or {}).get("content", "")}
         visual = await agent_for_role("designer", client).run(ctx)
         _record_usage(self._session, task, designer)
@@ -562,7 +570,7 @@ class TaskRunner:
         member = self._session.get(Member, task.assignee_id)
         if campaign is None:
             raise LookupError("No campaign to improve against.")
-        client = self._client_for_provider((member.agent_config or {}).get("provider", "mock") if member else "mock")
+        client = self._client_for_provider(provider_for(member))
         role_key = role_for(task, member)
         context = self._build_context(task, campaign)
         notes = _revision_notes(task.checks or {})
@@ -697,7 +705,7 @@ class TaskRunner:
         auditor = self._auditor_member(task.tenant_id)
         if auditor is None:
             return None
-        provider = (auditor.agent_config or {}).get("provider", "mock")
+        provider = provider_for(auditor)
         client = self._client_for_provider(provider)
         verdict = await agent_for_role("auditor", client).run(
             {
@@ -717,7 +725,7 @@ class TaskRunner:
     def _persist(self, task: Task, output: dict) -> None:
         """Persist a rendered output (sync — keeps the single session serial)."""
         member = self._session.get(Member, task.assignee_id)
-        provider = (member.agent_config or {}).get("provider", "mock") if member else "mock"
+        provider = provider_for(member)
         task.ai_draft = output
         task.output = output
         if task.kind == TaskKind.ASSET:

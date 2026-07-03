@@ -86,6 +86,7 @@ from core.workflows.task_runner import (
     TaskRunner,
     complete_task,
     default_client_for_provider,
+    provider_for,
     recompute_asset_checks,
     snapshot_version,
 )
@@ -418,7 +419,7 @@ def agent_fleet(session: Session, actor: Member) -> list[dict]:
                 "member_id": member.id,
                 "display_name": member.display_name,
                 "role": config.get("role") or config.get("agent_kind") or "",
-                "provider": config.get("provider", "mock"),
+                "provider": provider_for(member),
                 "model": config.get("model"),
                 "runs": runs_by.get(member.id, 0),
                 "tasks_owned": len(owned),
@@ -479,7 +480,7 @@ async def _agent_reply(
     """The AI employee's in-role reply to the lead (real LLM, or a role-aware mock)."""
     config = member.agent_config or {}
     role_key = config.get("role", "")
-    provider = config.get("provider", "mock")
+    provider = provider_for(member)
     role_title = ROLES[role_key].title if role_key in ROLES else "your agent"
     if provider == "mock":
         if kind == "directive":

@@ -283,20 +283,34 @@ export function StrategyAdvisorPanel({
     setBusy(true);
     setError(null);
     setHandoffStage(0);
-    const timer = setInterval(
-      () => setHandoffStage((s) => Math.min(s + 1, handoffStages.length - 1)),
-      1100,
-    );
+    // Pace the stages like the real pipeline: quick through ideation/planning, then a
+    // slow beat per channel draft — a real-model handoff runs ~30–90s, and the display
+    // snaps to done the moment the backend resolves (mock resolves in a second).
+    const delays = [1800, 3500, ...handoffStages.slice(2).map(() => 8000)];
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let acc = 0;
+    delays.forEach((d, i) => {
+      acc += d;
+      timers.push(
+        setTimeout(
+          () =>
+            setHandoffStage((s) =>
+              Math.min(Math.max(s, i + 1), handoffStages.length - 1),
+            ),
+          acc,
+        ),
+      );
+    });
     try {
       const board = await handoffStrategySession(memberId, session.id, {
         review_assets: false,
       });
-      clearInterval(timer);
+      timers.forEach(clearTimeout);
       setHandoffStage(handoffStages.length); // everything done
       setContent(board);
       setSession({ ...session, status: "done", campaign_id: board.campaign.id });
     } catch (e) {
-      clearInterval(timer);
+      timers.forEach(clearTimeout);
       setHandoffStage(-1);
       setError(e instanceof Error ? e.message : String(e));
     } finally {

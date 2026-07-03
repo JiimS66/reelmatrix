@@ -294,10 +294,11 @@ def seed_testsprite(session: Session) -> Tenant:
             job_description=agent["job_description"],
             reports_to=by_name.get(agent["reports_to"]) if agent["reports_to"] else None,
             handles_kinds=_kinds(agent),
+            # No pinned provider: AI employees follow the deployment's LLM_PROVIDER
+            # unless the org explicitly reconfigures one (Team tab).
             agent_config={
                 "agent_kind": agent["agent_kind"],
                 "role": agent["agent_role"],
-                "provider": "mock",
             },
         )
         by_name[member.display_name] = member.id

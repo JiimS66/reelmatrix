@@ -1,18 +1,26 @@
-# Demo script — the five-minute hook (≈3 min) + the team beneath (≈1.5 min)
+# Demo script — the five-minute hook (≈3 min) + the team beneath (≈1.5 min) + the full tour (≈4 min)
 
-Run locally for demos (fast + wifi-proof with the mock provider, or plug a real key):
+Run locally. Two modes — **real Qwen** (impressive copy; the strategy turn takes ~15–25s
+and the lock→content handoff ~60s, both covered by the thinking/pipeline UI) or **mock**
+(instant + wifi-proof — the fallback if the venue network dies):
 
 ```bash
-# one-time seed
+# one-time seed + full-feature demo data (every tab alive; leaves work in the review queue)
 rm -f /tmp/rm_demo.db
 DATABASE_URL=sqlite:////tmp/rm_demo.db LLM_PROVIDER=mock uv run python -m core.db.seed
 
-# terminal 1 — API (swap LLM_PROVIDER=dashscope|openai + key in .env for a live model)
-DATABASE_URL=sqlite:////tmp/rm_demo.db LLM_PROVIDER=mock WEB_ORIGIN=http://localhost:3000 \
-  uv run uvicorn apps.api.main:app --port 8000
+# terminal 1 — API · REAL QWEN (recommended for the live hook; key stays in env, never in git)
+DATABASE_URL=sqlite:////tmp/rm_demo.db LLM_PROVIDER=dashscope \
+  DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY \
+  DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 DASHSCOPE_MODEL=qwen-plus \
+  WEB_ORIGIN=http://localhost:3000 uv run uvicorn apps.api.main:app --port 8000
+# … or MOCK (offline fallback): drop the DASHSCOPE_* vars and use LLM_PROVIDER=mock
 
 # terminal 2 — web
 cd apps/web && npm run dev
+
+# terminal 3 — pump the demo data (campaign run + approvals + publish + metrics + trends + evals)
+uv run python scripts/demo_prep.py
 ```
 
 Open http://localhost:3000 → it lands on **Home**, the role-aware desk (lead = approvals
@@ -59,6 +67,33 @@ TestSprite has a real marketing team — this is the part built for them.
    > does the drafting and the checking (a cross-model Auditor audits the copywriter)."
 7. (Optional) **Team** tab — the org: human + AI employees, who handles what, per-agent
    run stats. Hiring an AI employee = config, not code.
+
+## Beat 3 — the full tour (after `scripts/demo_prep.py`, every tab is alive)
+
+Open **Campaigns → "TestSprite launch"** (the pre-pumped project) and walk the tabs:
+
+8. **Board** — a campaign mid-flight: Plan done, drafts approved, **one post still in
+   review + the fact-check (claim-check) waiting on Adam** — the truth rail: numbers and
+   claims need a source before publishing.
+9. **Calendar** — the event countdown (milestones toward the launch date) + **trend
+   angles**, each scored for brand fit with a **brand-safety kill-switch** (a tragedy/
+   sensitive topic can never be drafted); click *"Draft a rapid post"* on a safe one —
+   a timely post lands in the pipeline, always human-review-gated.
+10. **Results** — published posts with per-platform metrics (impressions → clicks →
+    signups), *Sync GA4* (provider-mocked, same interface as real), and below it the
+    **growth layer**: what the flywheel learned (attribute → outcome priors that feed
+    back into generation), experiments, funnel coverage.
+11. **Brand** — the operating context every agent reads: the **value proposition +
+    pillars imprinted by the locked strategy**, ICP segments (who/pains/platforms),
+    terminology (banned/preferred words enforced as checks).
+12. **Team** — the duty roster: humans + AI employees, who handles which task kinds,
+    per-agent runs/scores/self-corrections; **hire or reconfigure an AI employee** live
+    (config, not code). Reliability scorecard = autonomy is *earned* (an agent only gets
+    auto-publish rights after enough clean runs).
+13. **⌘K** anywhere — jump around like a power user.
+
+Closing line: *"Strategy in, reviewed content out, results feeding back — one loop,
+humans deciding, AI doing the legwork, every step auditable."*
 
 ## Reset between runs
 
