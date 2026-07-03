@@ -15,11 +15,13 @@ Idempotent enough to re-run: it reuses the campaign if it already exists."""
 
 from __future__ import annotations
 
+import os
 import sys
 
 import httpx
 
-BASE = "http://127.0.0.1:8000/api/v1/team"
+# Point at another deployment with DEMO_API, e.g. DEMO_API=http://121.43.99.199:8000
+BASE = os.environ.get("DEMO_API", "http://127.0.0.1:8000").rstrip("/") + "/api/v1/team"
 
 BRIEF = {
     "product_name": "TestSprite",
