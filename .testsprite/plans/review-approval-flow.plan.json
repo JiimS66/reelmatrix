@@ -2,7 +2,7 @@
   "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
   "type": "frontend",
   "name": "Lead reviews and approves from the Home desk",
-  "description": "Items waiting on a human appear in the lead's queue on Home; approving one moves it out of review.",
+  "description": "With a seeded demo campaign that has at least one item awaiting review, items waiting on a human appear in the lead's queue on Home; approving one moves it out of review.",
   "priority": "p1",
   "planSteps": [
     { "type": "action", "description": "Open the ReelMatrix web app as the lead member (the default seeded lead)." },

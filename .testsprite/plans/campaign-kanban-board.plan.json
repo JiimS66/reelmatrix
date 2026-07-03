@@ -2,7 +2,7 @@
   "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
   "type": "frontend",
   "name": "Campaign board shows the pipeline kanban",
-  "description": "A campaign opens on its Board with the four pipeline columns, cards stamped with an owner, and working Calendar and Results tabs.",
+  "description": "With at least one seeded or previously created campaign, a campaign opens on its Board with the four pipeline columns, cards stamped with an owner, and working Calendar and Results tabs.",
   "priority": "p1",
   "planSteps": [
     { "type": "action", "description": "Open the ReelMatrix web app and go to the Campaigns view." },

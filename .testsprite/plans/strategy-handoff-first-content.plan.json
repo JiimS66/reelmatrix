@@ -2,7 +2,7 @@
   "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
   "type": "frontend",
   "name": "Strategy handoff drafts first content",
-  "description": "Verify that a marketer can start the strategy co-creation loop, refine the draft, lock the strategy, and see first content drafted from it.",
+  "description": "Verify that a marketer can enter the strategy co-creation wizard from Home, refine the draft, lock the strategy, and see first content drafted from it.",
   "priority": "p1",
   "planSteps": [
     {
@@ -10,8 +10,12 @@
       "description": "Open the ReelMatrix web app."
     },
     {
+      "type": "action",
+      "description": "If the strategy wizard is not already visible, click the \"New campaign from an idea\" entry on Home."
+    },
+    {
       "type": "assertion",
-      "description": "Verify that the Strategy view is visible with the heading \"Let's think your strategy through\"."
+      "description": "Verify that the strategy co-creation wizard is visible with the heading \"Let's think your strategy through\"."
     },
     {
       "type": "action",
