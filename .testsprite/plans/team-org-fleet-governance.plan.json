@@ -1,0 +1,37 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Team view shows org, fleet, and governance",
+  "description": "Verify that the Team object view renders the human org, AI fleet, reliability, evals, and deployment governance surfaces.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "action",
+      "description": "Click the Team navigation item."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Team view renders without a blank screen, browser error, or stuck loading state."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Org section is visible with at least one human member."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Fleet section is visible with agent rows or a clear empty state."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that Agent reliability is visible."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that Evals and Deployment governance sections are visible."
+    }
+  ]
+}

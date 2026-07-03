@@ -1,0 +1,45 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Command palette navigates core objects",
+  "description": "Verify that the keyboard command palette opens and navigates between the core object views.",
+  "priority": "p2",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "action",
+      "description": "Open the command palette with Command+K on macOS or Ctrl+K on non-macOS."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the command palette opens with a Jump to search input."
+    },
+    {
+      "type": "action",
+      "description": "Search for Brand and select the Brand command."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Brand view is displayed."
+    },
+    {
+      "type": "action",
+      "description": "Open the command palette again, search for Team, and select the Team command."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Team view is displayed."
+    },
+    {
+      "type": "action",
+      "description": "Open the command palette again, search for Campaigns, and select the Campaigns command."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Campaigns view is displayed."
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Brand import validates historical data",
+  "description": "Verify that the Brand onboarding import handles invalid historical JSON gracefully and accepts a valid JSON array in a test environment.",
+  "priority": "p2",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app and go to the Brand view."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the historical content and performance import area is visible."
+    },
+    {
+      "type": "action",
+      "description": "Enter invalid historical data that is not a JSON array, such as {not valid json."
+    },
+    {
+      "type": "action",
+      "description": "Click Import history."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that a graceful validation message is shown and the page does not crash."
+    },
+    {
+      "type": "action",
+      "description": "Replace the input with a valid JSON array containing one historical row, such as [{\"channel\":\"LinkedIn\",\"content\":\"AI testing launch post\",\"impressions\":1200,\"clicks\":42}]."
+    },
+    {
+      "type": "action",
+      "description": "Click Import history."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the import completes with a success count or confirmation, and the Brand view remains usable."
+    }
+  ]
+}

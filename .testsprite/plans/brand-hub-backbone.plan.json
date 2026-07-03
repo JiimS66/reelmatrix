@@ -1,0 +1,37 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Brand hub renders the brand backbone",
+  "description": "Verify that the Brand object view renders the persistent brand context that campaigns and content generation depend on.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "action",
+      "description": "Click the Brand navigation item."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Brand view renders without a blank screen, browser error, or stuck loading state."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page shows the Brand narrative section."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page shows Brand voice and ICP sections."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page shows Brand terminology."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that reusable atoms are shown, or that a clear empty state explains that atoms will appear after approved posts."
+    }
+  ]
+}
