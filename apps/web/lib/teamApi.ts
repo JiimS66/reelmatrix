@@ -1152,3 +1152,29 @@ export const TESTSPRITE_BRIEF: Record<string, unknown> = {
   selected_channels: ["LinkedIn", "Email", "Landing Page"],
   target_segments: ["Engineering leaders", "AI-native developers"],
 };
+
+/* ── Outbound integrations ──────────────────────────────────────────────── */
+
+export interface IntegrationDispatchRequest {
+  target: "linear" | "webhook";
+  title: string;
+  body?: string;
+  campaign_id?: string;
+  /** Webhook endpoint — required when target is "webhook". */
+  url?: string;
+  /** Linear personal API key — required when target is "linear". Used once, never stored. */
+  api_key?: string;
+}
+
+export interface IntegrationDispatchResult {
+  ok: boolean;
+  target: string;
+  permalink: string | null;
+  detail: string;
+}
+
+export const dispatchIntegration = (body: IntegrationDispatchRequest) =>
+  request<IntegrationDispatchResult>("/api/v1/team/integrations/dispatch", {
+    method: "POST",
+    body,
+  });

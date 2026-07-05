@@ -1,0 +1,15 @@
+{
+  "projectId": "8f1a9a08-31f1-4bab-91e3-8d51627bcf40",
+  "type": "backend",
+  "name": "Integrations dispatch guards: clean 4xx, never 5xx",
+  "description": "The outbound integrations endpoint refuses bad input with clear client errors — missing fields, private webhook targets, and missing Linear keys must not surface as 500s.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/integrations/dispatch with JSON {\"target\": \"webhook\", \"title\": \"probe\"} (no url)." },
+    { "type": "assertion", "description": "Verify the response is 400 with a JSON detail explaining url is required." },
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/integrations/dispatch with JSON {\"target\": \"webhook\", \"title\": \"probe\", \"url\": \"http://127.0.0.1:9000/internal\"}." },
+    { "type": "assertion", "description": "Verify the response is 400 and the detail mentions the host resolving to a private address — the server must refuse to call internal targets." },
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/integrations/dispatch with JSON {\"target\": \"linear\", \"title\": \"probe\"} (no api_key)." },
+    { "type": "assertion", "description": "Verify the response is 400 with a JSON detail explaining api_key is required, not a 500." }
+  ]
+}
