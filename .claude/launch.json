@@ -2,6 +2,17 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "api",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-NoProfile",
+        "-Command",
+        "Set-Location D:\\reelmatrix; .\\.venv\\Scripts\\python.exe -m uvicorn apps.api.main:app --port 8000"
+      ],
+      "port": 8000,
+      "autoPort": false
+    },
+    {
       "name": "web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "apps/web", "run", "dev"],
