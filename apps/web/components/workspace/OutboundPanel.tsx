@@ -105,7 +105,7 @@ export function OutboundPanel({
                 )}
                 <span className="flex-1" />
                 <span
-                  className={`rounded-full px-1.5 text-[10px] ${
+                  className={`rounded-full px-1.5 text-[11px] ${
                     STATUS_TONE[p.status] ?? ""
                   }`}
                 >

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarView } from "@/components/workspace/CalendarView";
 import { StrategyAdvisorPanel } from "@/components/workspace/StrategyAdvisorPanel";
 import { BrandHub } from "@/components/workspace/BrandHub";
+import { ChannelsPanel } from "@/components/workspace/ChannelsPanel";
 import { BrandNarrativeCard } from "@/components/workspace/BrandNarrativeCard";
 import { IcpMarketPanel } from "@/components/workspace/IcpMarketPanel";
 import { OnboardingPanel } from "@/components/workspace/OnboardingPanel";
@@ -14,6 +15,7 @@ import { EmployeePage } from "@/components/workspace/EmployeePage";
 import { AgentInbox } from "@/components/workspace/AgentInbox";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { HomeView } from "@/components/workspace/HomeView";
+import { LaunchTimeline } from "@/components/workspace/LaunchTimeline";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
@@ -460,12 +462,70 @@ export default function Workspace() {
     </div>
   ) : (
     <div className="space-y-5">
+      {/* Numbers before sentences: the desk's vitals, each one a shortcut. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          {
+            label: "Needs you",
+            value: reviewQueue.length,
+            accent: reviewQueue.length > 0,
+            go: () => {
+              setView("home");
+              setWizard(false);
+            },
+          },
+          {
+            label: "Campaigns",
+            value: campaignList.length,
+            accent: false,
+            go: () => {
+              setView("campaigns");
+              setActiveCampaignId(null);
+            },
+          },
+          {
+            label: "Scheduled posts",
+            value: schedule
+              ? schedule.tasks.filter((t) => t.kind === "asset" && t.due_date).length
+              : "—",
+            accent: false,
+            go: () => {
+              setView("campaigns");
+              setCampTab("calendar");
+            },
+          },
+          {
+            label: "Approved",
+            value: boardTasks.filter((t) => t.kind === "asset" && t.status === "done")
+              .length,
+            accent: false,
+            go: () => {
+              setView("campaigns");
+              setCampTab("board");
+            },
+          },
+        ].map((kpi) => (
+          <button
+            key={kpi.label}
+            onClick={kpi.go}
+            className="surface p-4 text-left transition hover:border-forest/40"
+          >
+            <p className="tlabel">{kpi.label}</p>
+            <p
+              className={`mt-1 font-mono text-2xl font-semibold ${
+                kpi.accent ? "text-forest" : "text-ink"
+              }`}
+            >
+              {kpi.value}
+            </p>
+          </button>
+        ))}
+      </div>
       <div className="surface flex flex-wrap items-center justify-between gap-3 p-5">
         <div>
           <p className="tlabel">Start something</p>
           <p className="mt-1 max-w-lg text-sm text-ink/65">
-            Have an idea? Think the strategy through with the copilot — it ends with your
-            first drafts, not a form.
+            One sentence in, first drafts out.
           </p>
         </div>
         <button className="btn-dark" onClick={() => setWizard(true)}>
@@ -613,6 +673,16 @@ export default function Workspace() {
 
         {campTab === "board" ? (
           <div className="space-y-5">
+            {/* The launch schedule as channel swimlanes — and the object that
+                syncs into the customer's OA (Linear). */}
+            {schedule && (
+              <LaunchTimeline
+                schedule={schedule}
+                memberId={currentId}
+                canSync={!!isLead}
+                onSelectTask={setSelectedId}
+              />
+            )}
             {/* The pipeline, as columns — each card carries who owns it (human or AI). */}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {KANBAN_COLS.map((col) => {
@@ -814,7 +884,7 @@ export default function Workspace() {
                   {VIEW_LABEL[v]}
                   {v === "home" && !!isLead && reviewQueue.length > 0 && (
                     <span
-                      className={`rounded-full px-1.5 text-[10px] ${
+                      className={`rounded-full px-1.5 text-[11px] ${
                         view === v ? "bg-white/20 text-white" : "bg-forest text-white"
                       }`}
                     >
@@ -823,7 +893,7 @@ export default function Workspace() {
                   )}
                   {v === "campaigns" && campaignList.length > 0 && (
                     <span
-                      className={`rounded-full px-1.5 text-[10px] ${
+                      className={`rounded-full px-1.5 text-[11px] ${
                         view === v ? "bg-white/20 text-white" : "bg-ink/10 text-ink/60"
                       }`}
                     >
@@ -886,6 +956,7 @@ export default function Workspace() {
             ) : view === "brand" ? (
               <div className="space-y-5">
                 <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
+                <ChannelsPanel memberId={currentId} canManage={!!isLead} />
                 <IcpMarketPanel memberId={currentId} canManage={!!isLead} />
                 <OnboardingPanel
                   memberId={currentId}
@@ -970,13 +1041,13 @@ function KanbanCard({
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {assignee && (
           <span
-            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[10px] ${
+            className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-mono text-[11px] ${
               assignee.kind === "ai" ? "bg-ink/10 text-ink/60" : "bg-forest/15 text-forest"
             }`}
             title={`${assignee.display_name} (${assignee.kind === "ai" ? "AI employee" : "human"})`}
           >
             <span
-              className={`flex h-3.5 w-3.5 items-center justify-center rounded-full text-[8px] font-semibold text-white ${
+              className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-semibold text-white ${
                 assignee.kind === "ai" ? "bg-ink/70" : "bg-forest"
               }`}
             >
@@ -988,7 +1059,7 @@ function KanbanCard({
         <ScoreBadge score={task.score} />
       </div>
       {task.status === "needs_review" && assignee && (
-        <p className="mt-1.5 font-mono text-[10px] text-amber-700">
+        <p className="mt-1.5 font-mono text-[11px] text-amber-700">
           waiting on {firstName}
         </p>
       )}

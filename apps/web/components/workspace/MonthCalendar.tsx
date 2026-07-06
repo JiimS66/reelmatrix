@@ -73,7 +73,7 @@ export function MonthCalendar({
         {WEEKDAYS.map((w) => (
           <div
             key={w}
-            className="pb-1 text-center font-mono text-[10px] text-ink/45"
+            className="pb-1 text-center font-mono text-[11px] text-ink/45"
           >
             {w}
           </div>
@@ -103,7 +103,7 @@ export function MonthCalendar({
                 </span>
                 {milestone && (
                   <span
-                    className="truncate rounded-sm bg-forest/15 px-1 text-[9px] text-forest"
+                    className="truncate rounded-sm bg-forest/15 px-1 text-[10px] text-forest"
                     title={milestone}
                   >
                     {milestone}
@@ -116,7 +116,7 @@ export function MonthCalendar({
                     key={t.id}
                     onClick={() => onSelectTask(t.id)}
                     title={t.title}
-                    className={`block w-full truncate rounded px-1 py-0.5 text-left text-[10px] ${
+                    className={`block w-full truncate rounded px-1 py-0.5 text-left text-[11px] ${
                       t.status === "done"
                         ? "bg-emerald-50 text-emerald-800"
                         : t.status === "needs_review"

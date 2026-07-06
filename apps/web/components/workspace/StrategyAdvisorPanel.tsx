@@ -53,7 +53,7 @@ function Confidence({ c }: { c: string }) {
   };
   const m = map[c] ?? map.guess;
   return (
-    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] ${m.cls}`}>
+    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] ${m.cls}`}>
       {m.label}
     </span>
   );
@@ -617,7 +617,7 @@ export function StrategyAdvisorPanel({
                             body={String(o.content ?? "")}
                             cta={o.call_to_action ? String(o.call_to_action) : ""}
                           />
-                          <p className="mt-1 px-1 font-mono text-[10px] text-ink/40">
+                          <p className="mt-1 px-1 font-mono text-[11px] text-ink/40">
                             {provenance} · waiting on a human — you
                           </p>
                         </div>

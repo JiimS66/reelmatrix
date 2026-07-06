@@ -152,7 +152,7 @@ export function ClaimCheckView({
                 className="block w-full rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-left text-sm hover:border-forest/40"
               >
                 {String(p.claim ?? "")}
-                {p.source && <span className="ml-1 font-mono text-[10px] text-forest">🔗</span>}
+                {p.source && <span className="ml-1 font-mono text-[11px] text-forest">🔗</span>}
               </button>
             ))}
           </div>

@@ -37,10 +37,10 @@ export function PaidPlanInline({
         <ul className="mt-2 space-y-1">
           {plan.variants.map((v, i) => (
             <li key={i} className="flex items-center gap-2 text-[12px]">
-              <span className="w-16 font-mono text-[10px] text-ink/45">{v.angle}</span>
+              <span className="w-16 font-mono text-[11px] text-ink/45">{v.angle}</span>
               <span className="flex-1 truncate text-ink/70">{v.headline}</span>
               <span className="font-mono text-forest">{v.creative_score}</span>
-              <span className="font-mono text-[10px] text-ink/45">
+              <span className="font-mono text-[11px] text-ink/45">
                 ${v.allocated_budget}
               </span>
             </li>

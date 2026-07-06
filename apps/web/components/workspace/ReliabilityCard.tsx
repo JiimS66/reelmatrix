@@ -38,10 +38,10 @@ export function ReliabilityCard({ memberId }: { memberId: string }) {
         {rows.map((r) => (
           <li key={r.member_id} className="flex items-center gap-2 text-sm">
             <span className="flex-1 truncate text-ink">{r.display_name}</span>
-            <span className="font-mono text-[10px] text-ink/40">{r.runs} runs</span>
+            <span className="font-mono text-[11px] text-ink/40">{r.runs} runs</span>
             <span className="font-mono text-[11px] text-forest">{r.reliability}</span>
             <span
-              className={`rounded-full px-1.5 text-[10px] ${
+              className={`rounded-full px-1.5 text-[11px] ${
                 MODE_TONE[r.recommended_mode] ?? ""
               }`}
             >

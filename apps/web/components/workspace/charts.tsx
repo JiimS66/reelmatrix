@@ -44,6 +44,7 @@ export function RankedBarChart({
   height = 120,
   labelWidth = 92,
   color = CHART_COLORS.forest,
+  onBarClick,
 }: {
   data: Record<string, string | number>[];
   labelKey: string;
@@ -52,6 +53,8 @@ export function RankedBarChart({
   height?: number;
   labelWidth?: number;
   color?: string;
+  /** Drill-down hook: called with the clicked row's label (e.g. the platform). */
+  onBarClick?: (label: string) => void;
 }) {
   if (!data || data.length === 0) return null;
   return (
@@ -75,7 +78,20 @@ export function RankedBarChart({
           formatter={(value) => [`${value}${unit}`, valueKey]}
           contentStyle={TOOLTIP_STYLE}
         />
-        <Bar dataKey={valueKey} fill={color} radius={[0, 4, 4, 0]} />
+        <Bar
+          dataKey={valueKey}
+          fill={color}
+          radius={[0, 4, 4, 0]}
+          cursor={onBarClick ? "pointer" : undefined}
+          onClick={
+            onBarClick
+              ? (entry: { payload?: Record<string, string | number> }) => {
+                  const label = entry?.payload?.[labelKey];
+                  if (typeof label === "string") onBarClick(label);
+                }
+              : undefined
+          }
+        />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -86,10 +102,13 @@ export function ShareDonut({
   data,
   totalLabel,
   height = 180,
+  onSliceClick,
 }: {
   data: { name: string; value: number }[];
   totalLabel: string;
   height?: number;
+  /** Drill-down hook: called with the clicked slice's name. */
+  onSliceClick?: (name: string) => void;
 }) {
   const rows = (data ?? []).filter((row) => row.value > 0);
   if (rows.length === 0) return null;
@@ -106,6 +125,14 @@ export function ShareDonut({
             outerRadius="88%"
             paddingAngle={2}
             strokeWidth={0}
+            cursor={onSliceClick ? "pointer" : undefined}
+            onClick={
+              onSliceClick
+                ? (entry: { name?: string }) => {
+                    if (entry?.name) onSliceClick(entry.name);
+                  }
+                : undefined
+            }
           >
             {rows.map((row, index) => (
               <Cell
@@ -128,7 +155,7 @@ export function ShareDonut({
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
         <p className="text-xl font-semibold text-ink">{total.toLocaleString()}</p>
-        <p className="font-mono text-[10px] uppercase tracking-wide text-ink/50">
+        <p className="font-mono text-[11px] uppercase tracking-wide text-ink/50">
           {totalLabel}
         </p>
       </div>
@@ -155,7 +182,7 @@ export function ConversionBars({
           tickLine={false}
         />
         <YAxis
-          tick={{ fontSize: 10, fill: "#6b7f76" }}
+          tick={{ fontSize: 11, fill: "#6b7f76" }}
           tickFormatter={(value: number) => `${value}%`}
           axisLine={false}
           tickLine={false}
@@ -204,12 +231,12 @@ export function MomentumArea({
       <AreaChart data={data} margin={{ left: 0, right: 12, top: 8, bottom: 0 }}>
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 10, fill: "#6b7f76" }}
+          tick={{ fontSize: 11, fill: "#6b7f76" }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
-          tick={{ fontSize: 10, fill: "#6b7f76" }}
+          tick={{ fontSize: 11, fill: "#6b7f76" }}
           axisLine={false}
           tickLine={false}
           width={34}

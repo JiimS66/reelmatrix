@@ -87,13 +87,13 @@ export function IcpMarketPanel({
             <li key={i} className="flex items-center gap-2 text-sm">
               <span className="flex-1 truncate text-ink">{s.segment}</span>
               {s.drivers.length > 0 && (
-                <span className="hidden font-mono text-[10px] text-ink/40 sm:inline">
+                <span className="hidden font-mono text-[11px] text-ink/40 sm:inline">
                   {s.drivers.join(" · ")}
                 </span>
               )}
               <span className="font-mono text-[11px] text-forest">{s.cvr}%</span>
               <span
-                className={`rounded-full px-1.5 text-[10px] ${
+                className={`rounded-full px-1.5 text-[11px] ${
                   STATUS_TONE[s.status] ?? ""
                 }`}
               >
@@ -161,7 +161,7 @@ export function IcpMarketPanel({
                       className="h-1.5 rounded bg-forest"
                       style={{ width: `${v}%` }}
                     />
-                    <span className="font-mono text-[10px] text-ink/45">{v}%</span>
+                    <span className="font-mono text-[11px] text-ink/45">{v}%</span>
                   </li>
                 ))}
               </ul>
@@ -182,7 +182,7 @@ export function IcpMarketPanel({
                     <span className="text-[12px] text-ink/70">— {w}</span>
                     {canManage && (
                       <button
-                        className="btn-line shrink-0 px-2 py-0.5 text-[10px]"
+                        className="btn-line shrink-0 px-2 py-0.5 text-[11px]"
                         disabled={busy}
                         onClick={() => draft(w)}
                       >

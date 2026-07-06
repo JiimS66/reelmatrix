@@ -157,7 +157,7 @@ export function ScoreBadge({ score }: { score: Task["score"] }) {
   return (
     <span
       title={detail}
-      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${scoreBand(
+      className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${scoreBand(
         score.overall,
       )}`}
     >
@@ -183,7 +183,7 @@ export function CheckBadges({ task }: { task: Task }) {
         return (
           <span
             key={name}
-            className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] ${
+            className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[11px] ${
               ok
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-amber-300 bg-amber-50 text-amber-800"

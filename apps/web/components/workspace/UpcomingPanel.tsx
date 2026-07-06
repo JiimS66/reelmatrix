@@ -71,7 +71,7 @@ export function UpcomingPanel({
                   {phase.date ? fmtDate(phase.date) : "—"}
                 </p>
                 {days !== null && days >= 0 && (
-                  <p className="font-mono text-[10px] text-ink/40">in {days}d</p>
+                  <p className="font-mono text-[11px] text-ink/40">in {days}d</p>
                 )}
               </div>
               <div className="min-w-0 flex-1">

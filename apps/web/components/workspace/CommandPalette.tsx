@@ -93,7 +93,7 @@ export function CommandPalette({ commands }: { commands: Command[] }) {
                   onClick={() => exec(c)}
                 >
                   {c.group && (
-                    <span className="font-mono text-[10px] text-ink/40">{c.group}</span>
+                    <span className="font-mono text-[11px] text-ink/40">{c.group}</span>
                   )}
                   <span>{c.label}</span>
                 </button>

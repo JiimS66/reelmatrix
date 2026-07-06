@@ -75,7 +75,7 @@ export function BrandHub({
                         href={String(p.source)}
                         target="_blank"
                         rel="noreferrer"
-                        className="ml-1.5 font-mono text-[10px] text-forest hover:underline"
+                        className="ml-1.5 font-mono text-[11px] text-forest hover:underline"
                       >
                         🔗 source
                       </a>
@@ -265,7 +265,7 @@ function AtomsGrid({ atoms }: { atoms: Atom[] }) {
                 {atom.tags.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     {atom.tags.map((tag) => (
-                      <span key={tag} className="font-mono text-[10px] text-forest">
+                      <span key={tag} className="font-mono text-[11px] text-forest">
                         #{tag}
                       </span>
                     ))}

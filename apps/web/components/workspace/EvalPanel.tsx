@@ -63,7 +63,7 @@ export function EvalPanel({
                 {c.passed ? "✓" : "✗"}
               </span>
               <span className="flex-1 truncate text-ink/70">{c.name}</span>
-              <span className="font-mono text-[10px] text-ink/40">{c.reason}</span>
+              <span className="font-mono text-[11px] text-ink/40">{c.reason}</span>
             </li>
           ))}
         </ul>

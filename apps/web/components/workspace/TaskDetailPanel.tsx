@@ -278,11 +278,7 @@ export function TaskDetailPanel({
         ) : isVisual ? (
           <div className="space-y-2">
             <VisualPreview output={output} />
-            <textarea
-              className="field min-h-32 resize-y font-mono text-[12px] leading-5"
-              value={jsonText}
-              onChange={(e) => setJsonText(e.target.value)}
-            />
+            <AdvancedJson jsonText={jsonText} onChange={setJsonText} />
           </div>
         ) : isClaimCheck ? (
           <ClaimCheckView
@@ -292,11 +288,11 @@ export function TaskDetailPanel({
             readOnly={!canEditClaims}
           />
         ) : (
-          <textarea
-            className="field min-h-56 resize-y font-mono text-[12px] leading-5"
-            value={jsonText}
-            onChange={(e) => setJsonText(e.target.value)}
-          />
+          <div className="space-y-2">
+            {/* Read it like a document; the raw JSON is one toggle away. */}
+            <StructuredOutput output={output} />
+            <AdvancedJson jsonText={jsonText} onChange={setJsonText} />
+          </div>
         )}
       </section>
 
@@ -339,12 +335,12 @@ export function TaskDetailPanel({
               {task.predicted_performance.overall}
             </span>
             {Object.entries(task.predicted_performance.factors).map(([k, v]) => (
-              <span key={k} className="chip font-mono text-[10px]">
+              <span key={k} className="chip font-mono text-[11px]">
                 {k} {v}
               </span>
             ))}
           </div>
-          <p className="font-mono text-[10px] text-ink/45">
+          <p className="font-mono text-[11px] text-ink/45">
             {task.predicted_performance.note}
           </p>
         </section>
@@ -431,13 +427,13 @@ export function TaskDetailPanel({
                   <span>
                     {a.body}
                     {typeof a.anchor?.quote === "string" && (
-                      <span className="ml-1 font-mono text-[10px] text-ink/40">
+                      <span className="ml-1 font-mono text-[11px] text-ink/40">
                         “{a.anchor.quote}”
                       </span>
                     )}
                   </span>
                   <button
-                    className="shrink-0 font-mono text-[10px] text-forest hover:underline"
+                    className="shrink-0 font-mono text-[11px] text-forest hover:underline"
                     disabled={busy}
                     onClick={() => onResolve(a.id, !a.resolved)}
                   >
@@ -592,7 +588,7 @@ function VisualPreview({ output }: { output: Record<string, unknown> }) {
           <p className="mt-1 px-3 font-mono text-[11px] text-ink/55">
             {ref || "no image"}
           </p>
-          <p className="font-mono text-[10px] text-ink/40">
+          <p className="font-mono text-[11px] text-ink/40">
             {String(output.aspect_ratio ?? "1:1")} · generated
           </p>
         </div>
@@ -612,5 +608,75 @@ function VisualPreview({ output }: { output: Record<string, unknown> }) {
       )}
       {alt && <p className="text-xs text-ink/55">Alt: {alt}</p>}
     </div>
+  );
+}
+
+/** Render an ideation/planning output as a readable document instead of JSON:
+ * strings become paragraphs, string lists become bullets, nested objects fall
+ * back to their most name-like field. */
+function StructuredOutput({ output }: { output: Record<string, unknown> }) {
+  const entries = Object.entries(output ?? {});
+  if (entries.length === 0)
+    return <p className="text-sm text-ink/50">No output yet.</p>;
+  return (
+    <div className="space-y-3 rounded-xl border border-ink/10 bg-white p-3">
+      {entries.map(([key, value]) => (
+        <div key={key}>
+          <p className="tlabel">{cap(key.replaceAll("_", " "))}</p>
+          {typeof value === "string" || typeof value === "number" ? (
+            <p className="mt-0.5 whitespace-pre-wrap text-sm leading-6 text-ink">
+              {String(value)}
+            </p>
+          ) : Array.isArray(value) ? (
+            <ul className="mt-0.5 list-disc space-y-0.5 pl-5 text-sm text-ink">
+              {value.map((item, i) => (
+                <li key={i}>
+                  {typeof item === "string"
+                    ? item
+                    : typeof item === "object" && item !== null
+                      ? String(
+                          (item as Record<string, unknown>).name ??
+                            (item as Record<string, unknown>).title ??
+                            (item as Record<string, unknown>).claim ??
+                            JSON.stringify(item),
+                        )
+                      : String(item)}
+                </li>
+              ))}
+            </ul>
+          ) : typeof value === "boolean" ? (
+            <p className="mt-0.5 font-mono text-sm text-ink">{value ? "yes" : "no"}</p>
+          ) : (
+            <p className="mt-0.5 font-mono text-[12px] text-ink/70">
+              {JSON.stringify(value)}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The raw JSON, demoted to an opt-in expert surface. */
+function AdvancedJson({
+  jsonText,
+  onChange,
+}: {
+  jsonText: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <details className="rounded-lg border border-ink/10">
+      <summary className="cursor-pointer px-3 py-2 font-mono text-[11px] text-ink/50 hover:text-ink">
+        Advanced — edit raw JSON
+      </summary>
+      <div className="border-t border-ink/10 p-2">
+        <textarea
+          className="field min-h-48 w-full resize-y font-mono text-[12px] leading-5"
+          value={jsonText}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </div>
+    </details>
   );
 }

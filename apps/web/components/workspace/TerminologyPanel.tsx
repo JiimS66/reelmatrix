@@ -113,7 +113,7 @@ export function TerminologyPanel({
                 TYPE_CLS[t.term_type] ?? "border-ink/10 bg-canvas text-ink/70"
               }`}
             >
-              <span className="font-mono text-[10px] uppercase opacity-70">
+              <span className="font-mono text-[11px] uppercase opacity-70">
                 {TYPE_LABEL[t.term_type] ?? t.term_type}
               </span>
               <span className="font-medium">{t.term}</span>

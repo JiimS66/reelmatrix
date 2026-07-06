@@ -152,7 +152,7 @@ export function PillarFunnelPanel({
                             </span>
                           ) : canManage ? (
                             <button
-                              className="btn-line px-1.5 py-0.5 text-[10px]"
+                              className="btn-line px-1.5 py-0.5 text-[11px]"
                               disabled={busy}
                               onClick={() => fillGap(st, sg)}
                             >
@@ -207,7 +207,7 @@ export function PillarFunnelPanel({
               >
                 <div className="flex items-center gap-2 text-sm">
                   <span className="flex-1 truncate text-ink">{p.title}</span>
-                  <span className="font-mono text-[10px] text-ink/45">
+                  <span className="font-mono text-[11px] text-ink/45">
                     {p.derivatives} posts
                   </span>
                   <button
@@ -240,7 +240,7 @@ export function PillarFunnelPanel({
                         </span>
                         {canManage && (
                           <button
-                            className="btn-line px-1.5 py-0.5 text-[10px]"
+                            className="btn-line px-1.5 py-0.5 text-[11px]"
                             disabled={busy}
                             onClick={() => draftFromClip(p.id, c.hook_sentence)}
                           >

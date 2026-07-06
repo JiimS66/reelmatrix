@@ -39,7 +39,7 @@ function PreviewCard({ task }: { task: Task }) {
         ) : (
           <div className="flex aspect-square w-full flex-col items-center justify-center bg-canvas text-center">
             <div className="text-2xl">🖼</div>
-            <p className="mt-1 px-3 font-mono text-[10px] text-ink/45">
+            <p className="mt-1 px-3 font-mono text-[11px] text-ink/45">
               {String(out.aspect_ratio ?? "1:1")} · {ref || "generated"}
             </p>
           </div>
@@ -68,7 +68,7 @@ function PreviewCard({ task }: { task: Task }) {
         ) : (
           <div className="flex aspect-video w-full flex-col items-center justify-center bg-canvas text-center">
             <div className="text-xl">🖼</div>
-            <p className="mt-0.5 px-3 font-mono text-[10px] text-ink/45">
+            <p className="mt-0.5 px-3 font-mono text-[11px] text-ink/45">
               {String(v.aspect_ratio ?? "1:1")} · {ref || "generated"}
             </p>
           </div>

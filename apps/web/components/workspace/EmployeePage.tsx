@@ -168,7 +168,7 @@ export function EmployeePage({
               >
                 {msg.kind === "directive" && (
                   <p
-                    className={`mb-0.5 font-mono text-[10px] ${
+                    className={`mb-0.5 font-mono text-[11px] ${
                       msg.sender === "lead" ? "text-white/70" : "text-forest"
                     }`}
                   >

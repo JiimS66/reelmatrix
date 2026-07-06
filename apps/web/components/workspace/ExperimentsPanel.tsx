@@ -113,7 +113,7 @@ export function ExperimentsPanel({
                     Run &amp; decide
                   </button>
                 ) : (
-                  <span className="shrink-0 font-mono text-[10px] text-ink/45">
+                  <span className="shrink-0 font-mono text-[11px] text-ink/45">
                     {exp.status}
                   </span>
                 )}
@@ -145,12 +145,12 @@ export function ExperimentsPanel({
                       </span>
                     )}
                     {exp.status === "decided" && v.key !== "control" && (
-                      <span className="font-mono text-[10px] text-ink/45">
+                      <span className="font-mono text-[11px] text-ink/45">
                         p{v.chance_to_beat_control}
                       </span>
                     )}
                     <span
-                      className={`rounded-full px-1.5 text-[10px] ${
+                      className={`rounded-full px-1.5 text-[11px] ${
                         STATUS_TONE[v.result_status] ?? ""
                       }`}
                     >

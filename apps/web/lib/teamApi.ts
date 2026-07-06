@@ -153,6 +153,8 @@ export interface PostPerformance {
   impressions: number;
   clicks: number;
   signups: number;
+  activations: number;
+  paid: number;
   source: string;
 }
 
@@ -161,6 +163,8 @@ export interface PlatformPerformance {
   impressions: number;
   clicks: number;
   signups: number;
+  activations: number;
+  paid: number;
   posts: PostPerformance[];
 }
 
@@ -168,7 +172,17 @@ export interface PerformanceData {
   campaign_id: string;
   platforms: PlatformPerformance[];
   totals: Record<string, number>;
+  attribution_model: string;
   note: string;
+}
+
+export interface ChannelProfile {
+  id: string;
+  platform: string;
+  handle: string;
+  audience_note: string;
+  cadence: string;
+  active: boolean;
 }
 
 export interface OrgMember {
@@ -1176,5 +1190,77 @@ export interface IntegrationDispatchResult {
 export const dispatchIntegration = (body: IntegrationDispatchRequest) =>
   request<IntegrationDispatchResult>("/api/v1/team/integrations/dispatch", {
     method: "POST",
+    body,
+  });
+
+export interface SyncedIssue {
+  task_id: string;
+  identifier: string;
+  url: string | null;
+}
+
+export interface SyncCampaignResult {
+  ok: boolean;
+  project_url: string | null;
+  created: number;
+  updated: number;
+  issues: SyncedIssue[];
+  detail: string;
+}
+
+export interface ExternalLink {
+  provider: string;
+  local_kind: string;
+  local_id: string;
+  external_id: string;
+  url: string | null;
+}
+
+/** Mirror the campaign's launch timeline into Linear (idempotent upsert). */
+export const syncCampaignToLinear = (
+  memberId: string,
+  body: { campaign_id: string; api_key: string },
+) =>
+  request<SyncCampaignResult>("/api/v1/team/integrations/linear/sync-campaign", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const listExternalLinks = (memberId: string, campaignId: string) =>
+  request<ExternalLink[]>(
+    `/api/v1/team/integrations/links?campaign_id=${encodeURIComponent(campaignId)}`,
+    { memberId },
+  );
+
+/* ── Channel registry ───────────────────────────────────────────────────── */
+
+export const listChannels = (memberId: string) =>
+  request<ChannelProfile[]>("/api/v1/team/channels", { memberId });
+
+export const upsertChannel = (
+  memberId: string,
+  body: {
+    platform: string;
+    handle?: string;
+    audience_note?: string;
+    cadence?: string;
+    active?: boolean;
+  },
+) => request<ChannelProfile[]>("/api/v1/team/channels", { method: "POST", memberId, body });
+
+export const updateChannel = (
+  memberId: string,
+  channelId: string,
+  body: {
+    handle?: string;
+    audience_note?: string;
+    cadence?: string;
+    active?: boolean;
+  },
+) =>
+  request<ChannelProfile[]>(`/api/v1/team/channels/${channelId}`, {
+    method: "POST",
+    memberId,
     body,
   });

@@ -94,7 +94,7 @@ export function CalendarView({
                   <div className="min-w-0">
                     <p className="text-sm text-ink/80">{a.angle}</p>
                     <p
-                      className={`font-mono text-[10px] ${
+                      className={`font-mono text-[11px] ${
                         a.safe ? "text-ink/45" : "text-red-600"
                       }`}
                     >

@@ -41,9 +41,14 @@ export function PerformanceView({
   const impressions = totals.impressions ?? 0;
   const clicks = totals.clicks ?? 0;
   const signups = totals.signups ?? 0;
+  const activations = totals.activations ?? 0;
+  const paid = totals.paid ?? 0;
   const [busy, setBusy] = useState<"sync" | "publish" | null>(null);
   const [valuePerSignup, setValuePerSignup] = useState(120);
   const [showDetail, setShowDetail] = useState(false);
+  // Drill-down: clicking a platform (bar or donut slice) filters the post table.
+  const [platformFilter, setPlatformFilter] = useState<string | null>(null);
+  const [copiedUtm, setCopiedUtm] = useState<string | null>(null);
 
   const rows = useMemo(
     () =>
@@ -53,12 +58,29 @@ export function PerformanceView({
           impressions: p.impressions,
           clicks: p.clicks,
           signups: p.signups,
+          activations: p.activations,
+          paid: p.paid,
           ctr: rate(p.clicks, p.impressions),
           conv: rate(p.signups, p.clicks),
         }))
         .sort((a, b) => b.signups - a.signups),
     [data.platforms],
   );
+
+  function drillDown(platform: string) {
+    setPlatformFilter((prev) => (prev === platform ? null : platform));
+    setShowDetail(true);
+  }
+
+  async function copyUtm(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUtm(url);
+      setTimeout(() => setCopiedUtm(null), 1600);
+    } catch {
+      /* the link is visible in the row — copying is a convenience */
+    }
+  }
 
   const momentum = useMemo(() => {
     const posts = data.platforms
@@ -89,7 +111,15 @@ export function PerformanceView({
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
-        <span>{data.note}</span>
+        <span>
+          <span
+            className="mr-2 inline-flex items-center rounded-full border border-amber-300 bg-white/60 px-2 py-0.5 font-mono text-[11px]"
+            title="How these numbers are attributed — no multi-touch theater."
+          >
+            {data.attribution_model}
+          </span>
+          {data.note}
+        </span>
         {canSync && (
           <div className="flex gap-2">
             {onPublish && (
@@ -114,7 +144,7 @@ export function PerformanceView({
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         <Tile label="Impressions" value={impressions.toLocaleString()} />
         <Tile
           label="Clicks"
@@ -125,6 +155,18 @@ export function PerformanceView({
           label="Signups"
           value={signups.toLocaleString()}
           sub={`Conv ${pct(signups, clicks)}`}
+          accent
+        />
+        <Tile
+          label="Activated"
+          value={activations.toLocaleString()}
+          sub={`${pct(activations, signups)} of signups`}
+          accent
+        />
+        <Tile
+          label="Paid"
+          value={paid.toLocaleString()}
+          sub={`${pct(paid, activations)} of activated`}
           accent
         />
         <Tile
@@ -148,6 +190,7 @@ export function PerformanceView({
               <ShareDonut
                 data={rows.map((r) => ({ name: r.platform, value: r.signups }))}
                 totalLabel="signups"
+                onSliceClick={drillDown}
               />
               <div>
                 <RankedBarChart
@@ -155,15 +198,58 @@ export function PerformanceView({
                   labelKey="platform"
                   valueKey="signups"
                   height={Math.max(110, rows.length * 40)}
+                  onBarClick={drillDown}
                 />
                 {best && (
                   <p className="mt-1 px-1 text-sm text-ink/70">
                     <span className="font-semibold text-forest">{best.platform}</span>{" "}
-                    brings in {bestShare}% of signups — your strongest channel right
-                    now.
+                    brings in {bestShare}% of signups. Click a bar for its posts.
                   </p>
                 )}
               </div>
+            </div>
+          </section>
+
+          <section className="surface p-4 sm:p-5">
+            <p className="eyebrow">Funnel by platform — signup → activation → paid</p>
+            <div className="mt-3 space-y-2.5">
+              {rows.map((r) => {
+                const maxWidth = Math.max(rows[0]?.signups ?? 1, 1);
+                return (
+                  <div key={r.platform} className="flex items-center gap-3">
+                    <button
+                      className="w-24 shrink-0 truncate text-left font-mono text-[11px] text-ink/60 hover:text-forest"
+                      onClick={() => drillDown(r.platform)}
+                      title="Show this platform's posts"
+                    >
+                      {r.platform}
+                    </button>
+                    <div className="flex-1 space-y-1">
+                      {(
+                        [
+                          ["signups", r.signups, "bg-forest/80"],
+                          ["activated", r.activations, "bg-moss/70"],
+                          ["paid", r.paid, "bg-ink/70"],
+                        ] as const
+                      ).map(([label, value, cls]) => (
+                        <div key={label} className="flex items-center gap-2">
+                          <div className="h-3 flex-1 rounded-full bg-ink/[0.05]">
+                            <div
+                              className={`h-3 rounded-full ${cls}`}
+                              style={{
+                                width: `${Math.min((value / maxWidth) * 100, 100)}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="w-24 shrink-0 text-right font-mono text-[11px] text-ink/55">
+                            {value.toLocaleString()} {label}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -225,8 +311,7 @@ export function PerformanceView({
               />
             </div>
             <p className="mt-1 px-1 font-mono text-[11px] text-ink/50">
-              Modeled: live signup counts × your value per signup. Connect your CRM
-              for actuals.
+              Signups × value/signup — connect a CRM for actuals.
             </p>
           </section>
 
@@ -250,13 +335,30 @@ export function PerformanceView({
               className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-ink hover:bg-canvas"
               onClick={() => setShowDetail((v) => !v)}
             >
-              Post-level detail
+              <span>
+                Post-level detail
+                {platformFilter && showDetail && (
+                  <span
+                    className="ml-2 inline-flex items-center rounded-full bg-forest/10 px-2 py-0.5 font-mono text-[11px] text-forest"
+                    role="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPlatformFilter(null);
+                    }}
+                    title="Clear the platform filter"
+                  >
+                    {platformFilter} ✕
+                  </span>
+                )}
+              </span>
               <span className="font-mono text-[11px] text-ink/50">
                 {showDetail ? "Hide ▴" : `${rows.length} platforms ▾`}
               </span>
             </button>
             {showDetail &&
-              data.platforms.map((platform) => (
+              data.platforms
+                .filter((p) => !platformFilter || p.platform === platformFilter)
+                .map((platform) => (
                 <div key={platform.platform} className="border-t border-ink/10">
                   <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
                     <p className="font-semibold text-ink">{platform.platform}</p>
@@ -275,7 +377,9 @@ export function PerformanceView({
                         <th className="px-3 py-1.5 text-right font-normal">Impr.</th>
                         <th className="px-3 py-1.5 text-right font-normal">Clicks</th>
                         <th className="px-3 py-1.5 text-right font-normal">Signups</th>
-                        <th className="px-4 py-1.5 font-normal">Link</th>
+                        <th className="px-3 py-1.5 text-right font-normal">Activ.</th>
+                        <th className="px-3 py-1.5 text-right font-normal">Paid</th>
+                        <th className="px-4 py-1.5 font-normal">Tracking link</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -305,16 +409,31 @@ export function PerformanceView({
                           <td className="px-3 py-2 text-right font-mono text-[12px] font-semibold text-forest">
                             {post.signups.toLocaleString()}
                           </td>
+                          <td className="px-3 py-2 text-right font-mono text-[12px]">
+                            {post.activations.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[12px]">
+                            {post.paid.toLocaleString()}
+                          </td>
                           <td className="max-w-xs px-4 py-2">
-                            <a
-                              href={post.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="block truncate font-mono text-[11px] text-ink/50 hover:text-ink hover:underline"
-                              title={post.url}
-                            >
-                              {post.url}
-                            </a>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                className="btn-line shrink-0 px-1.5 py-0.5 font-mono text-[11px]"
+                                onClick={() => copyUtm(post.url)}
+                                title="Copy the UTM-tagged link — this is what attributes signups to this post"
+                              >
+                                {copiedUtm === post.url ? "✓" : "UTM ⧉"}
+                              </button>
+                              <a
+                                href={post.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block truncate font-mono text-[11px] text-ink/50 hover:text-ink hover:underline"
+                                title={post.url}
+                              >
+                                {post.url}
+                              </a>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -505,7 +624,7 @@ function PublishPill({
   return (
     <span
       title={permalink ?? undefined}
-      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 font-mono text-[10px] ${cls}`}
+      className={`inline-flex items-center rounded-full border px-1.5 py-0.5 font-mono text-[11px] ${cls}`}
     >
       {label}
     </span>
