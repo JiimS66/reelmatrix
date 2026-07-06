@@ -1,0 +1,18 @@
+{
+  "testId": "ab59c125-e7de-4ad6-9702-4f5a4bb0e806",
+  "status": "failed",
+  "startedAt": null,
+  "finishedAt": "2026-07-06T22:23:32.791Z",
+  "videoUrl": null,
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_755ef5706e77c59d",
+  "runIdIfAvailable": "efb4b408-ef75-4ad8-b6bc-c97bbc0a6751",
+  "codeVersion": "v2",
+  "targetUrl": null,
+  "targetUrlSource": "project-default",
+  "failedStepIndex": 1,
+  "failureKind": "timeout",
+  "verdict": "failed",
+  "executionStatus": "completed",
+  "summary": "Failed (timeout): HTTPConnectionPool(host='121.43.99.199', port=8000): Read timed out. (read timeout=180)"
+}

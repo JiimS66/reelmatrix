@@ -62,6 +62,8 @@ test-results/
 .ruff_cache/
 VERSION
 
-# TestSprite runtime artifacts
-.testsprite/failure/
+# Deployment examples
 !.env.deploy.example
+
+# TestSprite failure bundles are committed as hackathon loop evidence.
+# Do not ignore .testsprite/failure/.

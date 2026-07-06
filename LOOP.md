@@ -24,7 +24,8 @@ reconstructed afterwards.
 
 | Round | Test ID | What failed | Root cause | Fix commit | Rerun result |
 | --- | --- | --- | --- | --- | --- |
-| _pending_ | | | | | |
+| 2026-07-06 JiimSmith66 backend P1 slice | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `POST /api/v1/team/strategy/sessions` timed out in the backend strategy-session handoff test | Live real-model strategy loop did not respond within 180s; first 60s timeout was also too low for this path | Test code updated to `v2`; product fix _pending_ | Failed again: run `efb4b408-ef75-4ad8-b6bc-c97bbc0a6751` timed out at 180s |
+| 2026-07-06 JiimSmith66 frontend ROI slice | `edea7789-29ea-4417-9a36-d1c86854cb6b` | ROI dashboard test could not verify slider/charts/integration card | Opened campaign had no published posts/performance data; empty Results state rendered correctly, but data-dependent controls were absent | _pending_ | Blocked: run `8c23c53d-2384-4881-a883-f35ade97e656`, 11/14 passed |
 
 _Fix rounds are logged as they happen. The initial 4-test slice below ran green against
 the live deployment; the suite deepens (edge inputs, review flow, brand hub, `/health`
@@ -56,11 +57,102 @@ fix → rerun mechanics; product-bug rounds are logged below as they occur.
 _(appended per round: failure summary with key bundle log lines / screenshots →
 diagnosis → fix → rerun evidence)_
 
+### 2026-07-06 — JiimSmith66 TestSprite P1 slice against live target
+
+**Context.** Ran from the repository root with the project-local wrapper
+`./.tools/testsprite` (CLI `0.2.0`) under account `JiimSmith66@outlook.com`.
+Project IDs matched LOOP meta:
+
+- Frontend `ReelMatrix`: `0e9b9bee-2ca7-4553-9706-3857a3e65289`
+- Backend `reelmatrix-api`: `364babc2-b2b6-43e8-a6b2-4edd5f535e07`
+
+Deploy marker before the run: `GET http://121.43.99.199:8000/health` returned
+`{"status":"ok","commit":"c78da74"}`. The latest repo commit was newer, but it only
+renamed/expanded TestSprite plans and LOOP docs; no application code change needed to be
+deployed for this run.
+
+**Backend results.**
+
+| Test ID | Run ID | Behavior | Verdict |
+| --- | --- | --- | --- |
+| `f651cb95-9f89-4d6a-a317-3879bda92455` | `437cf899-cc2f-4330-a8ee-6bbc1f3c74cf` | Health deploy marker + LLM provider catalog | **passed** |
+| `8277b662-96ce-4e8d-8b20-cfa030530bca` | `ddd12d0f-3215-4b82-8b0a-59c7f1d9daa8` | Team API rejects invalid input with clean 4xx | **passed** |
+| `04c3f4f6-7bd8-4e83-abfa-c7dc9f0e5675` | `9175fc71-5533-48b4-8016-583c76ea1ffc` | Integration dispatch rejects missing/private targets with clean 400s | **passed** |
+| `6eaa11d0-d23a-44e7-839d-871733a9cb19` | `78659faf-709b-4b4b-8c03-70acaee15f92` | Agent Inbox actions API lists/plans/ignores actions | **passed** |
+| `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `e5268ac4-f534-482e-9f66-22d776a0edc4` | Strategy session start → advance → handoff | **failed**: `Read timed out. (read timeout=60)` |
+| `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `efb4b408-ef75-4ad8-b6bc-c97bbc0a6751` | Same test after `test code put` timeout increase to 180s (`v2`) | **failed**: `Read timed out. (read timeout=180)` |
+
+Failure bundles were downloaded locally:
+
+- `.testsprite/failure/e5268ac4-f534-482e-9f66-22d776a0edc4/`
+- `.testsprite/failure/efb4b408-ef75-4ad8-b6bc-c97bbc0a6751/`
+
+Key bundle lines:
+
+- `failureKind`: `timeout`
+- `summary`: `HTTPConnectionPool(host='121.43.99.199', port=8000): Read timed out.`
+- `failedStepIndex`: `1`
+
+Diagnosis: the first failure showed the initial backend harness timeout (`60s`) was too
+low for the real-model strategy path, so the TestSprite-stored test code was updated from
+`v1` to `v2` with `./.tools/testsprite test code put ... --expected-version v1` to use a
+`180s` HTTP timeout. The second run still timed out at `180s`, so this is no longer only a
+harness-threshold issue. Treat the strategy-session handoff path as a live
+performance/reliability bug or split the test into smaller observability-friendly backend
+checks before rerunning. Product fix remains pending.
+
+Operational note: `./.tools/testsprite test rerun ab59c125...` returned a TestSprite CLI
+internal error instead of a run id:
+`[CliRunService] rerunTestsWithRunIds did not return a runId`, request
+`cli_5817dcc6-5316-472f-bd84-202814015c57`. Running the same test with
+`test run ab59c125... --wait` did produce run `efb4b408-...`.
+
+**Frontend results.**
+
+| Test ID | Run ID | Behavior | Verdict |
+| --- | --- | --- | --- |
+| `71fb3885-5808-4e6f-a6cf-3b62d324195f` | `f9908bd3-0cb9-4680-90c3-f3768754f244` | Home workspace smoke | **passed**: 10/10 |
+| `9f965700-bad2-46e7-9dcc-55002d48e2de` | `c1a71829-5e08-4151-9982-791fb0518deb` | Home object navigation | **passed**: 18/18 |
+| `bc481c1d-50a8-4cf7-bf0d-3f78bfe096c3` | `1e5e23c2-5ed1-4587-8196-57742ca80a2e` | Campaign kanban + Calendar + Results tab reachability | **passed**: 17/17 |
+| `4e7a733c-eccb-4551-b299-9be3bca1401b` | `90fae2e0-aaeb-41ac-9924-a8c00f979450` | Team org, fleet, reliability, evals, governance | **passed**: 15/15 |
+| `aac6a03d-1c97-4b74-a66d-2594c0e0c443` | `4607881a-ce43-4141-ad66-84bd5b378497` | Agent Inbox next moves | **passed**: 31/31 after `test wait` resumed a 600s CLI wait timeout |
+| `d1f84bd8-a76b-4747-965d-338f9471d685` | `4bac74b8-3b8d-4bef-a6c5-45355232e794` | Results analytics render | **passed**: 6/6 |
+| `edea7789-29ea-4417-9a36-d1c86854cb6b` | `8c23c53d-2384-4881-a883-f35ade97e656` | ROI dashboard with slider/charts/integration card | **blocked**: 11/14 passed |
+
+ROI failure bundle was downloaded locally:
+
+- `.testsprite/failure/8c23c53d-2384-4881-a883-f35ade97e656/`
+
+Key bundle lines:
+
+- Results tab loaded without blank screen or stuck loading.
+- Attribution banner, zero-value metric tiles, and the no-published-posts empty state were visible.
+- The bundle explicitly says the data-driven visual sections, `Value per signup` slider,
+  post-level detail, and `Route wins to your stack` controls were not present because the
+  selected campaign had no published posts/performance data.
+
+Diagnosis: the ROI plan is too broad for an arbitrary first/active campaign. It should be
+split into two tests:
+
+1. Empty Results state: assert attribution banner, zero metric tiles, and explanatory
+   no-published-posts copy.
+2. Seeded performance state: use a campaign with published posts/metrics before asserting
+   charts, slider behavior, post detail, and Linear/Webhook disabled states.
+
+**Deferred in this pass.** Frontend `strategy-handoff-first-content` and
+`task-workflow-end-to-end` were not run after the backend strategy handoff timeout,
+because they depend on the same slow real-model strategy/session path and would likely
+produce duplicate long timeouts. Frontend `task-detail-quality-controls` and
+`review-approval-flow` were also not run in this pass. The remaining P2 plans were
+deferred until the P1 timeout/fixture issues are resolved. The newly added
+`navigation-state-consistency` plan was not executed in this round, so it is intentionally
+not included in the results table above.
+
 ## Final suite
 
 _(full `testsprite test list` output + pass rate at submission time)_
 
 ## Artifacts
 
-Failure bundles are committed under `.testsprite/failure/<test_id>/` (summaries, logs, and
-key screenshots; media files larger than 5 MB are excluded and noted per round).
+Failure bundles are stored for commit under `.testsprite/failure/<run_id>/` (summaries,
+logs, and key screenshots; media files larger than 5 MB are excluded and noted per round).

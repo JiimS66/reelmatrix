@@ -1,0 +1,18 @@
+{
+  "testId": "edea7789-29ea-4417-9a36-d1c86854cb6b",
+  "status": "blocked",
+  "startedAt": "2026-07-06T23:00:25.301Z",
+  "finishedAt": "2026-07-06T23:10:15.358Z",
+  "videoUrl": "https://testsprite-videos.s3.us-east-1.amazonaws.com/444854c8-7051-70a3-718a-5c15d29bfcec/1783379415066565//tmp/d7eb9fec-4fb0-4a30-a760-74862fc65191/result.webm",
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_24e63a6e42dec551",
+  "runIdIfAvailable": "8c23c53d-2384-4881-a883-f35ade97e656",
+  "codeVersion": "v1",
+  "targetUrl": "http://121.43.99.199:3000",
+  "targetUrlSource": "run",
+  "failedStepIndex": 12,
+  "failureKind": null,
+  "verdict": "blocked",
+  "executionStatus": "completed",
+  "summary": "Blocked before a verdict could be produced: TEST BLOCKED: Summary of verification (observed directly in this session):\n\n- Results tab loaded successfully with no blank screen or stuck loading state. The attribution/note banner is visible and reads (approx) \"last-touch · modeled Mock data. Connect owned-destination analytics + signup attribution (UTMs) for real conversions; platform APIs where available.\".\n- Metric tiles are present for Impressions, Clicks, Signups, Activated, Paid, and Modeled …"
+}
