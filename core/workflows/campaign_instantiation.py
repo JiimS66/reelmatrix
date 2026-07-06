@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from core.db.models import (
     BrandProfile,
     Campaign,
+    ChannelProfile,
     ExecutionMode,
     Member,
     MemberKind,
@@ -24,6 +25,27 @@ from core.db.models import (
 from core.workflows.scheduler import generate_schedule
 
 DEFAULT_CHANNELS = ["LinkedIn", "Email", "Blog"]
+
+
+def active_channels(
+    session: Session, tenant_id: str, requested: list[str]
+) -> list[str]:
+    """Filter requested channels to the tenant's ACTIVE ChannelProfiles.
+
+    This grounds per-platform task splitting in the platforms the tenant
+    actually operates. A tenant with no channel registry keeps the requested
+    list (backwards compatible); a registry with no overlap falls back to every
+    active platform rather than producing an empty campaign.
+    """
+    profiles = session.exec(
+        select(ChannelProfile).where(ChannelProfile.tenant_id == tenant_id)
+    ).all()
+    if not profiles:
+        return requested
+    active = [p.platform for p in profiles if p.active]
+    by_name = {p.lower(): p for p in active}
+    kept = [by_name[c.strip().lower()] for c in requested if c.strip().lower() in by_name]
+    return kept or active
 
 
 def _seg_params(seg: dict, idx: int) -> dict:
@@ -170,7 +192,9 @@ def instantiate_campaign(
     )
     session.add(planning)
 
-    channels = brief.get("selected_channels") or DEFAULT_CHANNELS
+    channels = active_channels(
+        session, tenant_id, brief.get("selected_channels") or DEFAULT_CHANNELS
+    )
     segments = targeted_segments(session, tenant_id, brief)
     # Reach mode (default): one post per channel, routed to one segment.
     # Tailored mode (brief["tailored"]): fan out one post per (channel × segment) so

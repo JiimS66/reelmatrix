@@ -41,7 +41,10 @@ async def refresh_campaign_trends(
 ) -> list[str]:
     """Fetch + brand-filter trends, write them to the plan's timely_angles, and
     return them. Falls back to the unfiltered items if nothing matches the brand."""
-    source = source or create_trend_source("mock")
+    if source is None:
+        from configs.settings import get_settings
+
+        source = create_trend_source(get_settings().trend_source)
     brand = session.exec(
         select(BrandProfile).where(BrandProfile.tenant_id == campaign.tenant_id)
     ).first()

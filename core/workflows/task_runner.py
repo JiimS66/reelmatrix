@@ -28,6 +28,7 @@ from core.db.models import (
     BrandProfile,
     BrandTerm,
     Campaign,
+    ChannelProfile,
     ContentAtom,
     ContentVersion,
     EpisodicNote,
@@ -45,6 +46,7 @@ from core.db.models import (
 )
 from core.content.atoms import atoms_from_asset
 from core.content.brand import forbidden_word_issues
+from core.content.continuity import channel_history, continuity_issues
 from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
@@ -246,9 +248,18 @@ def checks_for_output(session: Session, task: Task, output: dict) -> dict:
             select(BrandTerm).where(BrandTerm.tenant_id == task.tenant_id)
         ).all()
     ]
-    return asset_checks(
+    checks = asset_checks(
         output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text, terms
     )
+    # Channel continuity: flag a draft that rehashes a recent post on this platform.
+    history = channel_history(
+        session,
+        tenant_id=task.tenant_id,
+        platform=(task.params or {}).get("channel", ""),
+        exclude_task_id=task.id,
+    )
+    checks["continuity"] = continuity_issues(output or {}, history)
+    return checks
 
 
 def recompute_asset_checks(session: Session, task: Task) -> dict:
@@ -678,7 +689,9 @@ class TaskRunner:
         image_ref = (output or {}).get("image_ref")
         if not image_ref:
             return None
-        provider = self._vision_for_name("mock")
+        # The deployment's configured eye (mock | dashscope/Qwen3-VL) — swapping
+        # the judge is a config change, same as every other provider.
+        provider = self._vision_for_name(get_settings().vision_provider)
         verdict = await provider.critique(
             media_ref=image_ref,
             campaign_text=context.get("core_message", ""),
@@ -797,9 +810,30 @@ class TaskRunner:
             .where(EpisodicNote.campaign_id == task.campaign_id)
             .order_by(EpisodicNote.created_at.desc())  # type: ignore[attr-defined]
         ).all()
+        profile = self._session.exec(
+            select(ChannelProfile).where(
+                ChannelProfile.tenant_id == task.tenant_id,
+                ChannelProfile.platform == channel,
+            )
+        ).first()
         return {
             "recent_feedback": [note.text for note in notes[:5]],
             "channel": channel,
+            # Which account this is, who follows it, and what already ran there —
+            # the continuity slice, so post N knows posts N-1…N-5.
+            "channel_profile": {
+                "handle": profile.handle,
+                "audience_note": profile.audience_note,
+                "cadence": profile.cadence,
+            }
+            if profile is not None
+            else {},
+            "channel_history": channel_history(
+                self._session,
+                tenant_id=task.tenant_id,
+                platform=channel,
+                exclude_task_id=task.id,
+            ),
             "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
             # 4th-layer derived memory: what's converting, fed back into generation.
             "learned_priors": learned_priors(

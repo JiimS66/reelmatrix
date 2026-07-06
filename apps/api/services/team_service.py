@@ -19,10 +19,12 @@ from core.db.models import (
     BrandProfile,
     BrandTerm,
     Campaign,
+    ChannelProfile,
     Comment,
     ConsentRecord,
     ContentAtom,
     ContentVersion,
+    ConversionEvent,
     DirectMessage,
     DiscoveredSegmentCandidate,
     EpisodicNote,
@@ -1105,6 +1107,78 @@ def delete_segment(session: Session, actor: Member, name: str) -> BrandProfile:
     return brand
 
 
+# --- Channel registry: the platforms this tenant actually operates ---
+
+
+def list_channels(session: Session, actor: Member) -> list[ChannelProfile]:
+    return list(
+        session.exec(
+            select(ChannelProfile)
+            .where(ChannelProfile.tenant_id == actor.tenant_id)
+            .order_by(ChannelProfile.platform)
+        ).all()
+    )
+
+
+def upsert_channel(
+    session: Session,
+    actor: Member,
+    *,
+    platform: str,
+    handle: str,
+    audience_note: str,
+    cadence: str,
+    active: bool,
+) -> ChannelProfile:
+    """Add or replace (by platform name) a channel the tenant operates (lead only)."""
+    _require_lead(actor)
+    existing = session.exec(
+        select(ChannelProfile).where(
+            ChannelProfile.tenant_id == actor.tenant_id,
+            ChannelProfile.platform == platform.strip(),
+        )
+    ).first()
+    channel = existing or ChannelProfile(
+        tenant_id=actor.tenant_id, platform=platform.strip()
+    )
+    channel.handle = handle
+    channel.audience_note = audience_note
+    channel.cadence = cadence
+    channel.active = active
+    session.add(channel)
+    session.commit()
+    session.refresh(channel)
+    return channel
+
+
+def update_channel(
+    session: Session,
+    actor: Member,
+    channel_id: str,
+    *,
+    handle: Optional[str] = None,
+    audience_note: Optional[str] = None,
+    cadence: Optional[str] = None,
+    active: Optional[bool] = None,
+) -> ChannelProfile:
+    _require_lead(actor)
+    channel = session.get(ChannelProfile, channel_id)
+    if channel is None or channel.tenant_id != actor.tenant_id:
+        raise HTTPException(status_code=404, detail="Channel not found.")
+    if handle is not None:
+        channel.handle = handle
+    if audience_note is not None:
+        channel.audience_note = audience_note
+    if cadence is not None:
+        channel.cadence = cadence
+    if active is not None:
+        channel.active = active
+    session.add(channel)
+    session.commit()
+    session.refresh(channel)
+    return channel
+
+
 _TERM_TYPES = ("approved", "avoid", "use_carefully")
 
 
@@ -1199,7 +1273,8 @@ def campaign_performance(
     }
 
     platforms: dict[str, dict] = {}
-    totals = {"impressions": 0, "clicks": 0, "signups": 0}
+    funnel_keys = ("impressions", "clicks", "signups", "activations", "paid")
+    totals = {key: 0 for key in funnel_keys}
     for post in posts:
         snapshot = session.exec(
             select(MetricSnapshot)
@@ -1211,17 +1286,24 @@ def campaign_performance(
                 "impressions": snapshot.impressions,
                 "clicks": snapshot.clicks,
                 "signups": snapshot.signups,
+                "activations": snapshot.activations,
+                "paid": snapshot.paid,
                 "source": snapshot.source,
             }
         else:
             metrics = mock_metrics(post.id)
+        # First-party S2S events beat mock/synced numbers: when the customer's
+        # backend has posted real signup/activation/paid events for this post's
+        # UTM content id, those counts are the truth for the funnel stages.
+        events = _event_counts(session, post.tenant_id, post.asset_task_id[:8])
+        if events is not None:
+            metrics.update(events)
+            metrics["source"] = "events"
         group = platforms.setdefault(
             post.platform,
             {
                 "platform": post.platform,
-                "impressions": 0,
-                "clicks": 0,
-                "signups": 0,
+                **{key: 0 for key in funnel_keys},
                 "posts": [],
             },
         )
@@ -1236,10 +1318,31 @@ def campaign_performance(
                 **metrics,
             }
         )
-        for key in ("impressions", "clicks", "signups"):
+        for key in funnel_keys:
             group[key] += metrics[key]
             totals[key] += metrics[key]
     return campaign, list(platforms.values()), totals
+
+
+def _event_counts(
+    session: Session, tenant_id: str, utm_content: str
+) -> Optional[dict]:
+    """Signup/activation/paid counts from first-party ConversionEvents for one
+    UTM content id, or None when no events have arrived for it."""
+    rows = session.exec(
+        select(ConversionEvent).where(
+            ConversionEvent.tenant_id == tenant_id,
+            ConversionEvent.utm_content == utm_content,
+        )
+    ).all()
+    if not rows:
+        return None
+    counter = Counter(row.event for row in rows)
+    return {
+        "signups": counter.get("signup", 0),
+        "activations": counter.get("activation", 0),
+        "paid": counter.get("paid", 0),
+    }
 
 
 def record_metrics(
@@ -1250,6 +1353,8 @@ def record_metrics(
     impressions: int,
     clicks: int,
     signups: int,
+    activations: int = 0,
+    paid: int = 0,
 ) -> MetricSnapshot:
     """Manually record a performance snapshot for a post (lead only)."""
     _require_lead(actor)
@@ -1265,6 +1370,8 @@ def record_metrics(
         impressions=impressions,
         clicks=clicks,
         signups=signups,
+        activations=activations,
+        paid=paid,
     )
     session.add(snapshot)
     session.commit()
@@ -1335,6 +1442,115 @@ def run_incrementality(session: Session, actor: Member) -> dict:
 # --- Phase 14: the autonomous orchestrator (observe → decide → propose) ---
 
 
+# Anti-slop funnel for trend proposals: hard quota, adaptive throttle, expiry.
+# A proposal reaches the human only after safety veto → relevance gate → bridge
+# test → quota; the accept rate then feeds back into the quota (self-regulation).
+_TREND_QUOTA_FULL = 3
+_TREND_QUOTA_THROTTLED = 1
+_TREND_MIN_ACCEPT_RATE = 0.3
+_TREND_MIN_DECIDED_FOR_THROTTLE = 4
+_TREND_EXPIRY_HOURS = 72
+_TREND_MIN_FIT_SCORE = 70  # base 55 + ≥1 brand keyword
+
+
+def _trend_quota(session: Session, tenant_id: str) -> int:
+    """Daily proposal budget, throttled when the lead keeps ignoring trend picks."""
+    decided = list(
+        session.exec(
+            select(PlannedAction)
+            .where(
+                PlannedAction.tenant_id == tenant_id,
+                PlannedAction.type == "draft_trend",
+                or_(
+                    PlannedAction.status == "accepted",
+                    PlannedAction.status == "ignored",
+                ),
+            )
+            .order_by(PlannedAction.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
+    )[:10]
+    if len(decided) >= _TREND_MIN_DECIDED_FOR_THROTTLE:
+        rate = sum(1 for a in decided if a.status == "accepted") / len(decided)
+        if rate < _TREND_MIN_ACCEPT_RATE:
+            return _TREND_QUOTA_THROTTLED
+    return _TREND_QUOTA_FULL
+
+
+def _trend_bridge(angle: str, brand: Optional[BrandProfile]) -> Optional[str]:
+    """The 'why us, why now' line a trend proposal must carry. No credible
+    bridge (the brand has nothing concrete to attach) → the proposal is dropped
+    rather than published as a generic take."""
+    if brand is None:
+        return None
+    hook = (brand.value_proposition or "").strip()
+    if not hook:
+        hook = next((p for p in (brand.approved_phrases or []) if p.strip()), "")
+    if not hook:
+        return None
+    return f"Why us, why now: connect it to {hook}."
+
+
+def _trend_proposals(session: Session, actor: Member) -> list[tuple]:
+    """draft_trend proposals from the newest campaign's timely angles, funneled."""
+    campaign = session.exec(
+        select(Campaign)
+        .where(Campaign.tenant_id == actor.tenant_id, Campaign.status == "active")
+        .order_by(Campaign.created_at.desc())  # type: ignore[attr-defined]
+    ).first()
+    if campaign is None:
+        return []
+    planning = _planning_task(session, campaign.id)
+    angles = ((planning.output or {}).get("timely_angles") if planning else None) or []
+    brand = get_brand(session, actor)
+    # Relevance basis = brand vocabulary + what this campaign is actually about;
+    # an angle must touch one of these to clear the fit gate.
+    brief = campaign.brief or {}
+    keywords = _brand_keywords(brand) + [
+        w
+        for field in ("product_name", "target_audience", "marketing_goal")
+        for w in str(brief.get(field, "")).split()
+        if len(w) > 3
+    ]
+    quota = _trend_quota(session, actor.tenant_id)
+
+    proposals: list[tuple] = []
+    for angle in angles:
+        if len(proposals) >= quota:
+            break
+        verdict = angle_safety(angle, keywords)
+        if not verdict["safe"] or verdict["score"] < _TREND_MIN_FIT_SCORE:
+            continue
+        bridge = _trend_bridge(angle, brand)
+        if bridge is None:
+            continue
+        proposals.append((
+            "draft_trend",
+            f"Ride a live trend: {angle[:70]}",
+            f"Fit {verdict['score']}/100. {bridge}",
+            55,
+            {"campaign_id": campaign.id, "angle": angle, "channel": "X / Twitter"},
+        ))
+    return proposals
+
+
+def _expire_stale_trend_actions(session: Session, tenant_id: str) -> None:
+    """A stale newsjack is worse than none: proposed trend actions past the
+    expiry window flip to 'expired' instead of lingering in the inbox."""
+    cutoff = datetime.now(timezone.utc).timestamp() - _TREND_EXPIRY_HOURS * 3600
+    for a in session.exec(
+        select(PlannedAction).where(
+            PlannedAction.tenant_id == tenant_id,
+            PlannedAction.type == "draft_trend",
+            PlannedAction.status == "proposed",
+        )
+    ).all():
+        created = a.created_at.replace(tzinfo=timezone.utc) if a.created_at.tzinfo is None else a.created_at
+        if created.timestamp() < cutoff:
+            a.status = "expired"
+            session.add(a)
+    session.commit()
+
+
 def _planned_dict(a: PlannedAction) -> dict:
     return {
         "id": a.id, "type": a.type, "title": a.title, "rationale": a.rationale,
@@ -1344,6 +1560,7 @@ def _planned_dict(a: PlannedAction) -> dict:
 
 def list_planned_actions(session: Session, actor: Member) -> list[dict]:
     _require_lead(actor)
+    _expire_stale_trend_actions(session, actor.tenant_id)
     rows = session.exec(
         select(PlannedAction)
         .where(
@@ -1417,6 +1634,10 @@ def plan_actions(session: Session, actor: Member) -> list[dict]:
             40, {},
         ))
 
+    # Always-on brand loop: quality-funneled trend proposals (quota + throttle
+    # + bridge test applied inside).
+    proposals.extend(_trend_proposals(session, actor))
+
     for typ, title, rationale, prio, payload in proposals:
         session.add(
             PlannedAction(
@@ -1436,12 +1657,22 @@ def _get_planned_action(session: Session, actor: Member, action_id: str) -> Plan
 
 
 def accept_action(session: Session, actor: Member, action_id: str) -> list[dict]:
-    """Accept a proposal: auto-run the safe ones (causal de-bias), mark the rest accepted
-    (the human acts in the matching tab)."""
+    """Accept a proposal: auto-run the safe ones (causal de-bias, trend draft
+    creation — the draft is still review-gated), mark the rest accepted (the
+    human acts in the matching tab)."""
     _require_lead(actor)
     a = _get_planned_action(session, actor, action_id)
     if a.type == "run_incrementality":
         run_incrementality(session, actor)
+    elif a.type == "draft_trend":
+        payload = a.payload or {}
+        create_trend_draft(
+            session,
+            actor,
+            payload.get("campaign_id", ""),
+            angle=payload.get("angle", ""),
+            channel=payload.get("channel", "X / Twitter"),
+        )
     a.status = "accepted"
     session.add(a)
     session.commit()

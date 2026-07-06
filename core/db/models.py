@@ -334,17 +334,81 @@ class Post(SQLModel, table=True):
 
 
 class MetricSnapshot(SQLModel, table=True):
-    """A point-in-time performance reading for a published post."""
+    """A point-in-time performance reading for a published post.
+
+    The funnel is B2B-SaaS shaped (first-party attribution): impressions →
+    clicks → signups → activations (e.g. API key created / first run) → paid.
+    """
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     tenant_id: str = Field(index=True, foreign_key="tenant.id")
     campaign_id: str = Field(index=True, foreign_key="campaign.id")
     post_id: str = Field(index=True, foreign_key="post.id")
-    source: str = "manual"  # manual | website | esp | github | ...
+    source: str = "manual"  # manual | website | esp | github | events | ...
     impressions: int = 0
     clicks: int = 0
     signups: int = 0
+    activations: int = 0
+    paid: int = 0
     captured_at: datetime = Field(default_factory=_now)
+
+
+class ChannelProfile(SQLModel, table=True):
+    """A platform the tenant actually operates — the registry that grounds
+    per-platform task splitting.
+
+    The planner only assigns asset tasks to ``active`` channels, and the
+    copywriter context carries the channel's handle/audience note plus its
+    recent post history, so per-platform content stays consistent and
+    continuous instead of starting from a blank page each time.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    platform: str  # matches the platform-spec channel name, e.g. "LinkedIn"
+    handle: str = ""  # @account / page URL the tenant publishes as
+    audience_note: str = ""  # who follows us here, what they respond to
+    cadence: str = ""  # e.g. "2x/week"
+    active: bool = True
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ExternalLink(SQLModel, table=True):
+    """A mapping from a local object to its counterpart in an external system
+    (Linear issue/project today; any OA tool tomorrow).
+
+    This is the idempotency backbone of outbound sync: re-syncing updates the
+    linked external object instead of creating a duplicate.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    provider: str  # linear | ...
+    local_kind: str  # campaign | task
+    local_id: str = Field(index=True)
+    external_id: str
+    url: Optional[str] = None
+    created_at: datetime = Field(default_factory=_now)
+    updated_at: datetime = Field(default_factory=_now)
+
+
+class ConversionEvent(SQLModel, table=True):
+    """A first-party conversion event delivered server-to-server (S2S postback
+    style — no third-party cookies). The customer's backend posts
+    signup/activation/paid events tagged with the UTM content id ReelMatrix
+    minted; real events override mock/synced metrics for the matching post."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    tenant_id: str = Field(index=True, foreign_key="tenant.id")
+    event: str  # signup | activation | paid
+    utm_campaign: str = ""
+    utm_source: str = ""
+    utm_medium: str = ""
+    utm_content: str = Field(default="", index=True)  # == Post.asset_task_id[:8]
+    click_id: str = ""
+    occurred_at: datetime = Field(default_factory=_now)
+    payload: dict = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=_now)
 
 
 class EpisodicNote(SQLModel, table=True):

@@ -21,7 +21,9 @@ class AttributionRow:
     utm_medium: str = ""
     sessions: int = 0
     clicks: int = 0
-    conversions: int = 0
+    conversions: int = 0  # signups (top of the product funnel)
+    activations: int = 0  # product-qualified: API key created / first run
+    paid: int = 0  # paid conversions
     revenue: float = 0.0
 
 

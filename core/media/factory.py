@@ -12,16 +12,27 @@ from core.media.mock import MockMediaProvider, MockVisionProvider
 def create_media_provider(name: str = "mock") -> MediaProvider:
     if name == "mock":
         return MockMediaProvider()
+    if name == "dashscope":
+        from core.media.dashscope import DashScopeMediaProvider
+
+        return DashScopeMediaProvider()
+    if name == "zimage":
+        from core.media.zimage import ZImageMediaProvider
+
+        return ZImageMediaProvider()
     raise ValueError(
-        f"Unsupported media provider '{name}'. Available: mock "
-        "(local/hosted image models plug in here)."
+        f"Unsupported media provider '{name}'. Available: mock, dashscope "
+        "(Qwen-Image), zimage (self-hosted Z-Image-Turbo)."
     )
 
 
 def create_vision_provider(name: str = "mock") -> VisionProvider:
     if name == "mock":
         return MockVisionProvider()
+    if name == "dashscope":
+        from core.media.dashscope import DashScopeVisionProvider
+
+        return DashScopeVisionProvider()
     raise ValueError(
-        f"Unsupported vision provider '{name}'. Available: mock "
-        "(a VLM like Qwen-VL plugs in here)."
+        f"Unsupported vision provider '{name}'. Available: mock, dashscope (Qwen3-VL)."
     )

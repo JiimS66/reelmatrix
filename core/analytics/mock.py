@@ -23,6 +23,8 @@ class MockGA4Source(AnalyticsSource):
                     sessions=metrics["clicks"],
                     clicks=metrics["clicks"],
                     conversions=metrics["signups"],
+                    activations=metrics["activations"],
+                    paid=metrics["paid"],
                     revenue=metrics["signups"] * 49.0,
                 )
             )

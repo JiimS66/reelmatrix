@@ -16,6 +16,7 @@ from core.db.engine import get_engine, init_db
 from core.db.models import (
     BrandProfile,
     BrandTerm,
+    ChannelProfile,
     Member,
     MemberKind,
     MemberRole,
@@ -208,6 +209,74 @@ def _get_or_create_member(
     return member
 
 
+# The platforms this tenant actually operates — grounds per-platform task
+# splitting. Inactive rows document a channel exists but keep the AI off it.
+CHANNELS = [
+    {
+        "platform": "LinkedIn",
+        "handle": "linkedin.com/company/testsprite",
+        "audience_note": "Eng leaders + founders; responds to evidence-led narrative posts",
+        "cadence": "2x/week",
+        "active": True,
+    },
+    {
+        "platform": "X / Twitter",
+        "handle": "@testsprite",
+        "audience_note": "AI-native devs; threads with runnable examples do best",
+        "cadence": "3x/week",
+        "active": True,
+    },
+    {
+        "platform": "Email",
+        "handle": "changelog@testsprite.com",
+        "audience_note": "Signed-up developers + trial leads; plain-text tone",
+        "cadence": "1x/week",
+        "active": True,
+    },
+    {
+        "platform": "Blog",
+        "handle": "testsprite.com/blog",
+        "audience_note": "SEO + deep-dive readers; technical launch posts",
+        "cadence": "2x/month",
+        "active": True,
+    },
+    {
+        "platform": "Community",
+        "handle": "discord.gg/testsprite",
+        "audience_note": "Power users; launch notes and honest changelogs",
+        "cadence": "as it ships",
+        "active": True,
+    },
+    {
+        "platform": "GitHub / CLI",
+        "handle": "github.com/testsprite",
+        "audience_note": "CLI users; quickstart copy, zero marketing tone",
+        "cadence": "per release",
+        "active": True,
+    },
+    {
+        "platform": "Landing Page",
+        "handle": "testsprite.com",
+        "audience_note": "Hero + section copy; coordinate with the web team",
+        "cadence": "per launch",
+        "active": True,
+    },
+]
+
+
+def _get_or_create_channels(session: Session, tenant_id: str) -> None:
+    existing = {
+        profile.platform
+        for profile in session.exec(
+            select(ChannelProfile).where(ChannelProfile.tenant_id == tenant_id)
+        ).all()
+    }
+    for spec in CHANNELS:
+        if spec["platform"] in existing:
+            continue
+        session.add(ChannelProfile(tenant_id=tenant_id, **spec))
+
+
 # Typed terminology (richer than forbidden_words): avoid terms carry a preferred swap.
 TERMS = [
     {"term": "utilize", "term_type": "avoid", "replacement": "use"},
@@ -306,6 +375,7 @@ def seed_testsprite(session: Session) -> Tenant:
     session.flush()  # tenant.id is set, but ensure rows exist before the brand FK
     _get_or_create_brand_profile(session, tenant.id)
     _get_or_create_brand_terms(session, tenant.id)
+    _get_or_create_channels(session, tenant.id)
 
     session.commit()
     return tenant

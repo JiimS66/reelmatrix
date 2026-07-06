@@ -47,14 +47,22 @@ def utm_url(campaign: Campaign, task: Task) -> str:
 
 
 def mock_metrics(seed_id: str) -> dict:
-    """Deterministic placeholder metrics derived from a stable id (e.g. post id)."""
+    """Deterministic placeholder metrics derived from a stable id (e.g. post id).
+
+    Funnel-shaped for a B2B dev tool: impressions → clicks → signups →
+    activations (API key created / first run) → paid.
+    """
     digest = int(sha256(seed_id.encode()).hexdigest(), 16)
     impressions = 1200 + digest % 6000
     clicks = round(impressions * (0.02 + (digest % 50) / 1000.0))  # ~2-7% CTR
     signups = round(clicks * (0.04 + (digest % 30) / 1000.0))  # ~4-7% conversion
+    activations = round(signups * (0.35 + (digest % 20) / 100.0))  # ~35-55% activate
+    paid = round(activations * (0.10 + (digest % 10) / 100.0))  # ~10-20% go paid
     return {
         "impressions": impressions,
         "clicks": clicks,
         "signups": signups,
+        "activations": activations,
+        "paid": paid,
         "source": "mock",
     }

@@ -59,6 +59,8 @@ async def sync_campaign_analytics(
                 impressions=row.sessions,
                 clicks=row.clicks,
                 signups=row.conversions,
+                activations=row.activations,
+                paid=row.paid,
             )
         )
         updated += 1

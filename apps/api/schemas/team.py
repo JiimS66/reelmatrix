@@ -141,6 +141,42 @@ class SegmentRequest(BaseModel):
     reach_tactics: list[str] = []
 
 
+class ChannelRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    platform: str
+    handle: str
+    audience_note: str
+    cadence: str
+    active: bool
+
+
+class ChannelRequest(BaseModel):
+    platform: str
+    handle: str = ""
+    audience_note: str = ""
+    cadence: str = ""
+    active: bool = True
+
+    @field_validator("platform")
+    @classmethod
+    def _non_empty_platform(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("platform cannot be empty")
+        return cleaned
+
+
+class ChannelUpdateRequest(BaseModel):
+    """Reconfigure a channel. Every field is optional; omitted = unchanged."""
+
+    handle: Optional[str] = None
+    audience_note: Optional[str] = None
+    cadence: Optional[str] = None
+    active: Optional[bool] = None
+
+
 class CampaignRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -319,6 +355,8 @@ class MetricsRequest(BaseModel):
     impressions: int = 0
     clicks: int = 0
     signups: int = 0
+    activations: int = 0
+    paid: int = 0
 
 
 class PostPerformance(BaseModel):
@@ -331,6 +369,8 @@ class PostPerformance(BaseModel):
     impressions: int
     clicks: int
     signups: int
+    activations: int = 0
+    paid: int = 0
     source: str
 
 
@@ -339,6 +379,8 @@ class PlatformPerformance(BaseModel):
     impressions: int
     clicks: int
     signups: int
+    activations: int = 0
+    paid: int = 0
     posts: list[PostPerformance]
 
 
@@ -346,7 +388,31 @@ class PerformanceData(BaseModel):
     campaign_id: str
     platforms: list[PlatformPerformance]
     totals: dict[str, int]
+    # Honesty label: what the numbers are, not what we wish they were.
+    attribution_model: str = "last-touch · modeled"
     note: str
+
+
+class ExternalLinkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    local_kind: str
+    local_id: str
+    external_id: str
+    url: Optional[str]
+
+
+class ConversionEventRequest(BaseModel):
+    """One first-party S2S conversion event from the customer's backend."""
+
+    event: Literal["signup", "activation", "paid"]
+    utm_content: str = ""
+    utm_campaign: str = ""
+    utm_source: str = ""
+    utm_medium: str = ""
+    click_id: str = ""
+    payload: dict = {}
 
 
 # --- Org configuration (the per-tenant digital-employee roster) ---

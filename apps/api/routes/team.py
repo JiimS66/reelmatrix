@@ -26,6 +26,9 @@ from apps.api.schemas.team import (
     BoardRead,
     BrandRead,
     CampaignRead,
+    ChannelRead,
+    ChannelRequest,
+    ChannelUpdateRequest,
     CommentRead,
     CommentRequest,
     CreateCampaignRequest,
@@ -486,12 +489,18 @@ def plan_actions_route(
 
 
 @router.post("/actions/{action_id}/accept", response_model=list[PlannedActionRead])
-def accept_action_route(
+async def accept_action_route(
     action_id: str,
     actor: Member = Depends(get_current_member),
     session: Session = Depends(get_session),
 ) -> list[PlannedActionRead]:
-    return [PlannedActionRead(**a) for a in team_service.accept_action(session, actor, action_id)]
+    action = team_service._get_planned_action(session, actor, action_id)
+    run_campaign_id = (action.payload or {}).get("campaign_id") if action.type == "draft_trend" else None
+    result = [PlannedActionRead(**a) for a in team_service.accept_action(session, actor, action_id)]
+    if run_campaign_id:
+        # A trend draft was just created — render it now (still review-gated).
+        await TaskRunner(session).run_ready_tasks(run_campaign_id)
+    return result
 
 
 @router.post("/actions/{action_id}/ignore", response_model=list[PlannedActionRead])
@@ -1112,10 +1121,66 @@ def record_metrics(
         impressions=payload.impressions,
         clicks=payload.clicks,
         signups=payload.signups,
+        activations=payload.activations,
+        paid=payload.paid,
     )
     return _performance_response(
         session, actor, snapshot.campaign_id, note="Manual metrics recorded."
     )
+
+
+# --- Channel registry: which platforms this tenant actually operates ---
+
+
+@router.get("/channels", response_model=list[ChannelRead])
+def list_channels_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
+
+
+@router.post("/channels", response_model=list[ChannelRead])
+def upsert_channel_route(
+    payload: ChannelRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    team_service.upsert_channel(
+        session,
+        actor,
+        platform=payload.platform,
+        handle=payload.handle,
+        audience_note=payload.audience_note,
+        cadence=payload.cadence,
+        active=payload.active,
+    )
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
+
+
+@router.post("/channels/{channel_id}", response_model=list[ChannelRead])
+def update_channel_route(
+    channel_id: str,
+    payload: ChannelUpdateRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    team_service.update_channel(
+        session,
+        actor,
+        channel_id,
+        handle=payload.handle,
+        audience_note=payload.audience_note,
+        cadence=payload.cadence,
+        active=payload.active,
+    )
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
 
 
 @router.post("/strategy/draft", response_model=StrategyDraftRead)

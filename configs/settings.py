@@ -49,6 +49,19 @@ class AppSettings(BaseSettings):
     local_llm_api_key: Optional[str] = None
     local_llm_model: Optional[str] = "llama3.1"
 
+    # Hot-topic feed behind core/trends (mock | hackernews). The HN source is a
+    # free keyless API — safe to enable in any deployment.
+    trend_source: str = "mock"
+
+    # Visual generation/understanding behind core/media.
+    # media: mock | dashscope (Qwen-Image via DashScope) | zimage (local Z-Image-Turbo)
+    # vision: mock | dashscope (Qwen3-VL via the OpenAI-compatible endpoint)
+    media_provider: str = "mock"
+    vision_provider: str = "mock"
+    dashscope_image_model: str = "qwen-image"
+    dashscope_vl_model: str = "qwen3-vl-plus"
+    zimage_base_url: Optional[str] = None  # e.g. http://localhost:9800
+
     @field_validator("llm_provider", mode="before")
     @classmethod
     def normalize_provider(cls, value: object) -> str:
