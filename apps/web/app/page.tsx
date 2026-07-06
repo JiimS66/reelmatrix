@@ -17,6 +17,7 @@ import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { HomeView } from "@/components/workspace/HomeView";
 import { LaunchTimeline } from "@/components/workspace/LaunchTimeline";
 import { MonthCalendar } from "@/components/workspace/MonthCalendar";
+import { SiteOnboardCard } from "@/components/workspace/SiteOnboardCard";
 import { ExperimentsPanel } from "@/components/workspace/ExperimentsPanel";
 import { GrowthInsightsCard } from "@/components/workspace/GrowthInsightsCard";
 import { BudgetOptimizerPanel } from "@/components/workspace/BudgetOptimizerPanel";
@@ -448,6 +449,11 @@ export default function Workspace() {
         <button className="btn-line px-3 py-1.5 text-xs" onClick={() => setWizard(false)}>
           ← Back to my desk
         </button>
+      )}
+      {/* Cold start: one URL prefills channels + a brand draft before the
+          strategy conversation even begins. */}
+      {campaignList.length === 0 && isLead && (
+        <SiteOnboardCard memberId={currentId} />
       )}
       <StrategyAdvisorPanel
         memberId={currentId}
@@ -971,6 +977,7 @@ export default function Workspace() {
               )
             ) : view === "brand" ? (
               <div className="space-y-5">
+                {!!isLead && <SiteOnboardCard memberId={currentId} />}
                 <BrandNarrativeCard memberId={currentId} canManage={!!isLead} />
                 <ChannelsPanel memberId={currentId} canManage={!!isLead} />
                 <IcpMarketPanel memberId={currentId} canManage={!!isLead} />

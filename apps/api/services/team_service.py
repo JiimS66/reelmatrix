@@ -2652,11 +2652,50 @@ def import_historical(session: Session, actor: Member, rows: list[dict]) -> dict
     return {"imported": len(posts), "insights": get_growth_insights(session, actor)}
 
 
-def ingest_brand_knowledge(session: Session, actor: Member, *, text: str) -> dict:
-    """Extract structured brand knowledge from docs/site text and apply it to the brand
-    (voice / value-prop / pillars / tone). Lead only."""
+def onboard_from_url(session: Session, actor: Member, *, url: str, apply: bool) -> dict:
+    """One-URL onboarding: fetch the company site, prefill the channel registry
+    from its REAL social links (deterministic), and draft brand voice/ICP from
+    the visible text (via the ImportProvider extractor). Lead only."""
+    from core.ingest.web import fetch_site
+
     _require_lead(actor)
-    draft = create_import_provider().extract_brand(text or "")
+    try:
+        text, detected = fetch_site(url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # httpx errors: the site is down/unreachable
+        raise HTTPException(
+            status_code=502, detail=f"Could not fetch the site ({type(exc).__name__})."
+        ) from exc
+
+    draft = create_import_provider().extract_brand(text)
+    channels = [{"platform": c.platform, "handle": c.handle} for c in detected]
+    if apply:
+        _apply_brand_draft(session, actor, draft)
+        for channel in detected:
+            upsert_channel(
+                session,
+                actor,
+                platform=channel.platform,
+                handle=channel.handle,
+                audience_note="",
+                cadence="",
+                active=True,
+            )
+    return {
+        "draft": {
+            "voice": draft.voice,
+            "value_proposition": draft.value_proposition,
+            "messaging_pillars": draft.messaging_pillars,
+            "tone_rules": draft.tone_rules,
+        },
+        "channels": channels,
+        "applied": apply,
+    }
+
+
+def _apply_brand_draft(session: Session, actor: Member, draft) -> None:
+    """Commit a BrandDraft's non-empty fields onto the live BrandProfile."""
     brand = get_brand(session, actor)
     if brand is None:
         brand = BrandProfile(tenant_id=actor.tenant_id)
@@ -2679,6 +2718,14 @@ def ingest_brand_knowledge(session: Session, actor: Member, *, text: str) -> dic
             profile="", platforms=seg.get("platforms", []), pain_points=seg.get("pain_points", []),
             value_props=[], objections=[], reach_tactics=[],
         )
+
+
+def ingest_brand_knowledge(session: Session, actor: Member, *, text: str) -> dict:
+    """Extract structured brand knowledge from docs/site text and apply it to the brand
+    (voice / value-prop / pillars / tone). Lead only."""
+    _require_lead(actor)
+    draft = create_import_provider().extract_brand(text or "")
+    _apply_brand_draft(session, actor, draft)
     return {
         "draft": {
             "voice": draft.voice, "value_proposition": draft.value_proposition,

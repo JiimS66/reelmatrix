@@ -796,6 +796,32 @@ class BrandKnowledgeResult(BaseModel):
     applied: bool
 
 
+class OnboardFromUrlRequest(BaseModel):
+    url: str
+    apply: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def _non_empty_url(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise ValueError("url cannot be empty")
+        if not cleaned.startswith(("http://", "https://")):
+            cleaned = f"https://{cleaned}"
+        return cleaned
+
+
+class DetectedChannelRead(BaseModel):
+    platform: str
+    handle: str
+
+
+class OnboardFromUrlResult(BaseModel):
+    draft: BrandDraftRead
+    channels: list[DetectedChannelRead]
+    applied: bool
+
+
 class DeploymentStatus(BaseModel):
     profile: str
     providers: dict

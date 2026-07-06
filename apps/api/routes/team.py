@@ -64,6 +64,8 @@ from apps.api.schemas.team import (
     CreatePillarRequest,
     BrandKnowledgeRequest,
     BrandKnowledgeResult,
+    OnboardFromUrlRequest,
+    OnboardFromUrlResult,
     ConsentRequest,
     DeploymentStatus,
     ImportHistoricalRequest,
@@ -849,6 +851,19 @@ def import_brand_knowledge_route(
 ) -> BrandKnowledgeResult:
     return BrandKnowledgeResult(
         **team_service.ingest_brand_knowledge(session, actor, text=payload.text)
+    )
+
+
+@router.post("/brand/onboard-from-url", response_model=OnboardFromUrlResult)
+def onboard_from_url_route(
+    payload: OnboardFromUrlRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OnboardFromUrlResult:
+    """One-URL setup: real social links prefill the channel registry; the page
+    text drafts brand voice/ICP through the ImportProvider extractor."""
+    return OnboardFromUrlResult(
+        **team_service.onboard_from_url(session, actor, url=payload.url, apply=payload.apply)
     )
 
 

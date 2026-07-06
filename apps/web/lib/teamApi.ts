@@ -1277,6 +1277,28 @@ export interface UsageSummary {
 export const getUsage = (memberId: string) =>
   request<UsageSummary>("/api/v1/team/usage", { memberId });
 
+export interface OnboardFromUrlResult {
+  draft: {
+    voice: string;
+    value_proposition: string;
+    messaging_pillars: { name: string }[];
+    tone_rules: string[];
+  };
+  channels: { platform: string; handle: string }[];
+  applied: boolean;
+}
+
+/** One-URL onboarding: prefill channels (real links) + brand draft (page copy). */
+export const onboardFromUrl = (
+  memberId: string,
+  body: { url: string; apply?: boolean },
+) =>
+  request<OnboardFromUrlResult>("/api/v1/team/brand/onboard-from-url", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
 /* ── Channel registry ───────────────────────────────────────────────────── */
 
 export const listChannels = (memberId: string) =>
