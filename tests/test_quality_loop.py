@@ -182,6 +182,47 @@ def test_campaign_gets_flywheel_bonus_post() -> None:
     assert any("Flywheel" in str(t["params"].get("flywheel_boost", "")) for t in linkedin)
 
 
+# --- Seed auto-pins the auditor to the second family ---------------------------
+
+
+def test_seed_pins_auditor_when_siliconflow_key_present(monkeypatch: Any) -> None:
+    get_settings.cache_clear()
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "sk-test")
+    try:
+        engine = create_engine(
+            "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        )
+        from core.db.engine import init_db as _init
+
+        _init(engine)
+        with Session(engine) as session:
+            seed_testsprite(session)
+            auditor = next(
+                m for m in session.exec(select(Member)).all()
+                if (m.agent_config or {}).get("role") == "auditor"
+            )
+            assert (auditor.agent_config or {}).get("provider") == "siliconflow"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_seed_leaves_auditor_unpinned_without_key() -> None:
+    get_settings.cache_clear()
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    from core.db.engine import init_db as _init
+
+    _init(engine)
+    with Session(engine) as session:
+        seed_testsprite(session)
+        auditor = next(
+            m for m in session.exec(select(Member)).all()
+            if (m.agent_config or {}).get("role") == "auditor"
+        )
+        assert "provider" not in (auditor.agent_config or {})
+
+
 # --- Review notification webhook ----------------------------------------------
 
 
