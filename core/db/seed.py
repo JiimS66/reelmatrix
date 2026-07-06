@@ -353,7 +353,26 @@ def seed_testsprite(session: Session) -> Tenant:
         )
         by_name[member.display_name] = member.id
 
+    # Cross-model audit needs the judge on a DIFFERENT family than the writer.
+    # When a SiliconFlow-slot key is configured (SiliconFlow itself, or Bailian's
+    # OpenAI-compatible DeepSeek endpoint via SILICONFLOW_BASE_URL), the seeded
+    # Auditor is pinned to it automatically — otherwise every fresh reseed would
+    # silently drop the decorrelation until someone remembered the Team tab.
+    from configs.settings import get_settings
+
+    auditor_provider = (
+        "siliconflow" if (get_settings().siliconflow_api_key or "").strip() else None
+    )
+
     for agent in AI_AGENTS:
+        config = {
+            "agent_kind": agent["agent_kind"],
+            "role": agent["agent_role"],
+        }
+        # Other AI employees follow the deployment's LLM_PROVIDER unless the org
+        # explicitly reconfigures them (Team tab).
+        if agent["agent_role"] == "auditor" and auditor_provider:
+            config["provider"] = auditor_provider
         member = _get_or_create_member(
             session,
             tenant_id=tenant.id,
@@ -363,12 +382,7 @@ def seed_testsprite(session: Session) -> Tenant:
             job_description=agent["job_description"],
             reports_to=by_name.get(agent["reports_to"]) if agent["reports_to"] else None,
             handles_kinds=_kinds(agent),
-            # No pinned provider: AI employees follow the deployment's LLM_PROVIDER
-            # unless the org explicitly reconfigures one (Team tab).
-            agent_config={
-                "agent_kind": agent["agent_kind"],
-                "role": agent["agent_role"],
-            },
+            agent_config=config,
         )
         by_name[member.display_name] = member.id
 
