@@ -9,9 +9,12 @@ reconstructed afterwards.
 
 | | |
 | --- | --- |
-| TestSprite account | `lupengcheng1729@gmail.com` |
-| Frontend project | `reelmatrix` · id `c02a8edd-8926-4dd3-9f0b-f62b114563c8` |
-| Backend project | `reelmatrix-api` · id `8f1a9a08-31f1-4bab-91e3-8d51627bcf40` |
+| TestSprite account (Account A) | `lupengcheng1729@gmail.com` |
+| Frontend project (Account A) | `reelmatrix` · id `c02a8edd-8926-4dd3-9f0b-f62b114563c8` |
+| Backend project (Account A) | `reelmatrix-api` · id `8f1a9a08-31f1-4bab-91e3-8d51627bcf40` |
+| TestSprite account (Account B) | `JiimSmith66@outlook.com` |
+| Frontend project (Account B) | `ReelMatrix` · id `0e9b9bee-2ca7-4553-9706-3857a3e65289` |
+| Backend project (Account B) | `reelmatrix-api` · id `364babc2-b2b6-43e8-a6b2-4edd5f535e07` |
 | CLI version | `0.2.0` |
 | Live app | http://121.43.99.199:3000 (web) · http://121.43.99.199:8000 (API) |
 | Deploy marker | `GET /health` → `{status, commit}` — every rerun first verifies the fix is live |

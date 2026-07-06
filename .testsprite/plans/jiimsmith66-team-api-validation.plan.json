@@ -1,0 +1,16 @@
+{
+  "projectId": "364babc2-b2b6-43e8-a6b2-4edd5f535e07",
+  "type": "backend",
+  "name": "JiimSmith Team API rejects invalid input with 4xx",
+  "description": "Verify core Team API validation paths fail safely with JSON 4xx responses and do not leak cross-tenant or missing-resource data.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send GET {base_url}/api/v1/team/members and store the id of the member whose display_name is Adam (Lead)." },
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/strategy/sessions with header X-Member-Id set to the lead id and a payload missing the required inputs field or containing an invalid inputs shape." },
+    { "type": "assertion", "description": "Verify the response status is in the 4xx range, typically 422, with a JSON error detail, not a 5xx." },
+    { "type": "action", "description": "Send GET {base_url}/api/v1/team/campaigns/not-a-real-campaign-id/board with header X-Member-Id set to the lead id." },
+    { "type": "assertion", "description": "Verify the response is 404 or another clean 4xx with a JSON error body, not a 500." },
+    { "type": "action", "description": "Send GET {base_url}/api/v1/team/tasks/not-a-real-task-id with header X-Member-Id set to the lead id." },
+    { "type": "assertion", "description": "Verify the response is 404 or another clean 4xx with a JSON error body, not a 500." }
+  ]
+}

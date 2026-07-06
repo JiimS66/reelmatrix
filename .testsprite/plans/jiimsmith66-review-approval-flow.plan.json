@@ -1,0 +1,15 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith lead reviews and approves from the workspace",
+  "description": "With a seeded or generated campaign that has at least one reviewable item, verify that the lead can open the item from Home or the campaign board and approve it without publishing externally.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app as the default lead member." },
+    { "type": "assertion", "description": "Verify Home shows either review work, the Agent Inbox, or the all-caught-up empty state." },
+    { "type": "action", "description": "If Home has a To review or need-you item, open the first one. Otherwise go to Campaigns and open the first task in the In review column." },
+    { "type": "assertion", "description": "Verify the task detail panel opens and shows drafted output, status, assignee, checks, and available review actions." },
+    { "type": "action", "description": "If Approve is available, click Approve. If the task is already Approved or no reviewable task exists, leave the state unchanged and record the visible empty/approved state." },
+    { "type": "assertion", "description": "Verify the item leaves the review queue, the review count decreases, or the task appears with Approved/done status on the campaign board." }
+  ]
+}

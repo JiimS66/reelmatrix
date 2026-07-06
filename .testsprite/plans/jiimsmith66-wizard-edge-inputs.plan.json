@@ -1,0 +1,16 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith wizard edge inputs: empty, long, and non-Latin",
+  "description": "Verify that the current strategy wizard handles empty input, a long English idea, and a Chinese idea gracefully without crashes or layout breakage.",
+  "priority": "p2",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app and open the strategy wizard using New campaign from an idea." },
+    { "type": "assertion", "description": "Verify the wizard heading \"Let's think your strategy through\" is visible." },
+    { "type": "assertion", "description": "Verify that with an empty idea box the Think it through button is disabled or produces graceful validation, never a crash." },
+    { "type": "action", "description": "Paste a very long idea of roughly 150 words describing a fictional product, then click Think it through and wait for a draft or validation state." },
+    { "type": "assertion", "description": "Verify the draft or validation state renders with no overlapping text, clipped controls, error banner, or blank screen." },
+    { "type": "action", "description": "Start over or reopen the wizard, then enter this Chinese idea: 我做了一个帮助小团队自动验证 AI 生成代码的测试平台, and click Think it through." },
+    { "type": "assertion", "description": "Verify the advisor produces a structured draft with visible sections, and non-Latin input does not break the flow." }
+  ]
+}

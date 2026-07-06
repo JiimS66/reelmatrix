@@ -1,0 +1,18 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith Home desk and object-centric navigation",
+  "description": "Verify that the JiimSmith frontend project opens on the current Home workspace with object navigation, model badge, KPIs, and current lead desk areas.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app." },
+    { "type": "assertion", "description": "Verify the app lands on the Home view without errors, a blank screen, or a stuck loading state." },
+    { "type": "assertion", "description": "Verify the navigation shows exactly these business object views: Home, Campaigns, Brand, Team." },
+    { "type": "assertion", "description": "Verify a live model badge is visible in the top bar, for example \"live on mock (offline demo)\" or a real provider/model name." },
+    { "type": "assertion", "description": "Verify Home shows KPI tiles such as Active campaigns, Scheduled posts, and Approved." },
+    { "type": "assertion", "description": "Verify Home shows Start something with the \"New campaign from an idea\" action." },
+    { "type": "assertion", "description": "Verify Home shows the Agent Inbox area with either proposed next moves or the empty state asking the user to click Plan next moves." },
+    { "type": "action", "description": "Click Campaigns, Brand, Team, then Home." },
+    { "type": "assertion", "description": "Verify each view renders content without a crash, blank screen, or stuck loading state." }
+  ]
+}

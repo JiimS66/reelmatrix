@@ -1,0 +1,16 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith Agent Inbox plans and manages next moves",
+  "description": "Verify that the current Home Agent Inbox can request proposed next moves, reveal rationale, and keep Accept/Ignore actions usable without crashing.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app as the default lead member." },
+    { "type": "assertion", "description": "Verify the Home view shows \"Agent Inbox — proposed next moves\"." },
+    { "type": "action", "description": "Click \"Plan next moves ↻\" and wait for the request to finish." },
+    { "type": "assertion", "description": "Verify the inbox either shows proposed actions with priority meters or a clear no-proposals empty state; a blocked request, blank panel, or console-visible crash is a failure." },
+    { "type": "action", "description": "If proposed actions appear, click the \"why\" affordance on the first action." },
+    { "type": "assertion", "description": "Verify the rationale expands inline without changing pages." },
+    { "type": "assertion", "description": "Verify Accept and Ignore controls are visible for each proposed action and stay disabled only while an action is being processed." }
+  ]
+}

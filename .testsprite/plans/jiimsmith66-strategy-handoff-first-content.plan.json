@@ -51,11 +51,19 @@
     },
     {
       "type": "assertion",
+      "description": "While the handoff is running, accept a visible \"Your AI team is on it\" stage list as a valid progress state rather than a failure."
+    },
+    {
+      "type": "assertion",
       "description": "Verify that the page confirms the strategy was locked."
     },
     {
       "type": "assertion",
       "description": "Verify that a \"First content\" section appears with at least one drafted content item."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that an \"Open in workspace\" action is available once first content has been drafted."
     }
   ]
 }

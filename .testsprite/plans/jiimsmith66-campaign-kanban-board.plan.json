@@ -1,0 +1,19 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith campaign board shows the pipeline kanban",
+  "description": "With at least one seeded or previously created campaign, verify that a campaign opens on its Board with the current four pipeline columns, task owner stamps, timeline, calendar, and results tabs.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app and go to the Campaigns view." },
+    { "type": "action", "description": "Open the first campaign in the list. If no campaign exists, start one from Home with the New campaign from an idea flow first." },
+    { "type": "assertion", "description": "Verify the campaign header shows the Campaign label, campaign name, optional Avg score, Run AI, Copy pack, and Board/Calendar/Results tabs." },
+    { "type": "assertion", "description": "Verify the Board tab shows kanban columns named Plan, Draft, In review, and Approved." },
+    { "type": "assertion", "description": "Verify at least one card is visible on the board and that cards carry an owner through a member name, avatar stamp, or assignee chip." },
+    { "type": "assertion", "description": "Verify the launch timeline renders above the kanban when schedule data exists." },
+    { "type": "action", "description": "Switch to the Calendar tab." },
+    { "type": "assertion", "description": "Verify the month calendar and schedule/angle content render without errors." },
+    { "type": "action", "description": "Switch to the Results tab." },
+    { "type": "assertion", "description": "Verify the results view renders without errors; an empty-state message is acceptable, but a crash or blank screen is not." }
+  ]
+}

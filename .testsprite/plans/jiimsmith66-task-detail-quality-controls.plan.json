@@ -2,7 +2,7 @@
   "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
   "type": "frontend",
   "name": "Task detail shows content quality controls",
-  "description": "With a seeded or previously created campaign that has at least one task, verify that opening a task exposes the draft content, quality checks, and review controls.",
+  "description": "With a seeded or previously created campaign that has at least one task, verify that opening a task exposes the current output editor, quality checks, proofing, and review controls.",
   "priority": "p1",
   "planSteps": [
     {
@@ -31,7 +31,19 @@
     },
     {
       "type": "assertion",
-      "description": "Verify that review or improvement controls are visible, such as Approve, Apply AI improvement, Sync visual, Lock, or feedback controls."
+      "description": "Verify that review or improvement controls are visible when available, such as Approve, Request changes, Save edit, Submit, Apply AI improvement, Sync visual, Lock, or feedback controls."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that asset tasks expose editable Title, Body copy, Call to action, Visual, and Paid plan controls when those sections are available."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that non-asset tasks render structured output with an Advanced JSON fallback rather than only raw JSON."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that proofing metadata such as versions, annotations, comments, or AI original draft is visible when present."
     }
   ]
 }

@@ -1,0 +1,49 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Results view shows analytics and guarded publishing controls",
+  "description": "With at least one seeded or previously created campaign, verify that the Results tab renders the current attribution, modeled revenue, and integration controls without publishing anything.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app and go to the Campaigns view."
+    },
+    {
+      "type": "action",
+      "description": "Open the first campaign in the list, or use the campaign that is already active."
+    },
+    {
+      "type": "action",
+      "description": "Switch to the campaign's Results tab."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Results tab renders without a blank screen, browser error, or stuck loading state."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that Publish all and Sync GA4 controls are visible for the lead member, or that a clear no-published-posts empty state is visible."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that performance tiles are visible, including Impressions, Clicks, Signups, Activated, Paid, and Modeled pipeline when data exists."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the attribution sections render when data exists: Where signups come from, Funnel by platform, Which platform converts best, Momentum, and Modeled revenue by platform."
+    },
+    {
+      "type": "action",
+      "description": "If the Value per signup slider is visible, move it to a different value."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that Modeled pipeline and modeled revenue update after the Value per signup slider changes."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that Route wins to your stack shows Linear and Webhook options, and their send buttons remain disabled until a key or URL is entered."
+    }
+  ]
+}

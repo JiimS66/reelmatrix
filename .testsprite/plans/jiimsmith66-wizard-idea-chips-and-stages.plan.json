@@ -1,0 +1,20 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "JiimSmith wizard idea chips and staged refine loop",
+  "description": "Verify that the strategy wizard offers idea suggestions, shows staged thinking while drafting, supports audience/angle steering, and records the refine loop.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app and start a new campaign from an idea." },
+    { "type": "assertion", "description": "Verify suggestion chips are visible under the idea box, including one about an agentic testing platform or AI-generated code verification." },
+    { "type": "action", "description": "Click the first suggestion chip." },
+    { "type": "assertion", "description": "Verify the idea textarea is filled with the chip text." },
+    { "type": "action", "description": "Click Think it through and wait for the draft to finish." },
+    { "type": "assertion", "description": "Verify a staged thinking indicator appears while loading rather than only a frozen button." },
+    { "type": "assertion", "description": "Verify the draft shows What I heard, Who it's really for, Angles to stand out, Content pillars, and How we'll know it's working." },
+    { "type": "action", "description": "Click one audience candidate or positioning angle card." },
+    { "type": "assertion", "description": "Verify the clicked card is visibly selected or that the feedback box is prefilled with a steer based on the selected option." },
+    { "type": "action", "description": "Click Refine with this and wait for the refined draft." },
+    { "type": "assertion", "description": "Verify the How we got here section lists the turn and includes the submitted steer." }
+  ]
+}

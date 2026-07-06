@@ -1,0 +1,17 @@
+{
+  "projectId": "364babc2-b2b6-43e8-a6b2-4edd5f535e07",
+  "type": "backend",
+  "name": "JiimSmith Agent Inbox actions API proposes and updates next moves",
+  "description": "Verify the backend endpoints behind the Home Agent Inbox can list, plan, accept, and ignore proposed next moves with clean JSON responses.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send GET {base_url}/api/v1/team/members and store the id of the member whose display_name is Adam (Lead)." },
+    { "type": "action", "description": "Send GET {base_url}/api/v1/team/actions with header X-Member-Id set to the lead id." },
+    { "type": "assertion", "description": "Verify the response is 200 and the body is a JSON array, possibly empty." },
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/actions/plan with header X-Member-Id set to the lead id." },
+    { "type": "assertion", "description": "Verify the response is 200 and the body is a JSON array of proposed actions or an empty array." },
+    { "type": "assertion", "description": "For each returned action, verify id, type, title, rationale, priority, status, and payload fields are present." },
+    { "type": "action", "description": "If at least one proposed action is returned, send POST {base_url}/api/v1/team/actions/{action_id}/ignore with header X-Member-Id set to the lead id." },
+    { "type": "assertion", "description": "Verify ignore returns 200 with a JSON array and does not return a 500. If no action existed, treat the empty planned list as a valid no-op state." }
+  ]
+}

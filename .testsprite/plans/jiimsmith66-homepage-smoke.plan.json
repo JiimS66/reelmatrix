@@ -1,0 +1,29 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Home workspace smoke test",
+  "description": "Verify that the ReelMatrix workspace opens on Home, loads the object navigation, and shows the current lead desk surfaces.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page loads successfully without a browser error or blank screen."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the object navigation shows Home, Campaigns, Brand, and Team."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the top bar shows a live model badge such as \"live on mock (offline demo)\" or a real provider/model name."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Home view shows a Start something area with the \"New campaign from an idea\" action and the Agent Inbox area for proposed next moves."
+    }
+  ]
+}

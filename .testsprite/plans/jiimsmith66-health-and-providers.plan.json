@@ -1,0 +1,15 @@
+{
+  "projectId": "364babc2-b2b6-43e8-a6b2-4edd5f535e07",
+  "type": "backend",
+  "name": "JiimSmith health deploy marker and model catalog",
+  "description": "Verify that the JiimSmith backend project exposes the deployed health marker and exactly one default LLM provider.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send GET {base_url}/health." },
+    { "type": "assertion", "description": "Verify the response is 200 with JSON where status equals ok and commit is a non-empty string." },
+    { "type": "action", "description": "Send GET {base_url}/api/v1/llm/providers." },
+    { "type": "assertion", "description": "Verify the response is 200 and providers is a non-empty list." },
+    { "type": "assertion", "description": "Verify every provider has provider_id, display_name, model_name, configured, and is_default fields." },
+    { "type": "assertion", "description": "Verify exactly one provider has is_default set to true." }
+  ]
+}

@@ -27,11 +27,11 @@
     },
     {
       "type": "action",
-      "description": "Click Lock it - draft my first content and wait for the AI team handoff to complete."
+      "description": "Click \"Lock it → draft my first content\" and wait for the AI team handoff to complete, treating the \"Your AI team is on it\" stage list as an in-progress state."
     },
     {
       "type": "assertion",
-      "description": "Verify that the page confirms the strategy was locked and shows a First content section."
+      "description": "Verify that the page confirms the strategy was locked, shows a First content section, and exposes an Open in workspace action."
     },
     {
       "type": "action",
@@ -43,7 +43,7 @@
     },
     {
       "type": "action",
-      "description": "Open the first task card in Draft or In review that contains generated content."
+      "description": "Open the first generated asset task card in Draft, In review, or Approved. Prefer an item awaiting review when one exists."
     },
     {
       "type": "assertion",
@@ -51,11 +51,11 @@
     },
     {
       "type": "action",
-      "description": "Approve the task using the available Approve action."
+      "description": "If an Approve action is available, approve the task. If the task is already Approved, leave it unchanged and continue."
     },
     {
       "type": "assertion",
-      "description": "Verify that the task moves out of the review queue or appears in the Approved column."
+      "description": "Verify that the task moves out of the review queue or is visible in the Approved column/status."
     },
     {
       "type": "assertion",
