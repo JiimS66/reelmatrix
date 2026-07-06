@@ -1,5 +1,6 @@
+const RAW_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "http://localhost:8000";
+  RAW_BASE === undefined ? "http://localhost:8000" : RAW_BASE.replace(/\/$/, "");
 
 export type MemberKind = "human" | "ai";
 export type MemberRole = "lead" | "member";
