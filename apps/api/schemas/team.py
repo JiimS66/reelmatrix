@@ -393,6 +393,20 @@ class PerformanceData(BaseModel):
     note: str
 
 
+class UsageRow(BaseModel):
+    member_id: str
+    display_name: str
+    runs: int
+    tokens: int
+    providers: list[str]
+
+
+class UsageSummary(BaseModel):
+    rows: list[UsageRow]
+    total_runs: int
+    total_tokens: int
+
+
 class ExternalLinkRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

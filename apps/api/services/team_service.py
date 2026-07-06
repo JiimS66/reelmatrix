@@ -5,6 +5,8 @@ is scoped to the acting member's tenant. The runner (AI execution) is invoked
 from the route layer because it is async; this module stays synchronous.
 """
 
+import io
+import zipfile
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Optional
@@ -56,7 +58,7 @@ from core.db.models import (
 from configs.settings import get_settings
 from core.agents.roles import ROLES
 from core.content.scoring import content_score
-from core.content.tracking import mock_metrics
+from core.content.tracking import mock_metrics, utm_url
 from core.llm.base import BaseLLMClient
 from core.trends.safety import angle_safety
 from core.growth.experiments import design_variants, simulated_outcome
@@ -140,10 +142,19 @@ def _record_event(
 
 
 def record_episodic_note(session: Session, task: Task, *, kind: str, text: str) -> None:
-    """Append to the campaign's episodic memory (lead decisions/feedback)."""
+    """Append to the campaign's episodic memory (lead decisions/feedback),
+    scoped to the channel/segment the task belongs to so later injection can
+    prefer notes about the same channel."""
+    params = task.params or {}
     session.add(
         EpisodicNote(
-            tenant_id=task.tenant_id, campaign_id=task.campaign_id, kind=kind, text=text
+            tenant_id=task.tenant_id,
+            campaign_id=task.campaign_id,
+            kind=kind,
+            channel=str(params.get("channel", "")),
+            segment=str(params.get("segment", "")),
+            task_id=task.id,
+            text=text,
         )
     )
 
@@ -1105,6 +1116,104 @@ def delete_segment(session: Session, actor: Member, name: str) -> BrandProfile:
     session.commit()
     session.refresh(brand)
     return brand
+
+
+def build_copy_pack(session: Session, actor: Member, campaign_id: str) -> tuple[str, bytes]:
+    """The publish-last-mile bridge: every APPROVED post as a per-platform
+    Markdown file (copy + CTA + UTM link + scheduled date) in one zip — honest
+    about what we don't automate yet, and 5 minutes of human work to ship.
+
+    Returns (filename, zip bytes)."""
+    campaign = _get_campaign(session, actor, campaign_id)
+    tasks = [
+        t
+        for t in session.exec(
+            select(Task)
+            .where(Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET)
+            .order_by(Task.sequence)
+        ).all()
+        if t.status == TaskStatus.DONE and t.output
+    ]
+    if not tasks:
+        raise HTTPException(
+            status_code=400, detail="No approved posts yet — approve assets first."
+        )
+
+    buffer = io.BytesIO()
+    index_lines = [f"# {campaign.name} — copy pack", ""]
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as pack:
+        for task in tasks:
+            output = task.output or {}
+            channel = str((task.params or {}).get("channel", "General"))
+            safe_channel = "".join(c if c.isalnum() else "-" for c in channel).strip("-")
+            safe_title = "".join(
+                c if c.isalnum() else "-" for c in str(output.get("title", task.title))
+            ).strip("-")[:60]
+            body = "\n".join(
+                [
+                    f"# {output.get('title', task.title)}",
+                    "",
+                    f"- Channel: {channel}",
+                    f"- Scheduled: {task.due_date or 'unscheduled'}",
+                    f"- Tracking link (use THIS url so signups attribute back): "
+                    f"{utm_url(campaign, task)}",
+                    "",
+                    "## Copy",
+                    "",
+                    str(output.get("content", "")),
+                    "",
+                    "## Call to action",
+                    "",
+                    str(output.get("call_to_action", "")),
+                ]
+            )
+            pack.writestr(f"{safe_channel}/{safe_title or task.id[:8]}.md", body)
+            index_lines.append(
+                f"- [{channel}] {output.get('title', task.title)} — {task.due_date or 'unscheduled'}"
+            )
+        pack.writestr("README.md", "\n".join(index_lines) + "\n")
+
+    slug = "".join(c if c.isalnum() else "-" for c in campaign.name.lower()).strip("-")
+    return f"{slug or 'campaign'}-copy-pack.zip", buffer.getvalue()
+
+
+def usage_summary(session: Session, actor: Member) -> dict:
+    """Cost transparency: AI runs + tokens grouped per member, so a lead can
+    answer \"what does this team cost to run\" without leaving the app."""
+    events = session.exec(
+        select(UsageEvent).where(UsageEvent.tenant_id == actor.tenant_id)
+    ).all()
+    members = {m.id: m for m in list_tenant_members(session, actor.tenant_id)}
+    by_member: dict[str, dict] = {}
+    for event in events:
+        row = by_member.setdefault(
+            event.member_id or "unknown",
+            {
+                "member_id": event.member_id or "unknown",
+                "display_name": (
+                    members[event.member_id].display_name
+                    if event.member_id in members
+                    else "(removed)"
+                ),
+                "runs": 0,
+                "tokens": 0,
+                "providers": set(),
+            },
+        )
+        row["runs"] += 1
+        row["tokens"] += event.tokens or 0
+        if event.provider:
+            row["providers"].add(event.provider)
+    rows = [
+        {**row, "providers": sorted(row["providers"])}
+        for row in by_member.values()
+    ]
+    rows.sort(key=lambda r: r["runs"], reverse=True)
+    return {
+        "rows": rows,
+        "total_runs": sum(r["runs"] for r in rows),
+        "total_tokens": sum(r["tokens"] for r in rows),
+    }
 
 
 # --- Channel registry: the platforms this tenant actually operates ---

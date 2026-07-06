@@ -24,7 +24,10 @@ async def sync_campaign_analytics(
     property_ref: str = "",
 ) -> int:
     """Fetch + join + upsert conversions; returns the number of posts updated."""
-    source = source or create_analytics_source("mock")
+    if source is None:
+        from configs.settings import get_settings
+
+        source = create_analytics_source(get_settings().analytics_source)
     posts = list(
         session.exec(select(Post).where(Post.campaign_id == campaign.id)).all()
     )

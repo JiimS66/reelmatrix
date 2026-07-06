@@ -12,6 +12,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from core.db.models import (
+    AttributeOutcome,
     BrandProfile,
     Campaign,
     ChannelProfile,
@@ -98,6 +99,54 @@ def targeted_segments(session: Session, tenant_id: str, brief: dict) -> list[dic
     segments = (brand.segments if brand is not None else []) or []
     names = brief.get("target_segments") or []
     return [s for s in segments if s.get("name") in names] or segments
+
+
+# A channel earns a bonus post only on real evidence: at least this many
+# measured posts, and a conversion rate ≥1.5× the cross-channel average.
+_BOOST_MIN_POSTS = 3
+_BOOST_MIN_RATIO = 1.5
+
+
+def flywheel_channel_boost(
+    session: Session, tenant_id: str, channels: list[str]
+) -> Optional[tuple[str, str]]:
+    """(channel, reason) for the campaign's proven-best channel, or None.
+
+    This is where the learning loop first REALLOCATES work instead of just
+    reporting: a channel the flywheel has proven out gets one extra post, and
+    the reason rides on the task so the human sees why."""
+    rows = session.exec(
+        select(AttributeOutcome).where(
+            AttributeOutcome.tenant_id == tenant_id,
+            AttributeOutcome.segment == "",
+            AttributeOutcome.channel != "",
+        )
+    ).all()
+    stats: dict[str, dict[str, int]] = {}
+    for row in rows:
+        if row.channel not in channels:
+            continue
+        agg = stats.setdefault(row.channel, {"impressions": 0, "conversions": 0, "n": 0})
+        agg["impressions"] += row.impressions
+        agg["conversions"] += row.conversions
+        agg["n"] = max(agg["n"], row.n_posts)
+    measured = {
+        ch: agg["conversions"] / agg["impressions"]
+        for ch, agg in stats.items()
+        if agg["impressions"] > 0 and agg["n"] >= _BOOST_MIN_POSTS
+    }
+    if len(measured) < 2:
+        return None
+    best_channel = max(measured, key=lambda ch: measured[ch])
+    others = [cvr for ch, cvr in measured.items() if ch != best_channel]
+    average = sum(others) / len(others)
+    if average <= 0 or measured[best_channel] / average < _BOOST_MIN_RATIO:
+        return None
+    return (
+        best_channel,
+        f"Flywheel: {best_channel} converts at {measured[best_channel]:.1%} vs "
+        f"{average:.1%} elsewhere (n≥{_BOOST_MIN_POSTS} posts) — one extra post allocated.",
+    )
 
 
 def route_assignees(session: Session, tenant_id: str) -> dict[str, Optional[str]]:
@@ -212,6 +261,21 @@ def instantiate_campaign(
             (channel, assign_segment(channel, segments, i))
             for i, channel in enumerate(channels)
         ]
+
+    # Evidence-based reallocation: the flywheel's proven-best channel earns one
+    # extra post, with the reason attached so the human sees why.
+    boost = flywheel_channel_boost(session, tenant_id, channels)
+    if boost is not None:
+        boost_channel, boost_reason = boost
+        post_specs.append(
+            (
+                boost_channel,
+                {
+                    **assign_segment(boost_channel, segments, len(post_specs)),
+                    "flywheel_boost": boost_reason,
+                },
+            )
+        )
 
     sequence = 3
     for i, (channel, seg_params) in enumerate(post_specs):

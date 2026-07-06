@@ -6,7 +6,7 @@ header. Replace with real authentication before any non-local use.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlmodel import Session
 
 from apps.api.schemas.team import (
@@ -94,6 +94,7 @@ from apps.api.schemas.team import (
     TrendDraftRequest,
     TrendRefresh,
     UpdateOrgMemberRequest,
+    UsageSummary,
     VersionRead,
 )
 from apps.api.services import team_service
@@ -1127,6 +1128,30 @@ def record_metrics(
     return _performance_response(
         session, actor, snapshot.campaign_id, note="Manual metrics recorded."
     )
+
+
+@router.get("/campaigns/{campaign_id}/copy-pack")
+def download_copy_pack(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Every approved post as per-platform Markdown (copy + CTA + UTM link) in
+    one zip — the honest publish-last-mile until real platform APIs land."""
+    filename, payload = team_service.build_copy_pack(session, actor, campaign_id)
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/usage", response_model=UsageSummary)
+def usage_summary_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> UsageSummary:
+    return UsageSummary(**team_service.usage_summary(session, actor))
 
 
 # --- Channel registry: which platforms this tenant actually operates ---

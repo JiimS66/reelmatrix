@@ -12,7 +12,11 @@ from core.analytics.mock import MockGA4Source
 def create_analytics_source(name: str = "mock") -> AnalyticsSource:
     if name == "mock":
         return MockGA4Source()
+    if name == "plausible":
+        from core.analytics.plausible import PlausibleSource
+
+        return PlausibleSource()
     raise ValueError(
-        f"Unsupported analytics source '{name}'. Available: mock "
-        "(ga4 / plausible / fathom plug in here — GA4 needs a service account + property id)."
+        f"Unsupported analytics source '{name}'. Available: mock, plausible "
+        "(ga4 / fathom plug in here — GA4 needs a service account + property id)."
     )

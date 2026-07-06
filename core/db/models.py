@@ -414,12 +414,19 @@ class ConversionEvent(SQLModel, table=True):
 class EpisodicNote(SQLModel, table=True):
     """Episodic memory: a campaign-level decision or lead-feedback note that later
     work reads, so the team's choices accumulate across tasks (and, later, campaigns).
-    Semantic memory = BrandProfile; working memory = the task context."""
+    Semantic memory = BrandProfile; working memory = the task context.
+
+    ``channel``/``segment``/``task_id`` scope a note to where it happened, so
+    injection can prefer notes about THIS channel over a grab-bag of the last N.
+    """
 
     id: str = Field(default_factory=_uuid, primary_key=True)
     tenant_id: str = Field(index=True, foreign_key="tenant.id")
     campaign_id: str = Field(index=True, foreign_key="campaign.id")
     kind: str = "feedback"  # feedback | decision | summary
+    channel: str = ""  # "" = campaign-wide
+    segment: str = ""
+    task_id: Optional[str] = Field(default=None, foreign_key="task.id")
     text: str
     created_at: datetime = Field(default_factory=_now)
 

@@ -75,6 +75,58 @@ def channel_history(
     return history
 
 
+def channel_exemplars(
+    session: Session,
+    *,
+    tenant_id: str,
+    platform: str,
+    exclude_task_id: Optional[str] = None,
+    limit: int = 2,
+) -> list[dict]:
+    """The channel's proven winners, as few-shot exemplars for the copywriter.
+
+    For an open-weight model, two real high-performing posts from the same
+    channel beat any amount of prompt instruction. Ranked by the latest
+    signup count (real snapshot when present, deterministic mock otherwise —
+    same rule as the performance view)."""
+    from core.content.tracking import mock_metrics
+    from core.db.models import MetricSnapshot
+
+    if not (platform or "").strip():
+        return []
+    posts = session.exec(
+        select(Post).where(Post.tenant_id == tenant_id, Post.platform == platform)
+    ).all()
+    ranked: list[tuple[int, dict]] = []
+    for post in posts:
+        if exclude_task_id is not None and post.asset_task_id == exclude_task_id:
+            continue
+        task = session.get(Task, post.asset_task_id)
+        output = (task.output if task is not None else None) or {}
+        content = str(output.get("content", ""))
+        if not content.strip():
+            continue
+        snapshot = session.exec(
+            select(MetricSnapshot)
+            .where(MetricSnapshot.post_id == post.id)
+            .order_by(MetricSnapshot.captured_at.desc())  # type: ignore[attr-defined]
+        ).first()
+        signups = snapshot.signups if snapshot is not None else mock_metrics(post.id)["signups"]
+        ranked.append(
+            (
+                signups,
+                {
+                    "title": str(output.get("title", "")),
+                    "content": content[:800],
+                    "call_to_action": str(output.get("call_to_action", "")),
+                    "signups": signups,
+                },
+            )
+        )
+    ranked.sort(key=lambda pair: pair[0], reverse=True)
+    return [exemplar for _, exemplar in ranked[:limit]]
+
+
 def continuity_issues(asset: dict, history: list[dict]) -> list[dict]:
     """Flag a draft whose title/hook rehashes a recent post on the same channel."""
     issues: list[dict] = []

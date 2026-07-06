@@ -46,13 +46,16 @@ from core.db.models import (
 )
 from core.content.atoms import atoms_from_asset
 from core.content.brand import forbidden_word_issues
-from core.content.continuity import channel_history, continuity_issues
+from core.content.continuity import channel_exemplars, channel_history, continuity_issues
+from core.content.insight import predicted_performance
+from core.content.scoring import content_score
 from core.content.tracking import utm_url
 from core.content.consistency import approved_stat_text, unsourced_stat_issues
 from core.content.platform_specs import format_checks, spec_for_channel
 from core.content.geo import geo_issues
 from core.content.terminology import term_issues
 from core.growth.learner import learned_priors
+from core.notify import notify_review_needed
 from core.policy.gate import policy_issues
 from core.llm.base import BaseLLMClient
 from core.llm.factory import create_llm_client
@@ -500,7 +503,24 @@ class TaskRunner:
                 )
                 self._session.add(task)
                 return None
-        output = await agent_for_role(role_key, client).run(context)
+        fanout = get_settings().asset_draft_fanout if task.kind == TaskKind.ASSET else 1
+        if fanout > 1:
+            # Cheap open-weight inference makes parallel sampling nearly free:
+            # render N candidates and keep the best by the same score the human
+            # sees. Extra calls are metered; ties keep the first (mock-safe).
+            agent = agent_for_role(role_key, client)
+            candidates = list(
+                await asyncio.gather(*(agent.run(context) for _ in range(fanout)))
+            )
+            for _ in candidates[1:]:
+                _record_usage(self._session, task, member)
+            output, picked = self._pick_best_draft(task, candidates)
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                payload={"kind": "draft_fanout", "n": fanout, "picked": picked},
+            )
+        else:
+            output = await agent_for_role(role_key, client).run(context)
         if task.kind == TaskKind.ASSET:
             # Converge the COPY first (deterministic checks + Auditor), THEN attach the
             # visual once — keeping image generation out of the copy correction loop so
@@ -510,6 +530,19 @@ class TaskRunner:
         elif task.kind == TaskKind.VISUAL:
             output = await self._critique_visual(task, member, client, role_key, context, output)
         return output
+
+    def _pick_best_draft(self, task: Task, candidates: list[dict]) -> tuple[dict, int]:
+        """Rank parallel drafts by check-derived content score plus the
+        predicted-performance heuristic; return (best draft, its index)."""
+        channel = (task.params or {}).get("channel", "")
+        best_index, best_value = 0, float("-inf")
+        for index, candidate in enumerate(candidates):
+            score = content_score(checks_for_output(self._session, task, candidate)) or {}
+            predicted = predicted_performance(candidate, channel) or {}
+            value = score.get("overall", 0) + 0.5 * predicted.get("overall", 0)
+            if value > best_value:
+                best_index, best_value = index, value
+        return candidates[best_index], best_index
 
     def _designer_member(self, tenant_id: str) -> Optional[Member]:
         """The tenant's Designer (an AI member whose role is 'designer'), invoked to
@@ -764,6 +797,15 @@ class TaskRunner:
                 actor_id=member.id if member else None,
             )
             self._session.add(task)
+            # Ping the team's webhook so the queue doesn't silently pile up.
+            campaign = self._session.get(Campaign, task.campaign_id)
+            reviewer = self._session.get(Member, task.assignee_id)
+            notify_review_needed(
+                task_id=task.id,
+                task_title=task.title,
+                campaign_name=campaign.name if campaign else "",
+                assignee_name=reviewer.display_name if reviewer else None,
+            )
 
     def _revert_failed(self, task: Task, exc: BaseException) -> None:
         task.status = TaskStatus.TODO
@@ -805,11 +847,16 @@ class TaskRunner:
         brand = self._session.exec(
             select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
         ).first()
-        notes = self._session.exec(
+        all_notes = self._session.exec(
             select(EpisodicNote)
             .where(EpisodicNote.campaign_id == task.campaign_id)
             .order_by(EpisodicNote.created_at.desc())  # type: ignore[attr-defined]
         ).all()
+        # Scoped recall: this channel's notes first, campaign-wide notes as
+        # filler — not just "the last five of anything".
+        notes = sorted(
+            all_notes, key=lambda n: 0 if (n.channel and n.channel == channel) else 1
+        )
         profile = self._session.exec(
             select(ChannelProfile).where(
                 ChannelProfile.tenant_id == task.tenant_id,
@@ -834,6 +881,23 @@ class TaskRunner:
                 platform=channel,
                 exclude_task_id=task.id,
             ),
+            # Few-shot beats instruction for open-weight models: the channel's
+            # proven winners ride along as exemplars.
+            "exemplars": channel_exemplars(
+                self._session,
+                tenant_id=task.tenant_id,
+                platform=channel,
+                exclude_task_id=task.id,
+            ),
+            # The platform format as an explicit CONTRACT, not just a hint.
+            "format_contract": (
+                f"{spec.channel}: {spec.format}"
+                + (f", max {spec.max_chars} chars" if spec.max_chars else "")
+                + f". Structure: {spec.structure}. Tone: {spec.tone_shift}."
+                " A clear call to action is required."
+            )
+            if spec is not None
+            else "",
             "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
             # 4th-layer derived memory: what's converting, fed back into generation.
             "learned_priors": learned_priors(

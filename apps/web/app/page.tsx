@@ -28,6 +28,7 @@ import { DeploymentCard } from "@/components/workspace/DeploymentCard";
 import { EvalPanel } from "@/components/workspace/EvalPanel";
 import { ReliabilityCard } from "@/components/workspace/ReliabilityCard";
 import { TeamView } from "@/components/workspace/TeamView";
+import { UsageCard } from "@/components/workspace/UsageCard";
 import {
   AssigneeChip,
   CheckBadges,
@@ -41,6 +42,7 @@ import {
 } from "@/components/workspace/primitives";
 import {
   createCampaign,
+  downloadCopyPack,
   draftFromTrend,
   getBoard,
   getLlmProviders,
@@ -655,6 +657,19 @@ export default function Workspace() {
                 {busy ? "Running…" : "Run AI ↻"}
               </button>
             )}
+            <button
+              className="btn-line"
+              title="Approved posts as per-platform Markdown + tracking links, ready to publish"
+              onClick={async () => {
+                try {
+                  await downloadCopyPack(currentId, board.campaign.id);
+                } catch (e) {
+                  setError(errMessage(e));
+                }
+              }}
+            >
+              ⇩ Copy pack
+            </button>
             <div className="flex rounded-lg border border-ink/15 p-0.5">
               {(["board", "calendar", "results"] as CampTab[]).map((t) => (
                 <button
@@ -946,6 +961,7 @@ export default function Workspace() {
                     }}
                     onError={(m) => setError(m)}
                   />
+                  <UsageCard memberId={currentId} />
                   <ReliabilityCard memberId={currentId} />
                   <EvalPanel memberId={currentId} canManage={!!isLead} />
                   <DeploymentCard memberId={currentId} />

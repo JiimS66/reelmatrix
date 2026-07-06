@@ -49,6 +49,30 @@ class AppSettings(BaseSettings):
     local_llm_api_key: Optional[str] = None
     local_llm_model: Optional[str] = "llama3.1"
 
+    # SiliconFlow: cheap hosted endpoint for open-weight models from a DIFFERENT
+    # family than Qwen (default DeepSeek) — the cross-model Auditor's channel, so
+    # writer and judge errors decorrelate. Pin the Auditor to it in the Team tab.
+    siliconflow_api_key: Optional[str] = None
+    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
+    siliconflow_model: str = "deepseek-ai/DeepSeek-V3"
+
+    # Parallel drafts per post: with a real (cheap open-weight) model the runner
+    # renders N candidates and keeps the best by content score. 1 = off — the
+    # right value for mock/demo, since identical drafts would tie anyway.
+    asset_draft_fanout: int = Field(default=1, ge=1, le=8)
+
+    # Fire-and-forget JSON POST when work lands in a human's review queue.
+    notify_webhook_url: Optional[str] = None
+
+    # Conversion attribution source (mock | plausible). Plausible is
+    # self-hostable, so analytics can stay inside the customer's environment —
+    # same posture as the on-prem model story.
+    analytics_source: str = "mock"
+    plausible_base_url: str = "https://plausible.io"
+    plausible_site_id: Optional[str] = None
+    plausible_api_key: Optional[str] = None
+    plausible_signup_goal: str = "Signup"
+
     # Hot-topic feed behind core/trends (mock | hackernews). The HN source is a
     # free keyless API — safe to enable in any deployment.
     trend_source: str = "mock"

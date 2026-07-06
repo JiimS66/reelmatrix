@@ -1233,6 +1233,50 @@ export const listExternalLinks = (memberId: string, campaignId: string) =>
     { memberId },
   );
 
+/** Download the campaign's approved posts as a per-platform Markdown zip. */
+export async function downloadCopyPack(memberId: string, campaignId: string): Promise<void> {
+  const response = await fetch(
+    `${BASE_URL}/api/v1/team/campaigns/${campaignId}/copy-pack`,
+    { headers: { "X-Member-Id": memberId } },
+  );
+  if (!response.ok) {
+    let detail = `Copy pack failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+    } catch {
+      /* keep default */
+    }
+    throw new TeamApiError(detail, response.status);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download =
+    response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ??
+    "copy-pack.zip";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface UsageRow {
+  member_id: string;
+  display_name: string;
+  runs: number;
+  tokens: number;
+  providers: string[];
+}
+
+export interface UsageSummary {
+  rows: UsageRow[];
+  total_runs: number;
+  total_tokens: number;
+}
+
+export const getUsage = (memberId: string) =>
+  request<UsageSummary>("/api/v1/team/usage", { memberId });
+
 /* ── Channel registry ───────────────────────────────────────────────────── */
 
 export const listChannels = (memberId: string) =>
