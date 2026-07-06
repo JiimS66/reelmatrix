@@ -1,0 +1,17 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "ROI dashboard: attribution charts and modeled revenue",
+  "description": "The campaign Results tab leads with charts — signup attribution donut, conversion comparison, momentum — plus an interactive value-per-signup control that recomputes modeled revenue live.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app, go to Campaigns, open the active campaign, and switch to its Results tab." },
+    { "type": "assertion", "description": "Verify a 'Where signups come from' section renders with a donut chart and a ranked bar chart of signups by platform, plus a sentence naming the strongest channel." },
+    { "type": "assertion", "description": "Verify a 'Which platform converts best' section renders a grouped bar chart of conversion rates, and a 'Momentum' section renders a cumulative area chart (or an explanatory empty note if fewer than two posts shipped)." },
+    { "type": "assertion", "description": "Verify a 'Modeled pipeline' stat tile is visible and a 'Modeled revenue by platform' section shows a 'Value per signup' slider." },
+    { "type": "action", "description": "Move the 'Value per signup' slider to a clearly different value." },
+    { "type": "assertion", "description": "Verify the 'Modeled pipeline' tile and the modeled revenue chart update immediately to reflect the new value, and the honesty caption 'Modeled: live signup counts × your value per signup' is present." },
+    { "type": "assertion", "description": "Verify 'Post-level detail' is collapsed by default, and expands to show per-platform post tables when clicked." },
+    { "type": "assertion", "description": "Verify a 'Route wins to your stack' card shows Linear and Webhook options whose send buttons stay disabled until a key or URL is entered." }
+  ]
+}

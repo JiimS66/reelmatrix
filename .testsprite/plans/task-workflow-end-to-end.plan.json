@@ -1,0 +1,65 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Task workflow end to end",
+  "description": "Verify the main task flow from idea to strategy, campaign board, task detail, human approval, and Approved status without publishing externally.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app."
+    },
+    {
+      "type": "action",
+      "description": "If the strategy wizard is not already visible, click the New campaign from an idea entry on Home."
+    },
+    {
+      "type": "action",
+      "description": "Enter the idea: I built an AI tool that verifies AI-generated code before engineering teams merge pull requests."
+    },
+    {
+      "type": "action",
+      "description": "Click Think it through and wait for the strategy draft to finish loading."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the strategy draft shows What I heard, audience candidates, positioning angles, and content pillars."
+    },
+    {
+      "type": "action",
+      "description": "Click Lock it - draft my first content and wait for the AI team handoff to complete."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the page confirms the strategy was locked and shows a First content section."
+    },
+    {
+      "type": "action",
+      "description": "Open the generated campaign in the workspace using the available Open in workspace action, or navigate to Campaigns and open the newest campaign."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the campaign Board tab shows Plan, Draft, In review, and Approved columns."
+    },
+    {
+      "type": "action",
+      "description": "Open the first task card in Draft or In review that contains generated content."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the task detail panel shows the drafted content and review controls."
+    },
+    {
+      "type": "action",
+      "description": "Approve the task using the available Approve action."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the task moves out of the review queue or appears in the Approved column."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Results tab is reachable, but do not click Publish all."
+    }
+  ]
+}

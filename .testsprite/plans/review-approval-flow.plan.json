@@ -1,0 +1,15 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "Lead reviews and approves from the Home desk",
+  "description": "With a seeded demo campaign that has at least one item awaiting review, items waiting on a human appear in the lead's queue on Home; approving one moves it out of review.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app as the lead member (the default seeded lead)." },
+    { "type": "assertion", "description": "Verify the Home desk shows a review queue or 'Needs you' area with a visible count." },
+    { "type": "action", "description": "Open the first item in the review queue." },
+    { "type": "assertion", "description": "Verify the item's detail view opens and shows the drafted content plus review actions." },
+    { "type": "action", "description": "Approve the item using the available approve action." },
+    { "type": "assertion", "description": "Verify the item leaves the review queue (the count decreases) or its card now appears in the Approved column of the campaign board." }
+  ]
+}

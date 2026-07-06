@@ -1,0 +1,1332 @@
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "http://localhost:8000";
+
+export type MemberKind = "human" | "ai";
+export type MemberRole = "lead" | "member";
+export type TaskKind =
+  | "ideation"
+  | "planning"
+  | "asset"
+  | "visual"
+  | "claim_check";
+export type TaskStatus =
+  | "todo"
+  | "in_progress"
+  | "needs_review"
+  | "done"
+  | "blocked";
+export type ExecutionMode = "ai_draft_human_review" | "ai_auto" | "human_only";
+
+export interface Member {
+  id: string;
+  kind: MemberKind;
+  role: MemberRole;
+  display_name: string;
+}
+
+export interface CheckIssue {
+  code: string;
+  detail: string;
+}
+
+export interface Task {
+  id: string;
+  campaign_id: string;
+  kind: TaskKind;
+  title: string;
+  status: TaskStatus;
+  execution_mode: ExecutionMode;
+  assignee_id: string | null;
+  depends_on: string[];
+  sequence: number;
+  params: Record<string, unknown>;
+  output: Record<string, unknown> | null;
+  checks: Record<string, CheckIssue[]>;
+  score: { overall: number; dimensions: Record<string, number> } | null;
+  predicted_performance: {
+    overall: number;
+    factors: Record<string, number>;
+    note: string;
+  } | null;
+  due_date: string | null;
+  phase: string | null;
+  locked: boolean;
+  updated_at: string;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  template: string;
+  status: string;
+  event_name: string | null;
+  event_date: string | null;
+}
+
+export interface Milestone {
+  id: string;
+  phase: string;
+  name: string;
+  date: string;
+  offset_days: number;
+  objective: string;
+}
+
+export interface ScheduleData {
+  campaign: Campaign;
+  milestones: Milestone[];
+  tasks: Task[];
+  timely_angles: string[];
+}
+
+export interface TodoItem {
+  campaign_name: string;
+  task: Task;
+}
+
+export interface Board {
+  campaign: Campaign;
+  tasks: Task[];
+  members: Member[];
+}
+
+export interface Comment {
+  id: string;
+  author_id: string;
+  body: string;
+  created_at: string;
+}
+
+export interface TaskEvent {
+  id: string;
+  type: string;
+  actor_id: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface ContentVersion {
+  id: string;
+  number: number;
+  source: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface Annotation {
+  id: string;
+  author_id: string;
+  target: string;
+  anchor: Record<string, unknown>;
+  body: string;
+  resolved: boolean;
+  resolved_by: string | null;
+  created_at: string;
+}
+
+export interface TaskDetail {
+  task: Task;
+  ai_draft: Record<string, unknown> | null;
+  comments: Comment[];
+  events: TaskEvent[];
+  available_actions: string[];
+  versions: ContentVersion[];
+  annotations: Annotation[];
+}
+
+export interface Atom {
+  id: string;
+  kind: string;
+  text: string;
+  tags: string[];
+  source_campaign_id: string | null;
+  created_at: string;
+}
+
+export interface PostPerformance {
+  post_id: string;
+  title: string;
+  url: string;
+  published_at: string;
+  publish_status: string;
+  permalink: string | null;
+  impressions: number;
+  clicks: number;
+  signups: number;
+  activations: number;
+  paid: number;
+  source: string;
+}
+
+export interface PlatformPerformance {
+  platform: string;
+  impressions: number;
+  clicks: number;
+  signups: number;
+  activations: number;
+  paid: number;
+  posts: PostPerformance[];
+}
+
+export interface PerformanceData {
+  campaign_id: string;
+  platforms: PlatformPerformance[];
+  totals: Record<string, number>;
+  attribution_model: string;
+  note: string;
+}
+
+export interface ChannelProfile {
+  id: string;
+  platform: string;
+  handle: string;
+  audience_note: string;
+  cadence: string;
+  active: boolean;
+}
+
+export interface OrgMember {
+  id: string;
+  kind: MemberKind;
+  role: MemberRole;
+  display_name: string;
+  job_description: string;
+  reports_to: string | null;
+  handles_kinds: string[];
+  agent_role: string | null;
+  provider: string | null;
+  model: string | null;
+}
+
+export interface AgentRoleInfo {
+  key: string;
+  title: string;
+  job_description: string;
+}
+
+export interface OrgData {
+  members: OrgMember[];
+  task_kinds: string[];
+  agent_roles: AgentRoleInfo[];
+}
+
+export class TeamApiError extends Error {
+  constructor(message: string, public status?: number) {
+    super(message);
+    this.name = "TeamApiError";
+  }
+}
+
+async function request<T>(
+  path: string,
+  opts: { method?: string; memberId?: string; body?: unknown } = {},
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (opts.body !== undefined) headers["Content-Type"] = "application/json";
+  if (opts.memberId) headers["X-Member-Id"] = opts.memberId;
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: opts.method ?? "GET",
+      headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    });
+  } catch {
+    throw new TeamApiError("Cannot reach the backend API on :8000. Is it running?");
+  }
+
+  if (!response.ok) {
+    let detail = `Request failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+    } catch {
+      // keep the default
+    }
+    throw new TeamApiError(detail, response.status);
+  }
+  return (await response.json()) as T;
+}
+
+export const listMembers = () => request<Member[]>("/api/v1/team/members");
+
+export const listCampaigns = (memberId: string) =>
+  request<Campaign[]>("/api/v1/team/campaigns", { memberId });
+
+export const createCampaign = (
+  memberId: string,
+  body: {
+    name: string;
+    brief: Record<string, unknown>;
+    template?: string;
+    event_name?: string;
+    event_date?: string;
+    review_assets?: boolean;
+    with_visuals?: boolean;
+  },
+) => request<Board>("/api/v1/team/campaigns", { method: "POST", memberId, body });
+
+export interface TrendAngle {
+  angle: string;
+  safe: boolean;
+  score: number;
+  reason: string;
+}
+
+export const getTrends = (memberId: string, campaignId: string) =>
+  request<TrendAngle[]>(`/api/v1/team/campaigns/${campaignId}/trends`, { memberId });
+
+export const draftFromTrend = (
+  memberId: string,
+  campaignId: string,
+  body: { angle: string; channel: string },
+) =>
+  request<Board>(`/api/v1/team/campaigns/${campaignId}/trends/draft`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const getSchedule = (memberId: string, campaignId: string) =>
+  request<ScheduleData>(`/api/v1/team/campaigns/${campaignId}/schedule`, {
+    memberId,
+  });
+
+export const refreshTrends = (memberId: string, campaignId: string) =>
+  request<{ campaign_id: string; timely_angles: string[] }>(
+    `/api/v1/team/campaigns/${campaignId}/trends`,
+    { method: "POST", memberId },
+  );
+
+export const getTodo = (memberId: string) =>
+  request<TodoItem[]>("/api/v1/team/todo", { memberId });
+
+/** The cross-campaign "needs your call" queue — every awaiting-review item across all
+ * campaigns, each tagged with its campaign. */
+export const getReviewQueue = (memberId: string) =>
+  request<TodoItem[]>("/api/v1/team/review-queue", { memberId });
+
+export interface AttributeInsight {
+  attribute_type: string;
+  attribute_value: string;
+  cvr: number;
+  n_posts: number;
+  impressions: number;
+  conversions: number;
+}
+
+export interface GrowthInsights {
+  attributes: AttributeInsight[];
+  priors: string[];
+}
+
+/** The effect-flywheel scoreboard: learned per-attribute conversion + priors. */
+export const getInsights = (memberId: string) =>
+  request<GrowthInsights>("/api/v1/team/insights", { memberId });
+
+/** Rebuild the attribute posteriors from current outcomes, then return them. */
+export const learnInsights = (memberId: string) =>
+  request<GrowthInsights>("/api/v1/team/insights/learn", {
+    method: "POST",
+    memberId,
+  });
+
+export interface IncrementalityRow {
+  attribute_type: string;
+  attribute_value: string;
+  naive_conversions: number;
+  incremental_conversions: number;
+  multiplier: number;
+  lift_pct: number;
+}
+
+export interface IncrementalityResult {
+  tests: IncrementalityRow[];
+  insights: GrowthInsights;
+}
+
+/** Phase 11 — measure causal lift + de-bias the flywheel (correlation → causation). */
+export const runIncrementality = (memberId: string) =>
+  request<IncrementalityResult>("/api/v1/team/insights/incrementality", {
+    method: "POST",
+    memberId,
+  });
+
+export interface PlannedAction {
+  id: string;
+  type: string;
+  title: string;
+  rationale: string;
+  priority: number;
+  autonomy_level: string;
+  status: string;
+}
+
+/** Phase 14 — the autonomous orchestrator's proposed next actions (Agent Inbox). */
+export const getActions = (memberId: string) =>
+  request<PlannedAction[]>("/api/v1/team/actions", { memberId });
+
+export const planActions = (memberId: string) =>
+  request<PlannedAction[]>("/api/v1/team/actions/plan", { method: "POST", memberId });
+
+export const acceptAction = (memberId: string, id: string) =>
+  request<PlannedAction[]>(`/api/v1/team/actions/${id}/accept`, {
+    method: "POST",
+    memberId,
+  });
+
+export const ignoreAction = (memberId: string, id: string) =>
+  request<PlannedAction[]>(`/api/v1/team/actions/${id}/ignore`, {
+    method: "POST",
+    memberId,
+  });
+
+export interface BudgetRow {
+  channel: string;
+  allocated: number;
+  predicted_response: number;
+  marginal_roi: number;
+}
+
+export interface BudgetPlan {
+  total_budget: number;
+  allocation: BudgetRow[];
+}
+
+/** Phase 16 — allocate a budget across channels by marginal ROI (equimarginal). */
+export const optimizeBudget = (memberId: string, total: number) =>
+  request<BudgetPlan>("/api/v1/team/paid/optimize-budget", {
+    method: "POST",
+    memberId,
+    body: { total },
+  });
+
+export interface EvalCaseResult {
+  name: string;
+  expectation: string;
+  score: number;
+  passed: boolean;
+  reason: string;
+}
+
+export interface EvalRunResult {
+  suite: string;
+  overall: number;
+  passed: boolean;
+  n_cases: number;
+  cases: EvalCaseResult[];
+}
+
+/** Phase 12 — run the eval suite (real policy/GEO graders) as a quality regression gate. */
+export const runEvals = (memberId: string) =>
+  request<EvalRunResult>("/api/v1/team/evals/run", { method: "POST", memberId });
+
+export interface ExperimentVariant {
+  key: string;
+  attributes: Record<string, string>;
+  rationale: string;
+  impressions: number;
+  conversions: number;
+  cvr: number;
+  chance_to_beat_control: number;
+  result_status: string;
+}
+
+export interface Experiment {
+  id: string;
+  hypothesis: string;
+  channel: string;
+  segment: string;
+  status: string;
+  variants: ExperimentVariant[];
+}
+
+export const getExperiments = (memberId: string, campaignId: string) =>
+  request<Experiment[]>(`/api/v1/team/campaigns/${campaignId}/experiments`, {
+    memberId,
+  });
+
+export const designExperiment = (
+  memberId: string,
+  campaignId: string,
+  body: { hypothesis: string; channel?: string; segment?: string; n?: number },
+) =>
+  request<Experiment>(`/api/v1/team/campaigns/${campaignId}/experiments`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const decideExperiment = (memberId: string, experimentId: string) =>
+  request<Experiment>(`/api/v1/team/experiments/${experimentId}/decide`, {
+    method: "POST",
+    memberId,
+  });
+
+export interface SegmentScore {
+  segment: string;
+  score: number;
+  status: string;
+  n_posts: number;
+  cvr: number;
+  drivers: string[];
+}
+
+export interface SegmentCandidate {
+  id: string;
+  name: string;
+  rationale: string;
+  evidence: Record<string, unknown>;
+}
+
+export interface SegmentScorecard {
+  segments: SegmentScore[];
+  candidates: SegmentCandidate[];
+}
+
+export interface CompetitorCard {
+  name: string;
+  positioning: string;
+  recent_change: string;
+}
+
+export interface MarketIntel {
+  competitors: CompetitorCard[];
+  audience_questions: string[];
+  share_of_voice: Record<string, number>;
+  whitespace: string[];
+}
+
+export const getSegmentScorecard = (memberId: string) =>
+  request<SegmentScorecard>("/api/v1/team/segments/scorecard", { memberId });
+
+export const discoverSegments = (memberId: string) =>
+  request<SegmentScorecard>("/api/v1/team/segments/discover", {
+    method: "POST",
+    memberId,
+  });
+
+export const promoteCandidate = (memberId: string, id: string) =>
+  request<SegmentScorecard>(`/api/v1/team/segments/candidates/${id}/promote`, {
+    method: "POST",
+    memberId,
+  });
+
+export const dismissCandidate = (memberId: string, id: string) =>
+  request<SegmentScorecard>(`/api/v1/team/segments/candidates/${id}/dismiss`, {
+    method: "POST",
+    memberId,
+  });
+
+export const getMarketIntel = (memberId: string) =>
+  request<MarketIntel>("/api/v1/team/market", { memberId });
+
+export const draftWhitespace = (memberId: string, angle: string) =>
+  request<{ task_id: string }>("/api/v1/team/market/whitespace/draft", {
+    method: "POST",
+    memberId,
+    body: { angle },
+  });
+
+export interface MessagingPillar {
+  name: string;
+  proof_points?: string[];
+}
+
+export interface Narrative {
+  value_proposition: string;
+  messaging_pillars: MessagingPillar[];
+}
+
+export const getNarrative = (memberId: string) =>
+  request<Narrative>("/api/v1/team/brand/narrative", { memberId });
+
+export const setNarrative = (memberId: string, body: Narrative) =>
+  request<Narrative>("/api/v1/team/brand/narrative", {
+    method: "PUT",
+    memberId,
+    body,
+  });
+
+export interface FunnelCoverage {
+  stages: string[];
+  segments: string[];
+  matrix: Record<string, Record<string, number>>;
+  gaps: { funnel_stage: string; segment: string }[];
+}
+
+export const getFunnelCoverage = (memberId: string, campaignId: string) =>
+  request<FunnelCoverage>(`/api/v1/team/campaigns/${campaignId}/funnel-coverage`, {
+    memberId,
+  });
+
+export const draftFunnelGap = (
+  memberId: string,
+  campaignId: string,
+  gap: { funnel_stage: string; segment: string },
+) =>
+  request<FunnelCoverage>(`/api/v1/team/campaigns/${campaignId}/funnel-gap/draft`, {
+    method: "POST",
+    memberId,
+    body: gap,
+  });
+
+export interface Pillar {
+  id: string;
+  title: string;
+  kind: string;
+  derivatives: number;
+}
+
+export const getPillars = (memberId: string, campaignId: string) =>
+  request<Pillar[]>(`/api/v1/team/campaigns/${campaignId}/pillars`, { memberId });
+
+export const createPillar = (
+  memberId: string,
+  campaignId: string,
+  body: { title: string; kind?: string; source_text?: string },
+) =>
+  request<Pillar[]>(`/api/v1/team/campaigns/${campaignId}/pillars`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const atomizePillar = (
+  memberId: string,
+  pillarId: string,
+  channels: string[],
+) =>
+  request<{ pillar_id: string; derivatives: number }>(
+    `/api/v1/team/pillars/${pillarId}/atomize`,
+    { method: "POST", memberId, body: { channels } },
+  );
+
+/** Phase 8 — script a post into a short-video spec + mock render (attached to visual). */
+export const generateVideo = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/video`, { method: "POST", memberId });
+
+export interface Clip {
+  hook_sentence: string;
+  clip_score: number;
+  reason: string;
+  start: number;
+  end: number;
+}
+
+export interface Clips {
+  pillar_id: string;
+  clips: Clip[];
+}
+
+export const getClips = (memberId: string, pillarId: string) =>
+  request<Clips>(`/api/v1/team/pillars/${pillarId}/clips`, { memberId });
+
+export const draftShort = (
+  memberId: string,
+  pillarId: string,
+  hookSentence: string,
+) =>
+  request<{ task_id: string }>(`/api/v1/team/pillars/${pillarId}/clips/draft`, {
+    method: "POST",
+    memberId,
+    body: { hook_sentence: hookSentence },
+  });
+
+export interface ReliabilityRow {
+  member_id: string;
+  display_name: string;
+  role: string;
+  runs: number;
+  reliability: number;
+  recommended_mode: string;
+}
+
+/** Phase 9 — per-AI-employee reliability + the autonomy level it has earned. */
+export const getReliability = (memberId: string) =>
+  request<ReliabilityRow[]>("/api/v1/team/reliability", { memberId });
+
+export interface PaidVariant {
+  angle: string;
+  headline: string;
+  creative_score: number;
+  predicted_ctr: number;
+  allocated_budget: number;
+}
+
+export interface PaidPlan {
+  total_budget: number;
+  variants: PaidVariant[];
+}
+
+/** Phase 10 — score paid creative variants pre-spend + allocate (mock) budget. */
+export const planPaid = (memberId: string, taskId: string) =>
+  request<PaidPlan>(`/api/v1/team/tasks/${taskId}/paid-plan`, {
+    method: "POST",
+    memberId,
+  });
+
+export interface Prospect {
+  id: string;
+  name: string;
+  company: string;
+  title: string;
+  signal: string;
+  personalized_line: string;
+  status: string;
+}
+
+export const getProspects = (memberId: string, campaignId: string) =>
+  request<Prospect[]>(`/api/v1/team/campaigns/${campaignId}/prospects`, { memberId });
+
+export const addProspect = (
+  memberId: string,
+  campaignId: string,
+  body: { name: string; domain?: string },
+) =>
+  request<Prospect[]>(`/api/v1/team/campaigns/${campaignId}/prospects`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const enrichProspect = (memberId: string, prospectId: string) =>
+  request<Prospect[]>(`/api/v1/team/prospects/${prospectId}/enrich`, {
+    method: "POST",
+    memberId,
+  });
+
+export const sendProspect = (memberId: string, prospectId: string) =>
+  request<Prospect[]>(`/api/v1/team/prospects/${prospectId}/send`, {
+    method: "POST",
+    memberId,
+  });
+
+export interface ImportResult {
+  imported: number;
+  insights: GrowthInsights;
+}
+
+/** Warm-start: import historical content+performance → flywheel/ICP get real priors. */
+export const importHistorical = (
+  memberId: string,
+  rows: Record<string, unknown>[],
+) =>
+  request<ImportResult>("/api/v1/team/import/historical", {
+    method: "POST",
+    memberId,
+    body: { rows },
+  });
+
+export interface BrandKnowledgeResult {
+  draft: {
+    voice: string;
+    value_proposition: string;
+    messaging_pillars: { name: string }[];
+    tone_rules: string[];
+  };
+  applied: boolean;
+}
+
+/** Extract structured brand knowledge from docs/site text → applied to the brand. */
+export const ingestBrandKnowledge = (memberId: string, text: string) =>
+  request<BrandKnowledgeResult>("/api/v1/team/import/brand-knowledge", {
+    method: "POST",
+    memberId,
+    body: { text },
+  });
+
+export interface DeploymentStatus {
+  profile: string;
+  providers: Record<string, string>;
+  gates: Record<string, unknown>;
+  data_leaves_environment: boolean;
+}
+
+/** On-prem posture: which providers run local vs cloud + the active privacy gates. */
+export const getDeployment = (memberId: string) =>
+  request<DeploymentStatus>("/api/v1/team/deployment", { memberId });
+
+export const getPerformance = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(
+    `/api/v1/team/campaigns/${campaignId}/performance`,
+    { memberId },
+  );
+
+export interface FleetAgent {
+  member_id: string;
+  display_name: string;
+  role: string;
+  provider: string;
+  model: string | null;
+  runs: number;
+  tasks_owned: number;
+  avg_score: number | null;
+  self_corrections: number;
+}
+
+export const getFleet = (memberId: string) =>
+  request<FleetAgent[]>("/api/v1/team/fleet", { memberId });
+
+export const syncAnalytics = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(
+    `/api/v1/team/campaigns/${campaignId}/analytics/sync`,
+    { method: "POST", memberId },
+  );
+
+export const publishCampaign = (memberId: string, campaignId: string) =>
+  request<PerformanceData>(`/api/v1/team/campaigns/${campaignId}/publish`, {
+    method: "POST",
+    memberId,
+  });
+
+export const recordMetrics = (
+  memberId: string,
+  postId: string,
+  body: { impressions: number; clicks: number; signups: number },
+) =>
+  request<PerformanceData>(`/api/v1/team/posts/${postId}/metrics`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const getBoard = (memberId: string, campaignId: string) =>
+  request<Board>(`/api/v1/team/campaigns/${campaignId}/board`, { memberId });
+
+export const runCampaign = (memberId: string, campaignId: string) =>
+  request<Board>(`/api/v1/team/campaigns/${campaignId}/run`, {
+    method: "POST",
+    memberId,
+  });
+
+export const getInbox = (memberId: string) =>
+  request<Task[]>("/api/v1/team/inbox", { memberId });
+
+export const getTask = (memberId: string, taskId: string) =>
+  request<TaskDetail>(`/api/v1/team/tasks/${taskId}`, { memberId });
+
+export const editTask = (
+  memberId: string,
+  taskId: string,
+  output: Record<string, unknown>,
+) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/edit`, {
+    method: "POST",
+    memberId,
+    body: { output },
+  });
+
+export const reviewTask = (
+  memberId: string,
+  taskId: string,
+  body: {
+    action: "approve" | "request_changes";
+    output?: Record<string, unknown> | null;
+    note?: string | null;
+  },
+) =>
+  request<Board>(`/api/v1/team/tasks/${taskId}/review`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const assignTask = (
+  memberId: string,
+  taskId: string,
+  body: { member_id?: string | null; execution_mode?: ExecutionMode | null },
+) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/assign`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const submitTask = (
+  memberId: string,
+  taskId: string,
+  output?: Record<string, unknown> | null,
+) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/submit`, {
+    method: "POST",
+    memberId,
+    body: { output: output ?? null },
+  });
+
+export const syncVisual = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/sync-visual`, { method: "POST", memberId });
+
+export const improvePost = (memberId: string, taskId: string) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/improve`, { method: "POST", memberId });
+
+export const lockTask = (memberId: string, taskId: string, locked: boolean) =>
+  request<Task>(`/api/v1/team/tasks/${taskId}/lock`, {
+    method: "POST",
+    memberId,
+    body: { locked },
+  });
+
+export const addAnnotation = (memberId: string, taskId: string, bodyText: string) =>
+  request<Annotation>(`/api/v1/team/tasks/${taskId}/annotations`, {
+    method: "POST",
+    memberId,
+    body: { body: bodyText, target: "general", anchor: {} },
+  });
+
+export const resolveAnnotation = (
+  memberId: string,
+  annotationId: string,
+  resolved = true,
+) =>
+  request<Annotation>(`/api/v1/team/annotations/${annotationId}/resolve`, {
+    method: "POST",
+    memberId,
+    body: { resolved },
+  });
+
+export const addComment = (memberId: string, taskId: string, bodyText: string) =>
+  request<Comment>(`/api/v1/team/tasks/${taskId}/comments`, {
+    method: "POST",
+    memberId,
+    body: { body: bodyText },
+  });
+
+export interface BrandTermItem {
+  id: string;
+  term: string;
+  term_type: string;
+  replacement: string | null;
+  case_sensitive: boolean;
+  note: string;
+}
+
+export interface IcpSegment {
+  name: string;
+  description?: string;
+  profile?: string;
+  platforms: string[];
+  pain_points: string[];
+  value_props?: string[];
+  objections?: string[];
+  reach_tactics: string[];
+}
+
+export interface BrandProfile {
+  voice: string;
+  tone_rules: string[];
+  forbidden_words: string[];
+  approved_phrases: string[];
+  proof_points: Array<{ claim?: string; source?: string | null }>;
+  segments: IcpSegment[];
+}
+
+export const getBrand = (memberId: string) =>
+  request<BrandProfile>("/api/v1/team/brand", { memberId });
+
+export const upsertSegment = (
+  memberId: string,
+  body: {
+    name: string;
+    description?: string;
+    platforms?: string[];
+    pain_points?: string[];
+    reach_tactics?: string[];
+  },
+) => request<BrandProfile>("/api/v1/team/brand/segments", { method: "POST", memberId, body });
+
+export const deleteSegment = (memberId: string, name: string) =>
+  request<BrandProfile>(`/api/v1/team/brand/segments/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+    memberId,
+  });
+
+export const listTerms = (memberId: string) =>
+  request<BrandTermItem[]>("/api/v1/team/terms", { memberId });
+
+export const createTerm = (
+  memberId: string,
+  body: {
+    term: string;
+    term_type: string;
+    replacement?: string | null;
+    case_sensitive?: boolean;
+    note?: string;
+  },
+) => request<BrandTermItem[]>("/api/v1/team/terms", { method: "POST", memberId, body });
+
+export const deleteTerm = (memberId: string, termId: string) =>
+  request<BrandTermItem[]>(`/api/v1/team/terms/${termId}`, {
+    method: "DELETE",
+    memberId,
+  });
+
+export const listAtoms = (
+  memberId: string,
+  params?: { kind?: string; tag?: string },
+) => {
+  const query = new URLSearchParams();
+  if (params?.kind) query.set("kind", params.kind);
+  if (params?.tag) query.set("tag", params.tag);
+  const qs = query.toString();
+  return request<Atom[]>(`/api/v1/team/atoms${qs ? `?${qs}` : ""}`, { memberId });
+};
+
+export const getOrg = (memberId: string) =>
+  request<OrgData>("/api/v1/team/org", { memberId });
+
+export const createOrgMember = (
+  memberId: string,
+  body: {
+    display_name: string;
+    role: string;
+    job_description?: string;
+    handles_kinds?: string[];
+    provider?: string;
+    model?: string | null;
+    reports_to?: string | null;
+  },
+) =>
+  request<OrgMember>("/api/v1/team/org/members", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const updateOrgMember = (
+  memberId: string,
+  targetId: string,
+  body: {
+    job_description?: string;
+    handles_kinds?: string[];
+    reports_to?: string | null;
+    role?: string;
+    provider?: string;
+    model?: string | null;
+  },
+) =>
+  request<OrgMember>(`/api/v1/team/org/members/${targetId}`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export interface DirectMessage {
+  id: string;
+  sender: string;
+  kind: string;
+  title: string | null;
+  task_id: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface MemberProfile {
+  member: OrgMember;
+  fleet: FleetAgent | null;
+  tasks: Task[];
+}
+
+export const getMemberProfile = (memberId: string, targetId: string) =>
+  request<MemberProfile>(`/api/v1/team/members/${targetId}/profile`, { memberId });
+
+export const getMemberMessages = (memberId: string, targetId: string) =>
+  request<DirectMessage[]>(`/api/v1/team/members/${targetId}/messages`, { memberId });
+
+export const sendMemberMessage = (
+  memberId: string,
+  targetId: string,
+  body: { body: string; kind?: string; title?: string | null },
+) =>
+  request<DirectMessage[]>(`/api/v1/team/members/${targetId}/messages`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export type Confidence = "guess" | "likely" | "confirmed";
+
+export interface AudienceCandidate {
+  name: string;
+  why: string;
+  pain: string;
+  confidence: Confidence;
+}
+
+export interface PositioningAngle {
+  angle: string;
+  rationale: string;
+  confidence: Confidence;
+}
+
+export interface StrategyDraft {
+  understanding: string;
+  audience_candidates: AudienceCandidate[];
+  positioning_angles: PositioningAngle[];
+  content_pillars: string[];
+  channels: string[];
+  measure: string;
+  assumptions: string[];
+  next_questions: string[];
+}
+
+/** One-shot strategy draft (the quick entry). Internally one turn of the strategy loop. */
+export const draftStrategy = (
+  memberId: string,
+  idea: string,
+  answers: Record<string, unknown>[] = [],
+) =>
+  request<StrategyDraft>("/api/v1/team/strategy/draft", {
+    method: "POST",
+    memberId,
+    body: { idea, answers },
+  });
+
+// --- Strategy loop (circuit A) — stateful, multi-turn co-creation ---
+
+export interface StrategyInput {
+  type: string; // idea | url | text | competitor
+  value: string;
+}
+
+export interface StrategySession {
+  id: string;
+  goal: string;
+  status: string; // active | done
+  draft: StrategyDraft | null;
+  turns: { feedback: string | null; draft: StrategyDraft }[];
+  turn_count: number;
+  campaign_id: string | null; // set once the strategy is handed off to a campaign
+}
+
+/** Open the strategy loop over whatever the user fed; returns the first draft to react to. */
+export const startStrategySession = (memberId: string, inputs: StrategyInput[]) =>
+  request<StrategySession>("/api/v1/team/strategy/sessions", {
+    method: "POST",
+    memberId,
+    body: { inputs },
+  });
+
+/** One more turn — fold the user's reaction in, or close the loop with `done: true`. */
+export const advanceStrategySession = (
+  memberId: string,
+  sessionId: string,
+  body: { feedback?: string; inputs?: StrategyInput[]; done?: boolean },
+) =>
+  request<StrategySession>(`/api/v1/team/strategy/sessions/${sessionId}/advance`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export interface LlmProviderInfo {
+  provider_id: string;
+  display_name: string;
+  model_name: string;
+  kind: string;
+  configured: boolean;
+  is_default: boolean;
+}
+
+/** The live model catalog — powers the "live on …" badge (and the swappable-model story). */
+export const getLlmProviders = async (): Promise<LlmProviderInfo[]> => {
+  const res = await fetch(`${BASE_URL}/api/v1/llm/providers`);
+  if (!res.ok) return [];
+  const data = (await res.json()) as { providers?: LlmProviderInfo[] };
+  return data.providers ?? [];
+};
+
+/** Circuit A → B (the five-minute hook): lock the strategy and draft the first content from
+ * it. Returns the new campaign's board so the marketer sees their first posts immediately. */
+export const handoffStrategySession = (
+  memberId: string,
+  sessionId: string,
+  body: {
+    audience_index?: number;
+    angle_index?: number;
+    product_name?: string;
+    channels?: string[];
+    review_assets?: boolean;
+  } = {},
+) =>
+  request<Board>(`/api/v1/team/strategy/sessions/${sessionId}/handoff`, {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const TESTSPRITE_BRIEF: Record<string, unknown> = {
+  product_name: "TestSprite",
+  product_description:
+    "An agentic testing platform that verifies AI-generated code with live browsers and APIs.",
+  target_audience: "Engineering leaders and AI-native developers using coding agents",
+  marketing_goal: "Generate qualified developer signups and API key starts",
+  user_prompt: "ready for planning: launch campaign for TestSprite",
+  selected_channels: ["LinkedIn", "Email", "Landing Page"],
+  target_segments: ["Engineering leaders", "AI-native developers"],
+};
+
+/* ── Outbound integrations ──────────────────────────────────────────────── */
+
+export interface IntegrationDispatchRequest {
+  target: "linear" | "webhook";
+  title: string;
+  body?: string;
+  campaign_id?: string;
+  /** Webhook endpoint — required when target is "webhook". */
+  url?: string;
+  /** Linear personal API key — required when target is "linear". Used once, never stored. */
+  api_key?: string;
+}
+
+export interface IntegrationDispatchResult {
+  ok: boolean;
+  target: string;
+  permalink: string | null;
+  detail: string;
+}
+
+export const dispatchIntegration = (body: IntegrationDispatchRequest) =>
+  request<IntegrationDispatchResult>("/api/v1/team/integrations/dispatch", {
+    method: "POST",
+    body,
+  });
+
+export interface SyncedIssue {
+  task_id: string;
+  identifier: string;
+  url: string | null;
+}
+
+export interface SyncCampaignResult {
+  ok: boolean;
+  project_url: string | null;
+  created: number;
+  updated: number;
+  issues: SyncedIssue[];
+  detail: string;
+}
+
+export interface ExternalLink {
+  provider: string;
+  local_kind: string;
+  local_id: string;
+  external_id: string;
+  url: string | null;
+}
+
+/** Mirror the campaign's launch timeline into Linear (idempotent upsert). */
+export const syncCampaignToLinear = (
+  memberId: string,
+  body: { campaign_id: string; api_key: string },
+) =>
+  request<SyncCampaignResult>("/api/v1/team/integrations/linear/sync-campaign", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+export const listExternalLinks = (memberId: string, campaignId: string) =>
+  request<ExternalLink[]>(
+    `/api/v1/team/integrations/links?campaign_id=${encodeURIComponent(campaignId)}`,
+    { memberId },
+  );
+
+/** Download the campaign's approved posts as a per-platform Markdown zip. */
+export async function downloadCopyPack(memberId: string, campaignId: string): Promise<void> {
+  const response = await fetch(
+    `${BASE_URL}/api/v1/team/campaigns/${campaignId}/copy-pack`,
+    { headers: { "X-Member-Id": memberId } },
+  );
+  if (!response.ok) {
+    let detail = `Copy pack failed (${response.status}).`;
+    try {
+      const data = await response.json();
+      if (typeof data?.detail === "string") detail = data.detail;
+    } catch {
+      /* keep default */
+    }
+    throw new TeamApiError(detail, response.status);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download =
+    response.headers.get("Content-Disposition")?.match(/filename="(.+)"/)?.[1] ??
+    "copy-pack.zip";
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+export interface UsageRow {
+  member_id: string;
+  display_name: string;
+  runs: number;
+  tokens: number;
+  providers: string[];
+}
+
+export interface UsageSummary {
+  rows: UsageRow[];
+  total_runs: number;
+  total_tokens: number;
+}
+
+export const getUsage = (memberId: string) =>
+  request<UsageSummary>("/api/v1/team/usage", { memberId });
+
+export interface OnboardFromUrlResult {
+  draft: {
+    voice: string;
+    value_proposition: string;
+    messaging_pillars: { name: string }[];
+    tone_rules: string[];
+  };
+  channels: { platform: string; handle: string }[];
+  applied: boolean;
+}
+
+/** One-URL onboarding: prefill channels (real links) + brand draft (page copy). */
+export const onboardFromUrl = (
+  memberId: string,
+  body: { url: string; apply?: boolean },
+) =>
+  request<OnboardFromUrlResult>("/api/v1/team/brand/onboard-from-url", {
+    method: "POST",
+    memberId,
+    body,
+  });
+
+/* ── Channel registry ───────────────────────────────────────────────────── */
+
+export const listChannels = (memberId: string) =>
+  request<ChannelProfile[]>("/api/v1/team/channels", { memberId });
+
+export const upsertChannel = (
+  memberId: string,
+  body: {
+    platform: string;
+    handle?: string;
+    audience_note?: string;
+    cadence?: string;
+    active?: boolean;
+  },
+) => request<ChannelProfile[]>("/api/v1/team/channels", { method: "POST", memberId, body });
+
+export const updateChannel = (
+  memberId: string,
+  channelId: string,
+  body: {
+    handle?: string;
+    audience_note?: string;
+    cadence?: string;
+    active?: boolean;
+  },
+) =>
+  request<ChannelProfile[]>(`/api/v1/team/channels/${channelId}`, {
+    method: "POST",
+    memberId,
+    body,
+  });

@@ -6,6 +6,16 @@
 .env.*
 !.env.example
 
+# Local agent/tooling overrides
+AGENTS.md
+AGENTS.md.bak
+.tools/
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
 # Python environments and caches
 .venv/
 .uv-cache/
@@ -50,3 +60,8 @@ test-results/
 .mypy_cache/
 .pyright/
 .ruff_cache/
+VERSION
+
+# TestSprite runtime artifacts
+.testsprite/failure/
+!.env.deploy.example

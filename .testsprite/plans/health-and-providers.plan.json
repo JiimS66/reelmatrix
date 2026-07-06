@@ -1,0 +1,13 @@
+{
+  "projectId": "8f1a9a08-31f1-4bab-91e3-8d51627bcf40",
+  "type": "backend",
+  "name": "Health deploy marker and model catalog",
+  "description": "GET /health reports the deployed commit; GET /api/v1/llm/providers lists the model catalog with exactly one default.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send a GET request to {base_url}/health." },
+    { "type": "assertion", "description": "Verify the response is 200 with JSON body where status equals 'ok' and commit is a non-empty string." },
+    { "type": "action", "description": "Send a GET request to {base_url}/api/v1/llm/providers." },
+    { "type": "assertion", "description": "Verify the response is 200 and the providers list is non-empty, each entry has provider_id, display_name, model_name and configured fields, and exactly one entry has is_default set to true." }
+  ]
+}

@@ -48,6 +48,21 @@ def create_llm_client(settings: AppSettings) -> BaseLLMClient:
             model=model,
             timeout_seconds=settings.llm_timeout_seconds,
         )
+    if provider == "siliconflow":
+        api_key = (settings.siliconflow_api_key or "").strip()
+        if not api_key:
+            raise LLMConfigurationError(
+                "SILICONFLOW_API_KEY is required when LLM_PROVIDER=siliconflow"
+            )
+        from core.llm.openai_compatible_client import OpenAICompatibleLLMClient
+
+        return OpenAICompatibleLLMClient(
+            base_url=settings.siliconflow_base_url,
+            model=settings.siliconflow_model,
+            api_key=api_key,
+            timeout_seconds=settings.llm_timeout_seconds,
+            provider_name="SiliconFlow",
+        )
     if provider == "local":
         base_url = (settings.local_llm_base_url or "").strip()
         model = (settings.local_llm_model or "").strip()
@@ -67,5 +82,5 @@ def create_llm_client(settings: AppSettings) -> BaseLLMClient:
         )
     raise LLMConfigurationError(
         f"Unsupported LLM_PROVIDER '{provider}'. "
-        "Expected one of: mock, openai, dashscope, qwen, local"
+        "Expected one of: mock, openai, dashscope, qwen, siliconflow, local"
     )

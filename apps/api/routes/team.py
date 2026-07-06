@@ -1,0 +1,1303 @@
+"""Team workspace API: campaign board, member inbox, and task actions.
+
+Auth is a development stub: the acting member is taken from the ``X-Member-Id``
+header. Replace with real authentication before any non-local use.
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from sqlmodel import Session
+
+from apps.api.schemas.team import (
+    AgentRoleRead,
+    AnnotationRead,
+    AudienceCandidateRead,
+    PositioningAngleRead,
+    AdvanceStrategySessionRequest,
+    HandoffStrategyRequest,
+    StartStrategySessionRequest,
+    StrategyDraftRead,
+    StrategyDraftRequest,
+    StrategySessionRead,
+    AnnotationRequest,
+    AssignRequest,
+    AtomRead,
+    BoardRead,
+    BrandRead,
+    CampaignRead,
+    ChannelRead,
+    ChannelRequest,
+    ChannelUpdateRequest,
+    CommentRead,
+    CommentRequest,
+    CreateCampaignRequest,
+    CreateOrgMemberRequest,
+    DirectMessageRead,
+    EditRequest,
+    EventRead,
+    FleetAgent,
+    LockRequest,
+    MemberProfileRead,
+    MemberRead,
+    MetricsRequest,
+    MilestoneRead,
+    OrgMemberRead,
+    OrgRead,
+    PerformanceData,
+    PlatformPerformance,
+    ResolveRequest,
+    ReviewRequest,
+    ScheduleRead,
+    SegmentRequest,
+    SendMessageRequest,
+    SubmitRequest,
+    TaskDetailRead,
+    TaskRead,
+    TermRead,
+    TermRequest,
+    DesignExperimentRequest,
+    ExperimentRead,
+    AtomizeRequest,
+    ClipDraftRequest,
+    ClipsRead,
+    CreatePillarRequest,
+    BrandKnowledgeRequest,
+    BrandKnowledgeResult,
+    OnboardFromUrlRequest,
+    OnboardFromUrlResult,
+    ConsentRequest,
+    DeploymentStatus,
+    ImportHistoricalRequest,
+    ImportResult,
+    AddProspectRequest,
+    PaidPlan,
+    PolicyVerdictRead,
+    ProspectRead,
+    ReliabilityRow,
+    FunnelCoverage,
+    GapRequest,
+    GrowthInsights,
+    BudgetPlan,
+    BudgetRequest,
+    EvalRunResult,
+    IdentityResolveRequest,
+    IdentityResult,
+    IncrementalityResult,
+    MarketIntelRead,
+    PlannedActionRead,
+    NarrativeRead,
+    NarrativeRequest,
+    PillarRead,
+    SegmentScorecard,
+    TodoItem,
+    WhitespaceRequest,
+    TrendAngle,
+    TrendDraftRequest,
+    TrendRefresh,
+    UpdateOrgMemberRequest,
+    UsageSummary,
+    VersionRead,
+)
+from apps.api.services import team_service
+from core.agents.roles import ROLES
+from core.analytics.sync import sync_campaign_analytics
+from core.growth.learner import learn_outcomes
+from core.db.engine import get_session
+from core.db.models import Member, TaskKind
+from core.publish.publish import publish_campaign_posts
+from core.trends.refresh import refresh_campaign_trends
+from core.workflows.task_runner import TaskRunner
+
+router = APIRouter(prefix="/api/v1/team", tags=["team"])
+
+
+def get_current_member(
+    x_member_id: str = Header(..., alias="X-Member-Id"),
+    session: Session = Depends(get_session),
+) -> Member:
+    member = session.get(Member, x_member_id)
+    if member is None:
+        raise HTTPException(status_code=401, detail="Unknown member.")
+    return member
+
+
+def _board_response(session: Session, actor: Member, campaign_id: str) -> BoardRead:
+    campaign, tasks, members = team_service.get_board(session, actor, campaign_id)
+    return BoardRead(
+        campaign=CampaignRead.model_validate(campaign),
+        tasks=[TaskRead.model_validate(task) for task in tasks],
+        members=[MemberRead.model_validate(member) for member in members],
+    )
+
+
+@router.post("/campaigns", response_model=BoardRead)
+def create_campaign(
+    payload: CreateCampaignRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    campaign = team_service.create_campaign(
+        session,
+        actor,
+        name=payload.name,
+        brief=payload.brief,
+        template=payload.template,
+        event_name=payload.event_name,
+        event_date=payload.event_date,
+        review_assets=payload.review_assets,
+        with_visuals=payload.with_visuals,
+    )
+    return _board_response(session, actor, campaign.id)
+
+
+@router.get("/campaigns", response_model=list[CampaignRead])
+def list_campaigns(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[CampaignRead]:
+    return [
+        CampaignRead.model_validate(c)
+        for c in team_service.list_campaigns(session, actor)
+    ]
+
+
+@router.get("/campaigns/{campaign_id}/board", response_model=BoardRead)
+def get_board(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    return _board_response(session, actor, campaign_id)
+
+
+@router.post("/campaigns/{campaign_id}/run", response_model=BoardRead)
+async def run_campaign(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    team_service.get_board(session, actor, campaign_id)  # access check
+    await TaskRunner(session).run_ready_tasks(campaign_id)
+    return _board_response(session, actor, campaign_id)
+
+
+@router.get("/members", response_model=list[MemberRead])
+def list_members(
+    session: Session = Depends(get_session),
+) -> list[MemberRead]:
+    # Dev bootstrap (no auth): lets the stub UI pick who to act as.
+    return [MemberRead.model_validate(m) for m in team_service.list_all_members(session)]
+
+
+@router.get("/fleet", response_model=list[FleetAgent])
+def get_fleet(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[FleetAgent]:
+    return [FleetAgent(**row) for row in team_service.agent_fleet(session, actor)]
+
+
+@router.get("/org", response_model=OrgRead)
+def get_org(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgRead:
+    members = team_service.get_org(session, actor)
+    return OrgRead(
+        members=[OrgMemberRead.from_member(m) for m in members],
+        task_kinds=[kind.value for kind in TaskKind],
+        agent_roles=[
+            AgentRoleRead(key=r.key, title=r.title, job_description=r.job_description)
+            for r in ROLES.values()
+        ],
+    )
+
+
+@router.post("/org/members", response_model=OrgMemberRead)
+def create_org_member(
+    payload: CreateOrgMemberRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgMemberRead:
+    member = team_service.create_org_member(
+        session,
+        actor,
+        display_name=payload.display_name,
+        role=payload.role,
+        job_description=payload.job_description,
+        handles_kinds=payload.handles_kinds,
+        provider=payload.provider,
+        model=payload.model,
+        reports_to=payload.reports_to,
+    )
+    return OrgMemberRead.from_member(member)
+
+
+@router.post("/org/members/{member_id}", response_model=OrgMemberRead)
+def update_org_member(
+    member_id: str,
+    payload: UpdateOrgMemberRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OrgMemberRead:
+    member = team_service.update_org_member(
+        session,
+        actor,
+        member_id,
+        job_description=payload.job_description,
+        handles_kinds=payload.handles_kinds,
+        reports_to=payload.reports_to,
+        role=payload.role,
+        provider=payload.provider,
+        model=payload.model,
+    )
+    return OrgMemberRead.from_member(member)
+
+
+@router.get("/members/{member_id}/profile", response_model=MemberProfileRead)
+def get_member_profile(
+    member_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> MemberProfileRead:
+    member, stat, tasks = team_service.member_profile(session, actor, member_id)
+    return MemberProfileRead(
+        member=OrgMemberRead.from_member(member),
+        fleet=FleetAgent(**stat) if stat else None,
+        tasks=[TaskRead.model_validate(t) for t in tasks],
+    )
+
+
+@router.get("/members/{member_id}/messages", response_model=list[DirectMessageRead])
+def get_member_messages(
+    member_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[DirectMessageRead]:
+    return [
+        DirectMessageRead.model_validate(m)
+        for m in team_service.list_member_messages(session, actor, member_id)
+    ]
+
+
+@router.post("/members/{member_id}/messages", response_model=list[DirectMessageRead])
+async def send_member_message(
+    member_id: str,
+    payload: SendMessageRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[DirectMessageRead]:
+    messages = await team_service.send_member_message(
+        session, actor, member_id,
+        body=payload.body, kind=payload.kind, title=payload.title,
+    )
+    return [DirectMessageRead.model_validate(m) for m in messages]
+
+
+@router.get("/inbox", response_model=list[TaskRead])
+def get_inbox(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TaskRead]:
+    return [TaskRead.model_validate(task) for task in team_service.get_inbox(session, actor)]
+
+
+@router.get("/campaigns/{campaign_id}/schedule", response_model=ScheduleRead)
+def get_schedule(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ScheduleRead:
+    campaign, milestones, tasks, angles = team_service.get_schedule(
+        session, actor, campaign_id
+    )
+    return ScheduleRead(
+        campaign=CampaignRead.model_validate(campaign),
+        milestones=[MilestoneRead.model_validate(m) for m in milestones],
+        tasks=[TaskRead.model_validate(t) for t in tasks],
+        timely_angles=angles,
+    )
+
+
+def _performance_response(
+    session: Session, actor: Member, campaign_id: str, *, note: str
+) -> PerformanceData:
+    campaign, platforms, totals = team_service.campaign_performance(
+        session, actor, campaign_id
+    )
+    return PerformanceData(
+        campaign_id=campaign.id,
+        platforms=[PlatformPerformance(**p) for p in platforms],
+        totals=totals,
+        note=note,
+    )
+
+
+@router.get("/campaigns/{campaign_id}/performance", response_model=PerformanceData)
+def get_performance(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            "Mock data. Connect owned-destination analytics + signup attribution "
+            "(UTMs) for real conversions; platform APIs where available."
+        ),
+    )
+
+
+@router.post("/campaigns/{campaign_id}/publish", response_model=PerformanceData)
+async def publish_campaign(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    live = await publish_campaign_posts(session, campaign)
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            f"Published {live} posts via the mock provider (deterministic permalinks). "
+            "Swap PUBLISH_PROVIDER=buffer (or a native API) to ship for real."
+        ),
+    )
+
+
+@router.post("/campaigns/{campaign_id}/analytics/sync", response_model=PerformanceData)
+async def sync_analytics(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    updated = await sync_campaign_analytics(session, campaign)
+    learn_outcomes(session, campaign.tenant_id)  # GA4 回流后即刷新学习先验
+    return _performance_response(
+        session,
+        actor,
+        campaign_id,
+        note=(
+            f"Synced {updated} posts from GA4 (mock connector) by UTM. "
+            "Swap ANALYTICS_SOURCE=ga4 with a service account for live conversions."
+        ),
+    )
+
+
+@router.post("/campaigns/{campaign_id}/trends", response_model=TrendRefresh)
+async def refresh_trends(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TrendRefresh:
+    campaign = team_service.get_campaign_for_lead(session, actor, campaign_id)
+    angles = await refresh_campaign_trends(session, campaign)
+    return TrendRefresh(campaign_id=campaign.id, timely_angles=angles)
+
+
+@router.get("/campaigns/{campaign_id}/trends", response_model=list[TrendAngle])
+def scored_trends(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TrendAngle]:
+    return [TrendAngle(**a) for a in team_service.score_angles(session, actor, campaign_id)]
+
+
+@router.post("/campaigns/{campaign_id}/trends/draft", response_model=BoardRead)
+async def draft_from_trend(
+    campaign_id: str,
+    payload: TrendDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    team_service.create_trend_draft(
+        session, actor, campaign_id, angle=payload.angle, channel=payload.channel
+    )
+    await TaskRunner(session).run_ready_tasks(campaign_id)
+    return _board_response(session, actor, campaign_id)
+
+
+@router.get("/todo", response_model=list[TodoItem])
+def get_todo(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TodoItem]:
+    return [
+        TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
+        for name, task in team_service.get_todo(session, actor)
+    ]
+
+
+@router.get("/review-queue", response_model=list[TodoItem])
+def get_review_queue(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TodoItem]:
+    """The cross-campaign 'needs your call' queue, each row tagged with its campaign."""
+    return [
+        TodoItem(campaign_name=name, task=TaskRead.model_validate(task))
+        for name, task in team_service.get_review_queue(session, actor)
+    ]
+
+
+@router.get("/insights", response_model=GrowthInsights)
+def read_growth_insights(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> GrowthInsights:
+    """The learned 'what's working' scoreboard + priors (the effect flywheel)."""
+    return GrowthInsights(**team_service.get_growth_insights(session, actor))
+
+
+@router.post("/insights/learn", response_model=GrowthInsights)
+def learn_growth_insights(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> GrowthInsights:
+    """Rebuild the attribute posteriors from current post outcomes, then return them."""
+    return GrowthInsights(**team_service.relearn_outcomes(session, actor))
+
+
+@router.post("/insights/incrementality", response_model=IncrementalityResult)
+def run_incrementality(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> IncrementalityResult:
+    """Measure causal lift + de-bias the flywheel (correlation → causation)."""
+    return IncrementalityResult(**team_service.run_incrementality(session, actor))
+
+
+@router.get("/actions", response_model=list[PlannedActionRead])
+def list_planned_actions(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    return [PlannedActionRead(**a) for a in team_service.list_planned_actions(session, actor)]
+
+
+@router.post("/actions/plan", response_model=list[PlannedActionRead])
+def plan_actions_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    """The orchestrator observes state across capabilities and proposes ranked next actions."""
+    return [PlannedActionRead(**a) for a in team_service.plan_actions(session, actor)]
+
+
+@router.post("/actions/{action_id}/accept", response_model=list[PlannedActionRead])
+async def accept_action_route(
+    action_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    action = team_service._get_planned_action(session, actor, action_id)
+    run_campaign_id = (action.payload or {}).get("campaign_id") if action.type == "draft_trend" else None
+    result = [PlannedActionRead(**a) for a in team_service.accept_action(session, actor, action_id)]
+    if run_campaign_id:
+        # A trend draft was just created — render it now (still review-gated).
+        await TaskRunner(session).run_ready_tasks(run_campaign_id)
+    return result
+
+
+@router.post("/actions/{action_id}/ignore", response_model=list[PlannedActionRead])
+def ignore_action_route(
+    action_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PlannedActionRead]:
+    return [PlannedActionRead(**a) for a in team_service.ignore_action(session, actor, action_id)]
+
+
+@router.post("/paid/optimize-budget", response_model=BudgetPlan)
+def optimize_budget_route(
+    payload: BudgetRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BudgetPlan:
+    """Allocate a budget across channels by marginal ROI (equimarginal principle)."""
+    return BudgetPlan(**team_service.optimize_paid_budget(session, actor, total=payload.total))
+
+
+@router.post("/identity/resolve", response_model=IdentityResult)
+def resolve_identities_route(
+    payload: IdentityResolveRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> IdentityResult:
+    """Stitch fragmented records into unified profiles (deterministic union-find)."""
+    return IdentityResult(**team_service.resolve_identities(session, actor, payload.records))
+
+
+@router.post("/evals/run", response_model=EvalRunResult)
+def run_evals_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> EvalRunResult:
+    """Score the eval suite (real policy/GEO graders) and record a regression-gate run."""
+    return EvalRunResult(**team_service.run_evals(session, actor))
+
+
+@router.get(
+    "/campaigns/{campaign_id}/experiments", response_model=list[ExperimentRead]
+)
+def list_campaign_experiments(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ExperimentRead]:
+    return [
+        ExperimentRead(**e)
+        for e in team_service.list_experiments(session, actor, campaign_id)
+    ]
+
+
+@router.post("/campaigns/{campaign_id}/experiments", response_model=ExperimentRead)
+def design_campaign_experiment(
+    campaign_id: str,
+    payload: DesignExperimentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ExperimentRead:
+    return ExperimentRead(
+        **team_service.design_experiment(
+            session, actor, campaign_id,
+            hypothesis=payload.hypothesis, channel=payload.channel,
+            segment=payload.segment, n=payload.n,
+        )
+    )
+
+
+@router.post("/experiments/{experiment_id}/decide", response_model=ExperimentRead)
+def decide_experiment_route(
+    experiment_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ExperimentRead:
+    return ExperimentRead(**team_service.decide_experiment(session, actor, experiment_id))
+
+
+@router.get("/segments/scorecard", response_model=SegmentScorecard)
+def segment_scorecard(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(**team_service.get_segment_scorecard(session, actor))
+
+
+@router.post("/segments/discover", response_model=SegmentScorecard)
+def discover_segments_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(**team_service.discover_segment_candidates(session, actor))
+
+
+@router.post(
+    "/segments/candidates/{candidate_id}/promote", response_model=SegmentScorecard
+)
+def promote_candidate(
+    candidate_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(
+        **team_service.promote_segment_candidate(session, actor, candidate_id)
+    )
+
+
+@router.post(
+    "/segments/candidates/{candidate_id}/dismiss", response_model=SegmentScorecard
+)
+def dismiss_candidate(
+    candidate_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> SegmentScorecard:
+    return SegmentScorecard(
+        **team_service.dismiss_segment_candidate(session, actor, candidate_id)
+    )
+
+
+@router.get("/market", response_model=MarketIntelRead)
+def market_intel(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> MarketIntelRead:
+    return MarketIntelRead(**team_service.get_market_intel(session, actor))
+
+
+@router.post("/market/whitespace/draft")
+async def whitespace_draft(
+    payload: WhitespaceRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.spawn_whitespace_task(session, actor, angle=payload.angle)
+
+
+@router.get("/brand/narrative", response_model=NarrativeRead)
+def get_narrative(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> NarrativeRead:
+    return NarrativeRead(**team_service.get_brand_narrative(session, actor))
+
+
+@router.put("/brand/narrative", response_model=NarrativeRead)
+def put_narrative(
+    payload: NarrativeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> NarrativeRead:
+    return NarrativeRead(
+        **team_service.set_brand_narrative(
+            session, actor,
+            value_proposition=payload.value_proposition,
+            messaging_pillars=payload.messaging_pillars,
+        )
+    )
+
+
+@router.get("/campaigns/{campaign_id}/funnel-coverage", response_model=FunnelCoverage)
+def get_funnel_coverage(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> FunnelCoverage:
+    return FunnelCoverage(**team_service.funnel_coverage(session, actor, campaign_id))
+
+
+@router.post("/campaigns/{campaign_id}/funnel-gap/draft", response_model=FunnelCoverage)
+async def draft_funnel_gap(
+    campaign_id: str,
+    payload: GapRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> FunnelCoverage:
+    return FunnelCoverage(
+        **await team_service.draft_for_gap(
+            session, actor, campaign_id,
+            funnel_stage=payload.funnel_stage, segment=payload.segment,
+        )
+    )
+
+
+@router.get("/campaigns/{campaign_id}/pillars", response_model=list[PillarRead])
+def get_pillars(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PillarRead]:
+    return [PillarRead(**p) for p in team_service.list_pillars(session, actor, campaign_id)]
+
+
+@router.post("/campaigns/{campaign_id}/pillars", response_model=list[PillarRead])
+def create_pillar_route(
+    campaign_id: str,
+    payload: CreatePillarRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[PillarRead]:
+    result = team_service.create_pillar(
+        session, actor, campaign_id,
+        title=payload.title, kind=payload.kind, source_text=payload.source_text,
+    )
+    return [PillarRead(**p) for p in result["pillars"]]
+
+
+@router.post("/pillars/{pillar_id}/atomize")
+async def atomize_pillar_route(
+    pillar_id: str,
+    payload: AtomizeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.atomize_pillar(
+        session, actor, pillar_id, channels=payload.channels
+    )
+
+
+@router.post("/tasks/{task_id}/video", response_model=TaskRead)
+async def generate_video(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await team_service.attach_video(session, actor, task)
+    return TaskRead.model_validate(task)
+
+
+@router.get("/pillars/{pillar_id}/clips", response_model=ClipsRead)
+def get_clips(
+    pillar_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ClipsRead:
+    return ClipsRead(**team_service.rank_clips(session, actor, pillar_id))
+
+
+@router.post("/pillars/{pillar_id}/clips/draft")
+async def draft_short(
+    pillar_id: str,
+    payload: ClipDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return await team_service.draft_short_from_clip(
+        session, actor, pillar_id, hook_sentence=payload.hook_sentence
+    )
+
+
+@router.get("/reliability", response_model=list[ReliabilityRow])
+def reliability_scorecard(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ReliabilityRow]:
+    """Per-AI-employee reliability + the autonomy level it has earned."""
+    return [
+        ReliabilityRow(**r) for r in team_service.reliability_scorecard(session, actor)
+    ]
+
+
+@router.get("/tasks/{task_id}/policy", response_model=PolicyVerdictRead)
+def policy_check(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PolicyVerdictRead:
+    return PolicyVerdictRead(**team_service.policy_check(session, actor, task_id))
+
+
+@router.post("/tasks/{task_id}/paid-plan", response_model=PaidPlan)
+def plan_paid(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PaidPlan:
+    return PaidPlan(**team_service.plan_paid_creative(session, actor, task_id))
+
+
+@router.get("/campaigns/{campaign_id}/prospects", response_model=list[ProspectRead])
+def list_prospects_route(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.list_prospects(session, actor, campaign_id)
+    ]
+
+
+@router.post("/campaigns/{campaign_id}/prospects", response_model=list[ProspectRead])
+def add_prospect_route(
+    campaign_id: str,
+    payload: AddProspectRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    result = team_service.add_prospect(
+        session, actor, campaign_id, name=payload.name, domain=payload.domain
+    )
+    return [ProspectRead(**p) for p in result["prospects"]]
+
+
+@router.post("/prospects/{prospect_id}/enrich", response_model=list[ProspectRead])
+def enrich_prospect_route(
+    prospect_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.enrich_prospect(session, actor, prospect_id)["prospects"]
+    ]
+
+
+@router.post("/prospects/{prospect_id}/send", response_model=list[ProspectRead])
+def send_outbound_route(
+    prospect_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ProspectRead]:
+    return [
+        ProspectRead(**p)
+        for p in team_service.send_outbound(session, actor, prospect_id)["prospects"]
+    ]
+
+
+@router.post("/import/historical", response_model=ImportResult)
+def import_historical_route(
+    payload: ImportHistoricalRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> ImportResult:
+    return ImportResult(**team_service.import_historical(session, actor, payload.rows))
+
+
+@router.post("/import/brand-knowledge", response_model=BrandKnowledgeResult)
+def import_brand_knowledge_route(
+    payload: BrandKnowledgeRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandKnowledgeResult:
+    return BrandKnowledgeResult(
+        **team_service.ingest_brand_knowledge(session, actor, text=payload.text)
+    )
+
+
+@router.post("/brand/onboard-from-url", response_model=OnboardFromUrlResult)
+def onboard_from_url_route(
+    payload: OnboardFromUrlRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> OnboardFromUrlResult:
+    """One-URL setup: real social links prefill the channel registry; the page
+    text drafts brand voice/ICP through the ImportProvider extractor."""
+    return OnboardFromUrlResult(
+        **team_service.onboard_from_url(session, actor, url=payload.url, apply=payload.apply)
+    )
+
+
+@router.get("/deployment", response_model=DeploymentStatus)
+def deployment_status(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> DeploymentStatus:
+    return DeploymentStatus(**team_service.get_deployment_status(session, actor))
+
+
+@router.post("/consent")
+def record_consent_route(
+    payload: ConsentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> dict:
+    return team_service.record_consent(
+        session, actor, subject_id=payload.subject_id, purpose=payload.purpose,
+        status=payload.status, legal_basis=payload.legal_basis,
+    )
+
+
+@router.get("/brand", response_model=BrandRead)
+def get_brand(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    return _brand_read(team_service.get_brand(session, actor))
+
+
+def _brand_read(brand) -> BrandRead:
+    if brand is None:
+        return BrandRead()
+    return BrandRead(
+        voice=brand.voice,
+        tone_rules=brand.tone_rules,
+        forbidden_words=brand.forbidden_words,
+        approved_phrases=brand.approved_phrases,
+        proof_points=brand.proof_points,
+        segments=brand.segments,
+    )
+
+
+@router.post("/brand/segments", response_model=BrandRead)
+def upsert_segment(
+    payload: SegmentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    brand = team_service.upsert_segment(
+        session, actor,
+        name=payload.name, description=payload.description, profile=payload.profile,
+        platforms=payload.platforms, pain_points=payload.pain_points,
+        value_props=payload.value_props, objections=payload.objections,
+        reach_tactics=payload.reach_tactics,
+    )
+    return _brand_read(brand)
+
+
+@router.delete("/brand/segments/{name}", response_model=BrandRead)
+def delete_segment(
+    name: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BrandRead:
+    return _brand_read(team_service.delete_segment(session, actor, name))
+
+
+@router.get("/terms", response_model=list[TermRead])
+def list_terms(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
+
+
+@router.post("/terms", response_model=list[TermRead])
+def create_term(
+    payload: TermRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    team_service.create_term(
+        session, actor,
+        term=payload.term, term_type=payload.term_type, replacement=payload.replacement,
+        case_sensitive=payload.case_sensitive, note=payload.note,
+    )
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
+
+
+@router.delete("/terms/{term_id}", response_model=list[TermRead])
+def delete_term(
+    term_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[TermRead]:
+    team_service.delete_term(session, actor, term_id)
+    return [TermRead.model_validate(t) for t in team_service.list_terms(session, actor)]
+
+
+@router.get("/atoms", response_model=list[AtomRead])
+def list_atoms(
+    kind: Optional[str] = None,
+    tag: Optional[str] = None,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[AtomRead]:
+    atoms = team_service.list_atoms(session, actor, kind=kind, tag=tag)
+    return [AtomRead.model_validate(atom) for atom in atoms]
+
+
+@router.get("/tasks/{task_id}", response_model=TaskDetailRead)
+def get_task(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskDetailRead:
+    task, comments, events = team_service.get_task_detail(session, actor, task_id)
+    return TaskDetailRead(
+        task=TaskRead.model_validate(task),
+        ai_draft=task.ai_draft,
+        comments=[CommentRead.model_validate(c) for c in comments],
+        events=[EventRead.model_validate(e) for e in events],
+        available_actions=team_service.available_actions(actor, task),
+        versions=[
+            VersionRead.model_validate(v)
+            for v in team_service.list_versions(session, actor, task_id)
+        ],
+        annotations=[
+            AnnotationRead.model_validate(a)
+            for a in team_service.list_annotations(session, actor, task_id)
+        ],
+    )
+
+
+@router.post("/tasks/{task_id}/sync-visual", response_model=TaskRead)
+async def sync_visual(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await TaskRunner(session).sync_visual(task)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/improve", response_model=TaskRead)
+async def improve_task(
+    task_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.guard_post_edit(session, actor, task_id)
+    await TaskRunner(session).improve(task)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/lock", response_model=TaskRead)
+def lock_task(
+    task_id: str,
+    payload: LockRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.lock_task(session, actor, task_id, locked=payload.locked)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/annotations", response_model=AnnotationRead)
+def add_annotation(
+    task_id: str,
+    payload: AnnotationRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> AnnotationRead:
+    row = team_service.create_annotation(
+        session, actor, task_id,
+        body=payload.body, target=payload.target, anchor=payload.anchor,
+    )
+    return AnnotationRead.model_validate(row)
+
+
+@router.post("/annotations/{annotation_id}/resolve", response_model=AnnotationRead)
+def resolve_annotation(
+    annotation_id: str,
+    payload: ResolveRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> AnnotationRead:
+    row = team_service.resolve_annotation(
+        session, actor, annotation_id, resolved=payload.resolved
+    )
+    return AnnotationRead.model_validate(row)
+
+
+@router.post("/tasks/{task_id}/edit", response_model=TaskRead)
+def edit_task(
+    task_id: str,
+    payload: EditRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.edit_task(session, actor, task_id, output=payload.output)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/assign", response_model=TaskRead)
+def assign_task(
+    task_id: str,
+    payload: AssignRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.assign_task(
+        session, actor, task_id,
+        member_id=payload.member_id, execution_mode=payload.execution_mode,
+    )
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/submit", response_model=TaskRead)
+def submit_task(
+    task_id: str,
+    payload: SubmitRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> TaskRead:
+    task = team_service.submit_task(session, actor, task_id, output=payload.output)
+    return TaskRead.model_validate(task)
+
+
+@router.post("/tasks/{task_id}/review", response_model=BoardRead)
+async def review_task(
+    task_id: str,
+    payload: ReviewRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    task = team_service.review_task(
+        session, actor, task_id,
+        action=payload.action, output=payload.output, note=payload.note,
+    )
+    if payload.action == "approve":
+        await TaskRunner(session).run_ready_tasks(task.campaign_id)
+    return _board_response(session, actor, task.campaign_id)
+
+
+@router.post("/tasks/{task_id}/comments", response_model=CommentRead)
+def add_comment(
+    task_id: str,
+    payload: CommentRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> CommentRead:
+    comment = team_service.add_comment(session, actor, task_id, body=payload.body)
+    return CommentRead.model_validate(comment)
+
+
+@router.post("/posts/{post_id}/metrics", response_model=PerformanceData)
+def record_metrics(
+    post_id: str,
+    payload: MetricsRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> PerformanceData:
+    snapshot = team_service.record_metrics(
+        session,
+        actor,
+        post_id,
+        impressions=payload.impressions,
+        clicks=payload.clicks,
+        signups=payload.signups,
+        activations=payload.activations,
+        paid=payload.paid,
+    )
+    return _performance_response(
+        session, actor, snapshot.campaign_id, note="Manual metrics recorded."
+    )
+
+
+@router.get("/campaigns/{campaign_id}/copy-pack")
+def download_copy_pack(
+    campaign_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> Response:
+    """Every approved post as per-platform Markdown (copy + CTA + UTM link) in
+    one zip — the honest publish-last-mile until real platform APIs land."""
+    filename, payload = team_service.build_copy_pack(session, actor, campaign_id)
+    return Response(
+        content=payload,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/usage", response_model=UsageSummary)
+def usage_summary_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> UsageSummary:
+    return UsageSummary(**team_service.usage_summary(session, actor))
+
+
+# --- Channel registry: which platforms this tenant actually operates ---
+
+
+@router.get("/channels", response_model=list[ChannelRead])
+def list_channels_route(
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
+
+
+@router.post("/channels", response_model=list[ChannelRead])
+def upsert_channel_route(
+    payload: ChannelRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    team_service.upsert_channel(
+        session,
+        actor,
+        platform=payload.platform,
+        handle=payload.handle,
+        audience_note=payload.audience_note,
+        cadence=payload.cadence,
+        active=payload.active,
+    )
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
+
+
+@router.post("/channels/{channel_id}", response_model=list[ChannelRead])
+def update_channel_route(
+    channel_id: str,
+    payload: ChannelUpdateRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> list[ChannelRead]:
+    team_service.update_channel(
+        session,
+        actor,
+        channel_id,
+        handle=payload.handle,
+        audience_note=payload.audience_note,
+        cadence=payload.cadence,
+        active=payload.active,
+    )
+    return [
+        ChannelRead.model_validate(c) for c in team_service.list_channels(session, actor)
+    ]
+
+
+@router.post("/strategy/draft", response_model=StrategyDraftRead)
+async def draft_strategy_route(
+    body: StrategyDraftRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategyDraftRead:
+    """Strategy co-creation — a fuzzy idea becomes a structured, editable draft (audience
+    candidates + positioning angles to pick from, not a form to fill). Any member."""
+    draft = await team_service.draft_strategy(actor, idea=body.idea, answers=body.answers)
+    return StrategyDraftRead(**draft)
+
+
+@router.post("/strategy/sessions", response_model=StrategySessionRead)
+async def start_strategy_session_route(
+    body: StartStrategySessionRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    """Open circuit A — the strategy loop. Feed whatever you have (idea / url / text /
+    competitor); the advisor runs the first turn and returns a draft to react to."""
+    data = await team_service.start_strategy_session(
+        session, actor, inputs=[i.model_dump() for i in body.inputs]
+    )
+    return StrategySessionRead(**data)
+
+
+@router.post("/strategy/sessions/{session_id}/advance", response_model=StrategySessionRead)
+async def advance_strategy_session_route(
+    session_id: str,
+    body: AdvanceStrategySessionRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    """One more turn — fold the user's reaction (pick / edit / correction) into the draft,
+    or close the loop with `done`."""
+    data = await team_service.advance_strategy_session(
+        session,
+        actor,
+        session_id,
+        feedback=body.feedback,
+        inputs=[i.model_dump() for i in body.inputs],
+        done=body.done,
+    )
+    return StrategySessionRead(**data)
+
+
+@router.get("/strategy/sessions/{session_id}", response_model=StrategySessionRead)
+def get_strategy_session_route(
+    session_id: str,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> StrategySessionRead:
+    return StrategySessionRead(
+        **team_service.get_strategy_session(session, actor, session_id)
+    )
+
+
+@router.post("/strategy/sessions/{session_id}/handoff", response_model=BoardRead)
+async def handoff_strategy_session_route(
+    session_id: str,
+    body: HandoffStrategyRequest,
+    actor: Member = Depends(get_current_member),
+    session: Session = Depends(get_session),
+) -> BoardRead:
+    """Circuit A → B (the five-minute hook): lock the strategy and draft the first content
+    from the chosen audience + angle. Returns the new campaign's board so the marketer sees
+    their first posts right away."""
+    data = await team_service.handoff_strategy_to_campaign(
+        session,
+        actor,
+        session_id,
+        audience_index=body.audience_index,
+        angle_index=body.angle_index,
+        product_name=body.product_name,
+        channels=body.channels,
+        review_assets=body.review_assets,
+    )
+    return _board_response(session, actor, data["campaign_id"])

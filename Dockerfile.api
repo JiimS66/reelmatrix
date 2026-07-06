@@ -1,0 +1,22 @@
+# Backend — FastAPI + uvicorn on Python 3.13 (dependencies via uv).
+FROM python:3.13-slim
+ENV PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy \
+    PYTHONPATH=/app \
+    PATH="/app/.venv/bin:$PATH"
+WORKDIR /app
+RUN pip install --no-cache-dir uv
+
+# 1) Dependencies only — cached unless the lockfile changes.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# 2) Backend source (not the web app).
+COPY apps/__init__.py ./apps/__init__.py
+COPY apps/api ./apps/api
+COPY core ./core
+COPY configs ./configs
+
+EXPOSE 8000
+# Seed the demo data once (only if the db file doesn't exist yet), then serve.
+CMD ["sh", "-c", "[ -f /app/data/reelmatrix.db ] || python -m core.db.seed; exec uvicorn apps.api.main:app --host 0.0.0.0 --port 8000"]

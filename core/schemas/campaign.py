@@ -30,6 +30,21 @@ class BrandProofPoint(StrictSchema):
     source: Optional[NonEmptyStr] = None
 
 
+class IcpSegment(StrictSchema):
+    """An audience segment in the brand's ICP: who they are, where they are, what
+    hurts, and how to reach them. A campaign targets a subset; each post is routed
+    to one segment so the copy and visual are tailored to its pain points."""
+
+    name: NonEmptyStr
+    description: Optional[NonEmptyStr] = None
+    profile: Optional[NonEmptyStr] = None  # firmographics: industry / size / role / region
+    platforms: List[NonEmptyStr] = Field(default_factory=list)
+    pain_points: List[NonEmptyStr] = Field(default_factory=list)
+    value_props: List[NonEmptyStr] = Field(default_factory=list)  # the positive "so what"
+    objections: List[NonEmptyStr] = Field(default_factory=list)
+    reach_tactics: List[NonEmptyStr] = Field(default_factory=list)
+
+
 class BrandContext(StrictSchema):
     target_personas: Optional[List[NonEmptyStr]] = None
     proof_points: Optional[List[BrandProofPoint]] = None
@@ -37,6 +52,7 @@ class BrandContext(StrictSchema):
     competitors: Optional[List[NonEmptyStr]] = None
     tone_rules: Optional[List[NonEmptyStr]] = None
     source_links: Optional[List[NonEmptyStr]] = None
+    segments: Optional[List[IcpSegment]] = None
 
 
 class CampaignGenerationRequest(StrictSchema):
@@ -105,6 +121,46 @@ class CampaignAsset(StrictSchema):
     content: NonEmptyStr
     call_to_action: NonEmptyStr
     notes: List[NonEmptyStr]
+    # The post's visual (copy + image/video are one deliverable). Filled by the
+    # Designer sub-step after the copy converges, or attached by a human (URL).
+    visual: Optional[dict] = None
+
+
+class AuditDimension(str, Enum):
+    BRAND_TONE = "brand_tone"
+    UNSOURCED_CLAIM = "unsourced_claim"
+    CONSISTENCY = "consistency"
+    CLARITY = "clarity"
+
+
+class AuditIssue(StrictSchema):
+    dimension: AuditDimension
+    detail: NonEmptyStr
+
+
+class AuditVerdict(StrictSchema):
+    """An LLM-as-judge verdict on a rendered post — the semantic layer above the
+    deterministic format/brand/consistency checks. Run by an Auditor on a different
+    model family than the generator, so their errors decorrelate."""
+
+    approved: bool
+    issues: List[AuditIssue] = Field(default_factory=list)
+
+
+class VisualAsset(StrictSchema):
+    """A Designer's visual for one channel: the creative spec (concept, image-gen
+    prompt, alt text) plus the rendered ``image_ref`` filled by the MediaProvider.
+    ``references`` records any human-provided media the VisionProvider understood and
+    fed in as brand references."""
+
+    channel: Optional[NonEmptyStr] = None  # inherits the post's channel when nested
+    concept: NonEmptyStr
+    prompt: NonEmptyStr
+    alt_text: NonEmptyStr
+    aspect_ratio: str = "1:1"
+    image_ref: Optional[str] = None
+    video_ref: Optional[str] = None  # a human-attached or generated video (URL)
+    references: Optional[List[dict]] = None
 
 
 class ClaimStatus(str, Enum):
@@ -133,6 +189,7 @@ class CampaignPlan(StrictSchema):
     market_adaptation: Optional[MarketAdaptation] = None
     draft_assets: Optional[List[CampaignAsset]] = None
     claim_checks: Optional[List[CampaignClaimCheck]] = None
+    timely_angles: Optional[List[NonEmptyStr]] = None
 
 
 class CampaignWorkflowStatus(str, Enum):

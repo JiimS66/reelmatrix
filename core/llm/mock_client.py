@@ -19,6 +19,10 @@ class MockLLMClient(BaseLLMClient):
         builders = {
             "IdeationResult": self._build_ideation_result,
             "CampaignPlan": self._build_campaign_plan,
+            "CampaignAsset": self._build_asset,
+            "AuditVerdict": self._build_audit_verdict,
+            "VisualAsset": self._build_visual_asset,
+            "StrategyDraft": self._build_strategy_draft,
         }
         builder = builders.get(response_model.__name__)
         if builder is None:
@@ -40,6 +44,91 @@ class MockLLMClient(BaseLLMClient):
                 "MockLLMClient expected a JSON object prompt payload"
             )
         return payload
+
+    @staticmethod
+    def _build_strategy_draft(payload: Dict[str, Any]) -> Dict[str, Any]:
+        # Work from whatever was fed (inputs: idea/url/text/competitor), falling back to a
+        # bare idea. If FEEDBACK is present this is a later loop turn — reflect it: bump
+        # confidence on the lead audience, clear assumptions, restate around their steer.
+        inputs = payload.get("inputs") or []
+        topic = ""
+        for item in inputs:
+            if isinstance(item, dict) and str(item.get("value", "")).strip():
+                topic = str(item["value"]).strip()
+                break
+        topic = (topic or str(payload.get("idea", "")).strip() or "your offering")[:70]
+        feedback = str(payload.get("feedback") or "").strip()
+        refined = bool(feedback)
+        if refined:
+            understanding = (
+                f"Got it — taking your steer («{feedback[:60]}») into account, here's the "
+                f"sharpened plan for «{topic}»."
+            )
+        else:
+            understanding = (
+                f"You want to take «{topic}» to market and need a clear plan — "
+                "let's start from who it's really for."
+            )
+        return {
+            "understanding": understanding,
+            "audience_candidates": [
+                {
+                    "name": "Hands-on practitioners",
+                    "why": "They feel the pain daily and adopt fast.",
+                    "pain": f"They waste time on what «{topic}» fixes, with no good alternative.",
+                    "confidence": "confirmed" if refined else "likely",
+                },
+                {
+                    "name": "Team leads / buyers",
+                    "why": "They hold budget and care about team outcomes.",
+                    "pain": "They must justify ROI and de-risk the choice to their boss.",
+                    "confidence": "likely" if refined else "guess",
+                },
+                {
+                    "name": "Skeptical late adopters",
+                    "why": "A larger but slower group — reach them once proof exists.",
+                    "pain": "They've been burned by tools that overpromised.",
+                    "confidence": "guess",
+                },
+            ],
+            "positioning_angles": [
+                {
+                    "angle": "The fastest path to the outcome",
+                    "rationale": "Speed-to-value lands with busy practitioners.",
+                    "confidence": "likely",
+                },
+                {
+                    "angle": "Built for this audience, not a generic tool",
+                    "rationale": "Specificity beats broad claims and is more believable.",
+                    "confidence": "guess",
+                },
+                {
+                    "angle": "Proof over promises",
+                    "rationale": "Directly counters the skeptics with evidence.",
+                    "confidence": "guess",
+                },
+            ],
+            "content_pillars": [
+                "The hidden cost of the status quo",
+                "How it actually works (concrete, no hand-waving)",
+                "Proof: results, customers, numbers",
+            ],
+            "channels": ["LinkedIn", "Email", "Community"],
+            "measure": (
+                "Start simple — qualified signups per week. Once volume builds, watch which "
+                "angle and pillar actually convert, and double down there."
+            ),
+            "assumptions": (
+                []
+                if refined
+                else ["I assumed B2B with self-serve sign-up — tell me if it's sales-led or consumer."]
+            ),
+            "next_questions": [
+                "Which audience feels most right — or is it someone else entirely?",
+                "What's the single biggest pain you hear from them, in their own words?",
+                "Got any proof yet (a result, a customer, a number) we can lead with?",
+            ],
+        }
 
     @staticmethod
     def _build_ideation_result(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -190,6 +279,18 @@ class MockLLMClient(BaseLLMClient):
                 is_developer_tool,
             ),
             "claim_checks": MockLLMClient._build_claim_checks(brand_context),
+            "timely_angles": (
+                [
+                    "Ride the surge in AI coding agents shipping unverified code",
+                    "Tie the launch to open-source CLI momentum on GitHub",
+                    "Make 'verification' the season's developer-trust theme",
+                ]
+                if is_developer_tool
+                else [
+                    "Lead with the shift to lean, AI-assisted marketing teams",
+                    "Tie the launch to the quarter's cross-border go-to-market push",
+                ]
+            ),
         }
 
     @staticmethod
@@ -624,6 +725,60 @@ class MockLLMClient(BaseLLMClient):
         selected = {channel.strip().lower() for channel in selected_channels}
         matched = [asset for asset in assets if asset["channel"].lower() in selected]
         return matched or assets[:3]
+
+    @staticmethod
+    def _build_audit_verdict(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Deterministic auditor: approves mock-clean content. A real, different-family
+        model supplies the semantic judgment; tests exercise the flagging path."""
+        return {"approved": True, "issues": []}
+
+    @staticmethod
+    def _build_visual_asset(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """The Designer's creative spec for one channel (image_ref is filled by the
+        MediaProvider after this returns)."""
+        channel = str(payload.get("channel") or "").strip() or "Web"
+        core = str(payload.get("core_message") or "").strip() or (
+            "the campaign's core promise"
+        )
+        product = str(payload.get("product_name") or "the product")
+        return {
+            "channel": channel,
+            "concept": f"On-brand {channel} hero visual for {product}",
+            "prompt": (
+                f"A clean, technical, evidence-led {channel} hero image expressing: "
+                f"{core}. Minimal composition, brand palette, no stock-photo cliche."
+            ),
+            "alt_text": f"{product} {channel} campaign visual — {core}",
+            "aspect_ratio": "1:1",
+        }
+
+    @staticmethod
+    def _build_asset(payload: Dict[str, Any]) -> Dict[str, Any]:
+        """One platform post rendered from the shared core (CopywriterAgent path),
+        tailored to the target segment's pain point when one is provided."""
+        channel = str(payload.get("channel") or "").strip() or "Web"
+        core = str(payload.get("core_message") or "").strip() or (
+            "Make the value concrete and credible for this audience."
+        )
+        product = str(payload.get("product_name") or "the product")
+        segment = str(payload.get("segment") or "").strip()
+        pain = str(payload.get("pain_point") or "").strip()
+        angle = str(payload.get("angle") or "").strip()
+        opener = f"For {segment}: {pain}\n\n" if segment and pain else ""
+        if angle:
+            opener = f"Riding the moment — {angle}.\n\n{opener}"
+        return {
+            "asset_type": "Post",
+            "channel": channel,
+            "title": f"{channel} post for {product}"
+            + (f" — {segment}" if segment else ""),
+            "content": (
+                f"{opener}{core}\n\nRendered for {channel} from the shared campaign core, "
+                "so every channel tells the same story."
+            ),
+            "call_to_action": "Start a campaign sprint.",
+            "notes": ["Edit for the channel's voice before publishing"],
+        }
 
     @staticmethod
     def _developer_tool_assets(

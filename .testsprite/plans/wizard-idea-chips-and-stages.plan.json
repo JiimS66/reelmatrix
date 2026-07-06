@@ -1,0 +1,20 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "Wizard: idea chips, option pick, refine loop",
+  "description": "The strategy wizard offers one-click idea chips; picking an audience card highlights it and pre-fills feedback; refining folds the steer into the draft and logs the turn.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app and start a new campaign from an idea (the 'New campaign from an idea' entry on Home, or the wizard shown to a tenant with no campaigns)." },
+    { "type": "assertion", "description": "Verify suggestion chips are visible under the idea box, including one about an agentic testing platform that verifies AI-generated code." },
+    { "type": "action", "description": "Click the first suggestion chip." },
+    { "type": "assertion", "description": "Verify the idea textarea is now filled with the chip's text." },
+    { "type": "action", "description": "Click 'Think it through' and wait for the draft to finish." },
+    { "type": "assertion", "description": "Verify a staged thinking indicator was shown while the draft was loading (not just a frozen button)." },
+    { "type": "assertion", "description": "Verify the draft shows 'What I heard', audience candidates under 'Who it's really for', and positioning angles." },
+    { "type": "action", "description": "Click one of the audience candidate cards." },
+    { "type": "assertion", "description": "Verify the clicked card is visibly selected (highlighted) and the feedback box is scrolled into view pre-filled with a steer about that audience." },
+    { "type": "action", "description": "Click 'Refine with this' and wait for the refined draft." },
+    { "type": "assertion", "description": "Verify a 'How we got here' section lists the turns including the steer that was just submitted." }
+  ]
+}

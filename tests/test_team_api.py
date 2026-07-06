@@ -1,0 +1,1279 @@
+import asyncio
+from typing import Any, Optional
+
+import httpx
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Session, create_engine, select
+
+from apps.api.main import create_app
+from configs.settings import AppSettings
+from core.db.engine import get_session, init_db
+from core.db.models import Member
+from core.db.seed import seed_testsprite
+
+BRIEF = {
+    "product_name": "TestSprite",
+    "product_description": "An agentic testing platform that verifies AI-generated code.",
+    "target_audience": "Engineering leaders and AI-native developers",
+    "marketing_goal": "Generate qualified developer signups and API key starts",
+    "user_prompt": "ready for planning: launch campaign for TestSprite",
+    "selected_channels": ["LinkedIn", "Email", "Landing Page"],
+}
+
+
+def _build() -> tuple[Any, dict[str, str]]:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    init_db(engine)
+    with Session(engine) as session:
+        seed_testsprite(session)
+        members = {m.display_name: m.id for m in session.exec(select(Member)).all()}
+
+    app = create_app(AppSettings(_env_file=None, app_env="test", llm_provider="mock"))
+
+    def _override_session():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_session] = _override_session
+    return app, members
+
+
+async def _call(
+    app: Any, method: str, path: str, member_id: Optional[str] = None, json: Any = None
+) -> httpx.Response:
+    headers = {"X-Member-Id": member_id} if member_id else {}
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        return await client.request(method, path, headers=headers, json=json)
+
+
+def _req(app, method, path, member_id=None, json=None) -> httpx.Response:
+    return asyncio.run(_call(app, method, path, member_id, json))
+
+
+def _task(board: dict, kind: str) -> dict:
+    return next(t for t in board["tasks"] if t["kind"] == kind)
+
+
+def _create(app, lead) -> dict:
+    return _req(app, "POST", "/api/v1/team/campaigns", lead,
+                json={"name": "Launch", "brief": BRIEF}).json()
+
+
+def _run_campaign(app, lead) -> tuple[str, dict]:
+    """Create then run a campaign; with the ai_auto default this yields a full draft."""
+    created = _create(app, lead)
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    return cid, board
+
+
+def test_run_auto_completes_the_ai_pipeline() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+
+    created = _create(app, lead)
+    # ideation + planning + 3 channel assets + claim check, all unstarted.
+    assert len(created["tasks"]) == 6
+    assert all(t["status"] == "todo" for t in created["tasks"])
+
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+
+    # AI runs the whole pipeline; only the human-owned claim check is left.
+    assert _task(board, "ideation")["status"] == "done"
+    assert _task(board, "planning")["status"] == "done"
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(a["status"] == "done" and a["output"] for a in assets)
+    assert all("format" in a["checks"] for a in assets)
+    # Clean mock content scores 100 (the checks surfaced as a single number).
+    assert all(a["score"]["overall"] == 100 for a in assets)
+    # Each post also carries a predicted-performance heuristic (distinct from score).
+    assert all(a["predicted_performance"]["overall"] > 0 for a in assets)
+    claim = _task(board, "claim_check")
+    assert claim["status"] == "todo"
+    assert claim["output"] and "claim_checks" in claim["output"]
+
+
+def test_human_can_insert_a_review_gate() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    created = _create(app, lead)
+    cid = created["campaign"]["id"]
+    ideation = _task(created, "ideation")
+
+    # Opt this stage into a review gate before running.
+    _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/assign", lead,
+         json={"execution_mode": "ai_draft_human_review"})
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    assert _task(board, "ideation")["status"] == "needs_review"
+    assert _task(board, "planning")["status"] == "todo"
+
+    # Approving resumes the auto pipeline.
+    board = _req(app, "POST", f"/api/v1/team/tasks/{ideation['id']}/review", lead,
+                 json={"action": "approve"}).json()
+    assert _task(board, "ideation")["status"] == "done"
+    assert _task(board, "planning")["status"] == "done"
+
+
+def test_human_edits_an_auto_completed_asset() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # already done
+
+    edited = {**asset["output"], "content": "This release is bug-free and basically magic."}
+    response = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
+                    json={"output": edited})
+    assert response.status_code == 200
+    body = response.json()
+    assert "bug-free" in body["output"]["content"]
+    assert any(i["code"] == "forbidden_word" for i in body["checks"]["brand"])
+
+
+def test_run_harvests_atoms_from_auto_completed_assets() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _run_campaign(app, lead)
+
+    atoms = _req(app, "GET", "/api/v1/team/atoms", lead).json()
+    kinds = {a["kind"] for a in atoms}
+    assert "headline" in kinds and "cta" in kinds
+    ctas = _req(app, "GET", "/api/v1/team/atoms?kind=cta", lead).json()
+    assert ctas and all(a["kind"] == "cta" for a in ctas)
+
+
+def test_human_member_completes_a_reassigned_task() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    sam = members["Sam (Writer)"]
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")  # human-owned, still todo
+
+    assigned = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
+                    json={"member_id": sam})
+    assert assigned.status_code == 200 and assigned.json()["assignee_id"] == sam
+
+    inbox = _req(app, "GET", "/api/v1/team/inbox", sam).json()
+    assert any(t["id"] == claim["id"] for t in inbox)
+
+    submitted = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", sam,
+                     json={"output": {"claim_checks": []}})
+    assert submitted.status_code == 200 and submitted.json()["status"] == "done"
+
+
+EVENT = {"event_name": "v2 release", "event_date": "2026-07-31"}
+
+
+def _create_with_event(app, lead) -> dict:
+    return _req(app, "POST", "/api/v1/team/campaigns", lead,
+                json={"name": "Launch", "brief": BRIEF, **EVENT}).json()
+
+
+def test_schedule_backplans_calendar_and_timely_angles() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    assert board["campaign"]["event_date"] == "2026-07-31"
+
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)  # plan -> timely angles
+    sched = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/schedule", lead).json()
+
+    phases = {m["phase"]: m["date"] for m in sched["milestones"]}
+    assert len(sched["milestones"]) == 5
+    assert phases["launch"] == "2026-07-31"
+    assert phases["warmup"] == "2026-07-10"
+    assert sched["timely_angles"]  # AI suggested timely hooks
+    assert any(t["due_date"] for t in sched["tasks"])
+
+
+def test_trend_safety_gate_and_rapid_draft() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # planning emits timely_angles
+
+    angles = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/trends", lead).json()
+    assert angles and all({"safe", "score", "reason"} <= a.keys() for a in angles)
+    safe = next(a for a in angles if a["safe"])
+
+    # Drafting a safe angle creates a forced-review rapid post that ran + came back.
+    board = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/trends/draft", lead,
+        json={"angle": safe["angle"], "channel": "X / Twitter"},
+    ).json()
+    rapid = next(t for t in board["tasks"] if (t["params"] or {}).get("provenance") == "trend")
+    assert rapid["params"]["angle"] == safe["angle"]
+    assert rapid["execution_mode"] == "ai_draft_human_review"  # never auto-publish
+    assert rapid["status"] == "needs_review"
+
+    # A sensitive angle is blocked by the brand-safety kill-switch.
+    blocked = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/trends/draft", lead,
+        json={"angle": "Brands react to the factory explosion tragedy", "channel": "X / Twitter"},
+    )
+    assert blocked.status_code == 409
+
+
+def test_refresh_trends_updates_timely_angles() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)  # produce a plan
+
+    res = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/trends", lead)
+    assert res.status_code == 200
+    angles = res.json()["timely_angles"]
+    assert angles and all(isinstance(a, str) for a in angles)
+
+    # The refreshed angles show up in the schedule the calendar reads.
+    sched = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/schedule", lead).json()
+    assert sched["timely_angles"] == angles
+
+    # Lead-only.
+    sam = members["Sam (Writer)"]
+    assert _req(app, "POST", f"/api/v1/team/campaigns/{cid}/trends", sam).status_code == 403
+
+
+def test_todo_lists_scheduled_not_done_tasks() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    board = _create_with_event(app, lead)
+    cid = board["campaign"]["id"]
+    _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead)
+
+    todo = _req(app, "GET", "/api/v1/team/todo", lead).json()
+    # After the AI auto-runs, the human claim check is the open dated task.
+    assert any(item["task"]["kind"] == "claim_check" for item in todo)
+    assert all(item["task"]["due_date"] for item in todo)
+
+
+def test_create_rejects_a_bad_event_date() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    bad = _req(app, "POST", "/api/v1/team/campaigns", lead,
+               json={"name": "x", "brief": BRIEF, "event_date": "July 31"})
+    assert bad.status_code == 422
+
+
+def test_lists_tenant_campaigns_newest_first() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _create(app, lead)
+    _create(app, lead)
+    campaigns = _req(app, "GET", "/api/v1/team/campaigns", lead).json()
+    assert len(campaigns) == 2
+
+
+def test_members_bootstrap_lists_the_team() -> None:
+    app, _members = _build()
+    listed = _req(app, "GET", "/api/v1/team/members").json()
+    assert len(listed) == 7
+    assert any(m["role"] == "lead" for m in listed)
+
+
+def test_review_assets_leaves_drafts_for_review() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    created = _req(
+        app, "POST", "/api/v1/team/campaigns", lead,
+        json={"name": "Launch", "brief": BRIEF, "review_assets": True},
+    ).json()
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(t["status"] == "needs_review" for t in assets)
+
+
+def test_performance_groups_published_posts_by_platform() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # ai_auto -> assets done -> posts published
+    perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
+    assert len(perf["platforms"]) >= 1
+    plat = perf["platforms"][0]
+    post = plat["posts"][0]
+    assert "utm_source=" in post["url"]
+    assert post["impressions"] >= post["clicks"] >= post["signups"] >= 0
+    assert plat["signups"] == sum(p["signups"] for p in plat["posts"])
+    assert perf["totals"]["signups"] == sum(pl["signups"] for pl in perf["platforms"])
+
+
+def test_brand_endpoint_exposes_proof_points() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+    assert brand["voice"]
+    # The fact-check reference: seeded approved proof points with sources.
+    assert any("TestSprite" in str(p.get("claim", "")) for p in brand["proof_points"])
+
+
+def test_strategy_draft_offers_audiences_and_angles_to_any_member() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]  # strategy co-creation is open to any member, not lead-only
+    resp = _req(
+        app, "POST", "/api/v1/team/strategy/draft", sam,
+        json={"idea": "AI testing tool for dev teams"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["understanding"]
+    # The advisor OFFERS choices (audiences + angles), it doesn't demand a form.
+    assert len(data["audience_candidates"]) >= 2
+    assert all(a["name"] and a["why"] and a["pain"] for a in data["audience_candidates"])
+    assert len(data["positioning_angles"]) >= 2
+    assert all(a["angle"] and a["rationale"] for a in data["positioning_angles"])
+    assert data["content_pillars"] and data["measure"]
+    assert len(data["next_questions"]) >= 1
+
+
+def test_strategy_loop_iterates_and_folds_in_feedback() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+    # Open circuit A with a bare idea — no big-data foundation needed.
+    started = _req(
+        app, "POST", "/api/v1/team/strategy/sessions", sam,
+        json={"inputs": [{"type": "idea", "value": "AI tool that proofreads marketing copy"}]},
+    )
+    assert started.status_code == 200
+    s1 = started.json()
+    sid = s1["id"]
+    assert s1["status"] == "active" and s1["turn_count"] == 1
+    assert s1["draft"]["audience_candidates"]
+    # First turn flags what it had to guess (never stalls on missing info).
+    assert s1["draft"]["assumptions"]
+
+    # Advance with a correction — the loop is stateful and folds the steer in.
+    advanced = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/advance", sam,
+        json={"feedback": "Target is solo founders, not teams"},
+    )
+    assert advanced.status_code == 200
+    s2 = advanced.json()
+    assert s2["turn_count"] == 2  # turns accrue — not a goldfish
+    assert s2["draft"]["audience_candidates"][0]["confidence"] == "confirmed"
+    assert s2["draft"]["assumptions"] == []  # resolved
+    assert s2["draft"]["understanding"] != s1["draft"]["understanding"]  # restated around the steer
+
+    # Reopen round-trips the persisted state.
+    got = _req(app, "GET", f"/api/v1/team/strategy/sessions/{sid}", sam)
+    assert got.json()["turn_count"] == 2
+
+    # Human says "good enough" — the loop closes.
+    done = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/advance", sam,
+        json={"done": True},
+    )
+    assert done.json()["status"] == "done"
+
+
+def test_strategy_handoff_drafts_first_content_and_is_idempotent() -> None:
+    app, members = _build()
+    adam = members["Adam (Lead)"]
+    started = _req(
+        app, "POST", "/api/v1/team/strategy/sessions", adam,
+        json={"inputs": [{"type": "idea", "value": "AI tool that drafts marketing emails"}]},
+    )
+    sid = started.json()["id"]
+
+    # Lock the strategy → first content is drafted FROM it (the five-minute hook).
+    handoff = _req(
+        app, "POST", f"/api/v1/team/strategy/sessions/{sid}/handoff", adam,
+        json={"channels": ["LinkedIn", "Email"]},
+    )
+    assert handoff.status_code == 200
+    board = handoff.json()
+    assert board["campaign"]["template"] == "strategy"
+    posts = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert posts, "handoff should create post tasks"
+    assert any(t["output"] for t in posts), "at least one post should be drafted"
+    # 2c: locking the strategy reshaped the brand, so the posts lead with the strategy's
+    # chosen audience (the mock's highest-confidence pick), not a pre-seeded segment.
+    assert any("Hands-on practitioners" in str(t["output"]) for t in posts)
+    campaign_id = board["campaign"]["id"]
+
+    # The session records the handoff and the loop is now closed.
+    got = _req(app, "GET", f"/api/v1/team/strategy/sessions/{sid}", adam).json()
+    assert got["status"] == "done"
+    assert got["campaign_id"] == campaign_id
+
+    # Idempotent — a second handoff returns the SAME campaign, not a duplicate.
+    again = _req(app, "POST", f"/api/v1/team/strategy/sessions/{sid}/handoff", adam, json={})
+    assert again.status_code == 200
+    assert again.json()["campaign"]["id"] == campaign_id
+
+
+def test_strategy_handoff_needs_a_draft_first() -> None:
+    app, members = _build()
+    adam = members["Adam (Lead)"]
+    missing = _req(
+        app, "POST", "/api/v1/team/strategy/sessions/does-not-exist/handoff", adam, json={},
+    )
+    assert missing.status_code == 404
+
+
+def test_brand_segments_crud_and_post_tailoring() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+    assert any(s["name"] == "Engineering leaders" for s in brand["segments"])
+
+    added = _req(
+        app, "POST", "/api/v1/team/brand/segments", lead,
+        json={"name": "Founders", "platforms": ["X / Twitter"], "pain_points": ["No time to verify AI code"]},
+    ).json()
+    assert any(s["name"] == "Founders" for s in added["segments"])
+    assert (
+        _req(app, "POST", "/api/v1/team/brand/segments", sam, json={"name": "x"}).status_code
+        == 403
+    )
+    after = _req(app, "DELETE", "/api/v1/team/brand/segments/Founders", lead).json()
+    assert not any(s["name"] == "Founders" for s in after["segments"])
+
+    # A rendered post is routed to a segment and the copy leads with its pain.
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+    assert asset["params"].get("segment")
+    assert asset["params"]["segment"] in asset["output"]["title"]
+
+
+def test_member_profile_and_direct_chat() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    wid = members["Asset writer"]
+    _run_campaign(app, lead)  # the writer now owns tasks + has fleet stats
+
+    profile = _req(app, "GET", f"/api/v1/team/members/{wid}/profile", lead).json()
+    assert profile["member"]["display_name"] == "Asset writer"
+    assert profile["fleet"]["runs"] >= 1
+    assert len(profile["tasks"]) >= 1  # owns the per-channel posts
+
+    # Chat: the lead messages the AI, which auto-replies in role.
+    thread = _req(app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+                  json={"body": "How would you angle the LinkedIn post?"}).json()
+    assert len(thread) == 2
+    assert thread[0]["sender"] == "lead" and thread[1]["sender"] == "agent"
+
+    # Directive (assign a task) carries a title and gets an in-role ack.
+    thread = _req(app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+                  json={"body": "Draft a teaser", "kind": "directive", "title": "LinkedIn teaser"}).json()
+    assert any(m["kind"] == "directive" and m["title"] == "LinkedIn teaser" for m in thread)
+    assert thread[-1]["sender"] == "agent"
+
+    # Lead-only.
+    assert (
+        _req(app, "POST", f"/api/v1/team/members/{wid}/messages", sam, json={"body": "hi"}).status_code
+        == 403
+    )
+
+
+def test_review_queue_spans_campaigns_and_is_lead_scoped() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    # Two campaigns, each run → each leaves a human claim_check open in the queue.
+    cid_a, _ = _run_campaign(app, lead)
+    cid_b, _ = _run_campaign(app, lead)
+
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    campaigns = {item["campaign_name"] for item in queue}
+    # The queue spans both campaigns (cross-campaign), each row tagged with its campaign.
+    assert len({item["task"]["campaign_id"] for item in queue}) >= 2
+    assert all(item["campaign_name"] for item in queue)
+    assert {cid_a, cid_b} <= {item["task"]["campaign_id"] for item in queue}
+    assert all(
+        item["task"]["status"] in ("needs_review", "blocked")
+        or item["task"]["kind"] == "claim_check"
+        for item in queue
+    )
+    # A non-lead sees only their own awaiting-review work, not the team's queue.
+    sam_queue = _req(app, "GET", "/api/v1/team/review-queue", sam).json()
+    assert len(sam_queue) < len(queue)
+    assert campaigns  # sanity: leads see named campaigns
+
+
+def test_directive_becomes_a_tracked_ai_task() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    wid = members["Asset writer"]  # an AI member
+
+    thread = _req(
+        app, "POST", f"/api/v1/team/members/{wid}/messages", lead,
+        json={"body": "Draft a recap thread on the launch", "kind": "directive",
+              "title": "Launch recap"},
+    ).json()
+    directive = next(m for m in thread if m["kind"] == "directive")
+    # The directive is linked to a real tracked task.
+    assert directive["task_id"]
+
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{directive['task_id']}", lead).json()
+    task = detail["task"]
+    assert task["kind"] == "asset"
+    # The addressed employee drafted it (the ai_run is theirs)…
+    assert any(
+        e["type"] == "ai_run" and e["actor_id"] == wid for e in detail["events"]
+    )
+    # …then it routed to the lead's review queue with a real deliverable.
+    assert task["status"] == "needs_review"
+    assert task["output"] and task["output"].get("content")
+
+    # It surfaces in the cross-campaign review queue under the Direct-assignments campaign.
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    row = next((it for it in queue if it["task"]["id"] == task["id"]), None)
+    assert row and row["campaign_name"] == "Direct assignments"
+
+
+def test_growth_insights_learn_from_published_outcomes() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)
+    _run_campaign(app, lead)  # two campaigns → published posts to learn from
+
+    learned = _req(app, "POST", "/api/v1/team/insights/learn", lead).json()
+    assert any(a["attribute_type"] == "hook_type" for a in learned["attributes"])
+    assert all("cvr" in a and "n_posts" in a for a in learned["attributes"])
+
+    got = _req(app, "GET", "/api/v1/team/insights", lead).json()
+    assert got["attributes"] and isinstance(got["priors"], list)
+
+    # The flywheel view is lead-only.
+    assert _req(app, "POST", "/api/v1/team/insights/learn", sam).status_code == 403
+    assert _req(app, "GET", "/api/v1/team/insights", sam).status_code == 403
+
+
+def test_incrementality_debiases_the_flywheel() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    rows = [
+        {"title": "The only way to verify AI code", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 90}
+        for _ in range(3)
+    ]
+    _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows})
+
+    res = _req(app, "POST", "/api/v1/team/insights/incrementality", lead).json()
+    assert res["tests"]
+    bold = next((t for t in res["tests"] if t["attribute_value"] == "bold_claim"), None)
+    assert bold and bold["multiplier"] < 1.0  # the over-claimer is de-biased
+    assert _req(
+        app, "POST", "/api/v1/team/insights/incrementality", sam
+    ).status_code == 403
+
+
+def test_orchestrator_proposes_and_accepts_actions() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    # Cold tenant → the brain proposes warm-start.
+    actions = _req(app, "POST", "/api/v1/team/actions/plan", lead).json()
+    assert actions and any(a["type"] == "import_history" for a in actions)
+    assert all("rationale" in a and "priority" in a for a in actions)
+
+    # After warm-start → it proposes the causal de-bias.
+    rows = [
+        {"title": "Are you shipping blind?", "content": "word " * 50, "cta": "Sign up",
+         "channel": "LinkedIn", "segment": "Eng", "impressions": 1000,
+         "clicks": 200, "conversions": 80}
+        for _ in range(3)
+    ]
+    _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows})
+    actions2 = _req(app, "POST", "/api/v1/team/actions/plan", lead).json()
+    debias = next((a for a in actions2 if a["type"] == "run_incrementality"), None)
+    assert debias
+
+    # Accept it → auto-runs de-bias and leaves the queue.
+    after = _req(app, "POST", f"/api/v1/team/actions/{debias['id']}/accept", lead).json()
+    assert all(a["id"] != debias["id"] for a in after)
+    # Ignore another → also leaves the queue.
+    if after:
+        oid = after[0]["id"]
+        after2 = _req(app, "POST", f"/api/v1/team/actions/{oid}/ignore", lead).json()
+        assert all(a["id"] != oid for a in after2)
+
+    assert _req(app, "POST", "/api/v1/team/actions/plan", sam).status_code == 403
+
+
+def test_optimize_budget_allocates_across_channels() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    plan = _req(
+        app, "POST", "/api/v1/team/paid/optimize-budget", lead, json={"total": 5000}
+    ).json()
+    assert abs(sum(r["allocated"] for r in plan["allocation"]) - 5000) < 200
+    assert len(plan["allocation"]) >= 3
+    assert all("marginal_roi" in r and "predicted_response" in r for r in plan["allocation"])
+
+
+def test_identity_resolve_endpoint_stitches_profiles() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    records = [
+        {"anon_id": "a1", "email": "dana@acme.dev"},
+        {"email": "dana@acme.dev", "user_id": "u1"},
+    ]
+    res = _req(
+        app, "POST", "/api/v1/team/identity/resolve", lead, json={"records": records}
+    ).json()
+    assert len(res["profiles"]) == 1 and res["profiles"][0]["record_count"] == 2
+    assert _req(
+        app, "POST", "/api/v1/team/identity/resolve", sam, json={"records": []}
+    ).status_code == 403
+
+
+def test_eval_run_scores_against_real_gates() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    res = _req(app, "POST", "/api/v1/team/evals/run", lead).json()
+    assert res["n_cases"] == 4
+    # the seeded superlative case fails the policy grader → not everything passes.
+    assert any(not c["passed"] for c in res["cases"])
+    assert 0 < res["overall"] < 1
+    assert _req(app, "POST", "/api/v1/team/evals/run", sam).status_code == 403
+
+
+def test_experiment_designs_variants_decides_winner_and_feeds_priors() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    cid, _ = _run_campaign(app, lead)
+
+    designed = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/experiments", lead,
+        json={"hypothesis": "shipping AI code without a verification gate", "n": 4},
+    ).json()
+    assert len(designed["variants"]) == 4
+    assert any(v["key"] == "control" for v in designed["variants"])
+    exp_id = designed["id"]
+
+    decided = _req(
+        app, "POST", f"/api/v1/team/experiments/{exp_id}/decide", lead
+    ).json()
+    assert decided["status"] == "decided"
+    assert any(v["result_status"] == "winner" for v in decided["variants"])
+
+    # The winner becomes a generative prior surfaced in the flywheel insights.
+    insights = _req(app, "POST", "/api/v1/team/insights/learn", lead).json()
+    assert any("Experiment-proven" in p for p in insights["priors"])
+
+    # Designing experiments is lead-only.
+    assert _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/experiments", sam,
+        json={"hypothesis": "x"},
+    ).status_code == 403
+
+
+def test_segment_scorecard_validates_and_discovers() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)  # posts carry segments + outcomes
+
+    card = _req(app, "GET", "/api/v1/team/segments/scorecard", lead).json()
+    assert card["segments"]  # every defined segment is scored
+    assert all("status" in s and "score" in s for s in card["segments"])
+
+    discovered = _req(app, "POST", "/api/v1/team/segments/discover", lead).json()
+    assert "candidates" in discovered
+    if discovered["candidates"]:  # discovery is data-dependent
+        cid = discovered["candidates"][0]["id"]
+        promoted = _req(
+            app, "POST", f"/api/v1/team/segments/candidates/{cid}/promote", lead
+        ).json()
+        assert all(c["id"] != cid for c in promoted["candidates"])  # left pending
+        brand = _req(app, "GET", "/api/v1/team/brand", lead).json()
+        assert any("responds to" in s["name"] for s in brand["segments"])
+
+    assert _req(app, "GET", "/api/v1/team/segments/scorecard", sam).status_code == 403
+
+
+def test_market_intel_and_whitespace_draft() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _run_campaign(app, lead)
+
+    intel = _req(app, "GET", "/api/v1/team/market", lead).json()
+    assert intel["competitors"] and intel["whitespace"]
+    assert isinstance(intel["share_of_voice"], dict)
+
+    # A whitespace angle becomes a tracked, AI-drafted task in the review queue.
+    res = _req(
+        app, "POST", "/api/v1/team/market/whitespace/draft", lead,
+        json={"angle": intel["whitespace"][0]},
+    ).json()
+    assert res["task_id"]
+    queue = _req(app, "GET", "/api/v1/team/review-queue", lead).json()
+    assert any(it["task"]["id"] == res["task_id"] for it in queue)
+
+
+def test_funnel_coverage_assigns_stages_and_fills_gaps() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+
+    cov = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/funnel-coverage", lead).json()
+    assert cov["stages"] == ["TOFU", "MOFU", "BOFU"]
+    total = sum(sum(row.values()) for row in cov["matrix"].values())
+    assert total >= 1  # assets got funnel stages at instantiation
+    if cov["gaps"]:
+        gap = cov["gaps"][0]
+        after = _req(
+            app, "POST", f"/api/v1/team/campaigns/{cid}/funnel-gap/draft", lead, json=gap
+        ).json()
+        assert after["matrix"][gap["funnel_stage"]][gap["segment"]] >= 1
+
+
+def test_brand_narrative_roundtrips() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    saved = _req(
+        app, "PUT", "/api/v1/team/brand/narrative", lead,
+        json={
+            "value_proposition": "Verify every AI change",
+            "messaging_pillars": [{"name": "Trust", "proof_points": ["audited"]}],
+        },
+    ).json()
+    assert saved["value_proposition"] == "Verify every AI change"
+    assert saved["messaging_pillars"][0]["name"] == "Trust"
+    got = _req(app, "GET", "/api/v1/team/brand/narrative", lead).json()
+    assert got["value_proposition"] == "Verify every AI change"
+    assert _req(
+        app, "PUT", "/api/v1/team/brand/narrative", sam, json={"value_proposition": "x"}
+    ).status_code == 403
+
+
+def test_pillar_atomizes_into_linked_derivatives() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+
+    pillars = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/pillars", lead,
+        json={"title": "State of AI testing 2026",
+              "source_text": "Teams ship AI code faster than they can verify it."},
+    ).json()
+    assert pillars and pillars[0]["title"] == "State of AI testing 2026"
+    pid = pillars[0]["id"]
+
+    res = _req(
+        app, "POST", f"/api/v1/team/pillars/{pid}/atomize", lead,
+        json={"channels": ["LinkedIn", "Email", "X / Twitter"]},
+    ).json()
+    assert res["derivatives"] == 3
+    after = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/pillars", lead).json()
+    assert after[0]["derivatives"] == 3  # spokes link back to the hub
+
+
+def test_post_generates_a_video_spec() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    res = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/video", lead).json()
+    visual = res["output"]["visual"]
+    assert visual["video_ref"].startswith("mock-video://")
+    assert len(visual["video_spec"]) >= 1
+    assert visual["video_spec"][0]["caption"]  # scenes carry captions/voiceover
+
+
+def test_pillar_clips_rank_and_draft_a_short() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _ = _run_campaign(app, lead)
+    pillars = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/pillars", lead,
+        json={"title": "AI testing",
+              "source_text": "Are you shipping AI code blind? 80% of teams skip "
+                             "verification. Stop guessing and verify every change."},
+    ).json()
+    pid = pillars[0]["id"]
+
+    clips = _req(app, "GET", f"/api/v1/team/pillars/{pid}/clips", lead).json()
+    assert clips["clips"]
+    assert all("clip_score" in c and "reason" in c for c in clips["clips"])
+    assert clips["clips"][0]["clip_score"] >= clips["clips"][-1]["clip_score"]  # best-first
+
+    res = _req(
+        app, "POST", f"/api/v1/team/pillars/{pid}/clips/draft", lead,
+        json={"hook_sentence": clips["clips"][0]["hook_sentence"]},
+    ).json()
+    assert res["task_id"]
+
+
+def test_policy_gate_blocks_superlatives_without_hurting_score() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    # The clean mock post passes the gate, and policy doesn't dent its content score.
+    verdict = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}/policy", lead).json()
+    assert verdict["allow"] is True and verdict["violations"] == []
+    assert asset["score"]["overall"] == 100  # advisory gate, excluded from the score
+
+    # Editing in absolute superlatives trips a BLOCK and surfaces as a policy check.
+    edited = {**asset["output"], "content": "We are the best #1 tool, guaranteed results."}
+    _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead, json={"output": edited})
+    blocked = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}/policy", lead).json()
+    assert blocked["allow"] is False
+    assert any(v["severity"] == "block" for v in blocked["violations"])
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{asset['id']}", lead).json()
+    assert detail["task"]["checks"]["policy"]
+
+
+def test_reliability_scorecard_grades_autonomy() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _run_campaign(app, lead)
+    rel = _req(app, "GET", "/api/v1/team/reliability", lead).json()
+    assert rel and all(
+        "recommended_mode" in r and "reliability" in r and "runs" in r for r in rel
+    )
+    assert all(
+        r["recommended_mode"] in ("ai_auto", "ai_draft_human_review", "human_only")
+        for r in rel
+    )
+
+
+def test_paid_plan_scores_and_allocates_budget() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    plan = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/paid-plan", lead).json()
+    assert plan["total_budget"] == 1000.0
+    assert len(plan["variants"]) == 4
+    assert plan["variants"][0]["creative_score"] >= plan["variants"][-1]["creative_score"]
+    assert all("allocated_budget" in v and "predicted_ctr" in v for v in plan["variants"])
+    assert abs(sum(v["allocated_budget"] for v in plan["variants"]) - 1000.0) < 1.0
+
+
+def test_outbound_enriches_personalizes_and_guards() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    cid, _ = _run_campaign(app, lead)
+
+    added = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", lead,
+        json={"name": "Dana Lee", "domain": "acme.dev"},
+    ).json()
+    assert added and added[0]["status"] == "new"
+    pid = added[0]["id"]
+
+    enriched = _req(app, "POST", f"/api/v1/team/prospects/{pid}/enrich", lead).json()
+    row = next(p for p in enriched if p["id"] == pid)
+    assert row["status"] == "enriched"
+    assert row["personalized_line"] and "Acme" in row["company"]
+
+    sent = _req(app, "POST", f"/api/v1/team/prospects/{pid}/send", lead).json()
+    assert next(p for p in sent if p["id"] == pid)["status"] == "sent"
+
+    assert _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", sam, json={"name": "x"}
+    ).status_code == 403
+
+
+def test_import_historical_warm_starts_the_flywheel() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    rows = [
+        {"title": "Are you shipping AI code blind?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 80},
+        {"title": "Are you still guessing on quality?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 75},
+        {"title": "Will your AI code hold up?", "content": "word " * 50,
+         "cta": "Sign up", "channel": "LinkedIn", "segment": "Eng",
+         "impressions": 1000, "clicks": 200, "conversions": 70},
+    ]
+    res = _req(app, "POST", "/api/v1/team/import/historical", lead, json={"rows": rows}).json()
+    assert res["imported"] == 3
+    # The flywheel warm-started from history — no cold start.
+    assert any(
+        a["attribute_type"] == "hook_type" and a["attribute_value"] == "question"
+        for a in res["insights"]["attributes"]
+    )
+    assert _req(
+        app, "POST", "/api/v1/team/import/historical", sam, json={"rows": []}
+    ).status_code == 403
+
+
+def test_ingest_brand_knowledge_applies_to_brand() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    text = (
+        "TestSprite verifies AI-generated code before it ships. Trust and Verification "
+        "matter for technical teams shipping fast."
+    )
+    res = _req(
+        app, "POST", "/api/v1/team/import/brand-knowledge", lead, json={"text": text}
+    ).json()
+    assert res["applied"] is True and res["draft"]["value_proposition"]
+    narrative = _req(app, "GET", "/api/v1/team/brand/narrative", lead).json()
+    assert narrative["value_proposition"] == res["draft"]["value_proposition"]
+
+
+def test_deployment_status_and_consent_gate_blocks_outbound() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    dep = _req(app, "GET", "/api/v1/team/deployment", lead).json()
+    assert dep["profile"] == "cloud" and dep["data_leaves_environment"] is True
+    assert "egress" in dep["gates"] and dep["gates"]["pii_redaction"] is True
+
+    cid, _ = _run_campaign(app, lead)
+    added = _req(
+        app, "POST", f"/api/v1/team/campaigns/{cid}/prospects", lead,
+        json={"name": "Dana", "domain": "acme.dev"},
+    ).json()
+    pid = added[0]["id"]
+    _req(app, "POST", f"/api/v1/team/prospects/{pid}/enrich", lead)
+    # Deny consent for the subject → the send is blocked by the consent gate.
+    _req(
+        app, "POST", "/api/v1/team/consent", lead,
+        json={"subject_id": "acme.dev", "purpose": "outbound_email", "status": "denied"},
+    )
+    sent = _req(app, "POST", f"/api/v1/team/prospects/{pid}/send", lead).json()
+    assert next(p for p in sent if p["id"] == pid)["status"] == "blocked"
+
+
+def test_terminology_crud_is_lead_only() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+
+    seeded = _req(app, "GET", "/api/v1/team/terms", lead).json()
+    assert any(t["term"] == "utilize" and t["term_type"] == "avoid" for t in seeded)
+
+    added = _req(
+        app, "POST", "/api/v1/team/terms", lead,
+        json={"term": "world-class", "term_type": "avoid", "replacement": "proven"},
+    ).json()
+    term = next(t for t in added if t["term"] == "world-class")
+
+    assert (
+        _req(app, "POST", "/api/v1/team/terms", sam, json={"term": "x"}).status_code == 403
+    )
+    after = _req(app, "DELETE", f"/api/v1/team/terms/{term['id']}", lead).json()
+    assert not any(t["term"] == "world-class" for t in after)
+
+
+def test_terminology_check_flags_an_edited_post() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+
+    edited = _req(
+        app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", lead,
+        json={"output": {**asset["output"], "content": "We utilize this approach."}},
+    ).json()
+    assert any(i["code"] == "avoid_term" for i in edited["checks"]["terminology"])
+    assert edited["score"]["overall"] < 100
+
+
+def test_post_carries_a_visual_with_sync_and_improve() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    created = _req(
+        app, "POST", "/api/v1/team/campaigns", lead,
+        json={"name": "Launch", "brief": BRIEF, "with_visuals": True},
+    ).json()
+    cid = created["campaign"]["id"]
+    board = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/run", lead).json()
+    asset = _task(board, "asset")
+    tid = asset["id"]
+    # The post is one deliverable: copy + a nested visual.
+    assert asset["output"]["content"] and asset["output"]["visual"]["image_ref"]
+
+    synced = _req(app, "POST", f"/api/v1/team/tasks/{tid}/sync-visual", lead).json()
+    assert synced["output"]["visual"]["image_ref"]
+
+    improved = _req(app, "POST", f"/api/v1/team/tasks/{tid}/improve", lead).json()
+    assert improved["output"]["content"]
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert len(detail["versions"]) >= 2  # ai_render + sync/improve snapshots
+
+    # Only the lead or assignee (Sam is neither) can re-render a post.
+    assert (
+        _req(app, "POST", f"/api/v1/team/tasks/{tid}/sync-visual", sam).status_code == 403
+    )
+
+
+def test_proofing_versions_annotations_and_lock() -> None:
+    app, members = _build()
+    lead, sam = members["Adam (Lead)"], members["Sam (Writer)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = _task(board, "asset")
+    tid = asset["id"]
+
+    # The AI render is v1; a human edit appends v2 (immutable version stack).
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert [v["number"] for v in detail["versions"]] == [1]
+    assert detail["versions"][0]["source"] == "ai_render"
+    _req(app, "POST", f"/api/v1/team/tasks/{tid}/edit", lead,
+         json={"output": {**asset["output"], "title": "v2 title"}})
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{tid}", lead).json()
+    assert [v["number"] for v in detail["versions"]] == [1, 2]
+
+    # Pinpoint annotation → resolve.
+    ann = _req(app, "POST", f"/api/v1/team/tasks/{tid}/annotations", lead,
+               json={"body": "tighten the hook", "target": "text", "anchor": {"quote": "Rendered"}}).json()
+    assert ann["resolved"] is False
+    resolved = _req(app, "POST", f"/api/v1/team/annotations/{ann['id']}/resolve", lead,
+                    json={"resolved": True}).json()
+    assert resolved["resolved"] is True and resolved["resolved_by"]
+
+    # Lock (lead-only) makes the content immutable until unlocked.
+    locked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", lead, json={"locked": True}).json()
+    assert locked["locked"] is True
+    blocked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/edit", lead,
+                   json={"output": {**asset["output"], "title": "v3"}})
+    assert blocked.status_code == 409
+    assert (
+        _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", sam, json={"locked": True}).status_code
+        == 403
+    )
+    unlocked = _req(app, "POST", f"/api/v1/team/tasks/{tid}/lock", lead, json={"locked": False}).json()
+    assert unlocked["locked"] is False
+
+
+def test_fleet_reports_per_agent_observability() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _run_campaign(app, lead)  # ideation/planning/3 posts run; the auditor judges each
+
+    fleet = _req(app, "GET", "/api/v1/team/fleet", lead).json()
+    assert fleet
+    # The copywriter owns the post tasks, ran the LLM, and has an average score.
+    writer = next(f for f in fleet if f["role"] == "copywriter")
+    assert writer["runs"] >= 1 and writer["tasks_owned"] >= 1
+    assert writer["avg_score"] is not None
+    # The auditor ran (LLM calls) but owns no task kinds (it is runner-invoked).
+    auditor = next(f for f in fleet if f["role"] == "auditor")
+    assert auditor["runs"] >= 1 and auditor["tasks_owned"] == 0
+
+
+def test_publish_marks_posts_published_with_permalinks() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # ai_auto -> posts drafted
+
+    published = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/publish", lead)
+    assert published.status_code == 200
+    rows = [p for pl in published.json()["platforms"] for p in pl["posts"]]
+    assert rows
+    assert all(p["publish_status"] == "published" for p in rows)
+    assert all(p["permalink"] and p["permalink"].startswith("mock://") for p in rows)
+
+    # Lead-only.
+    sam = members["Sam (Writer)"]
+    assert (
+        _req(app, "POST", f"/api/v1/team/campaigns/{cid}/publish", sam).status_code == 403
+    )
+
+
+def test_sync_analytics_replaces_mock_with_ga4_metrics() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)  # ai_auto -> posts published
+
+    synced = _req(app, "POST", f"/api/v1/team/campaigns/{cid}/analytics/sync", lead)
+    assert synced.status_code == 200
+    data = synced.json()
+    rows = [p for pl in data["platforms"] for p in pl["posts"]]
+    assert rows and all(p["source"] == "ga4" for p in rows)
+    assert "GA4" in data["note"]
+
+    # Lead-only.
+    sam = members["Sam (Writer)"]
+    assert (
+        _req(app, "POST", f"/api/v1/team/campaigns/{cid}/analytics/sync", sam).status_code
+        == 403
+    )
+
+
+def test_record_metrics_overrides_a_post_mock() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    cid, _board = _run_campaign(app, lead)
+    perf = _req(app, "GET", f"/api/v1/team/campaigns/{cid}/performance", lead).json()
+    post = perf["platforms"][0]["posts"][0]
+    updated = _req(
+        app, "POST", f"/api/v1/team/posts/{post['post_id']}/metrics", lead,
+        json={"impressions": 9999, "clicks": 321, "signups": 42},
+    ).json()
+    rows = [p for pl in updated["platforms"] for p in pl["posts"]]
+    row = next(p for p in rows if p["post_id"] == post["post_id"])
+    assert row["impressions"] == 9999
+    assert row["signups"] == 42
+    assert row["source"] == "manual"
+
+
+def test_permissions_and_auth() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+
+    assert _req(app, "GET", "/api/v1/team/inbox").status_code == 422
+    assert _req(app, "GET", "/api/v1/team/inbox", "no-such-member").status_code == 401
+    forbidden = _req(app, "POST", "/api/v1/team/campaigns", sam,
+                     json={"name": "x", "brief": BRIEF})
+    assert forbidden.status_code == 403
+
+
+def test_assign_rejects_ai_agent_on_human_only_task() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    ai_agent = members["Ideation bot"]
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")  # human_only
+
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/assign", lead,
+                    json={"member_id": ai_agent})
+    assert rejected.status_code == 400
+
+
+def test_submit_rejects_task_not_in_submittable_state() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")
+
+    # First submit completes it; a second submit is rejected (not submittable).
+    assert _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", lead,
+                json={}).status_code == 200
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{claim['id']}/submit", lead, json={})
+    assert rejected.status_code == 409
+
+
+def test_non_lead_non_assignee_cannot_edit() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    sam = members["Sam (Writer)"]
+    _cid, board = _run_campaign(app, lead)
+    asset = next(t for t in board["tasks"] if t["kind"] == "asset")  # assigned to the AI agent
+
+    rejected = _req(app, "POST", f"/api/v1/team/tasks/{asset['id']}/edit", sam,
+                    json={"output": {"x": 1}})
+    assert rejected.status_code == 403
+
+
+def test_task_detail_exposes_available_actions() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    _cid, board = _run_campaign(app, lead)
+    claim = _task(board, "claim_check")  # todo, assigned to the lead
+
+    detail = _req(app, "GET", f"/api/v1/team/tasks/{claim['id']}", lead).json()
+    assert {"edit", "assign", "submit", "comment"} <= set(detail["available_actions"])
+
+
+def _org(app, member) -> dict:
+    return _req(app, "GET", "/api/v1/team/org", member).json()
+
+
+def test_org_returns_the_roster_and_config_catalogs() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    org = _org(app, lead)
+
+    assert len(org["members"]) == 7
+    by_name = {m["display_name"]: m for m in org["members"]}
+    assert by_name["Adam (Lead)"]["reports_to"] is None
+    asset_writer = by_name["Asset writer"]
+    assert asset_writer["handles_kinds"] == ["asset"]
+    assert asset_writer["agent_role"] == "copywriter"
+    # The Auditor owns no task kinds; the Designer owns visuals.
+    assert by_name["Content auditor"]["agent_role"] == "auditor"
+    assert by_name["Content auditor"]["handles_kinds"] == []
+    # Designer is a service member too — it attaches a visual to each post.
+    assert by_name["Designer"]["handles_kinds"] == []
+    assert {"auditor", "designer"} <= {r["key"] for r in org["agent_roles"]}
+    assert asset_writer["reports_to"] == lead
+    # Catalogs the team UI offers when configuring an employee.
+    assert "asset" in org["task_kinds"]
+    assert any(r["key"] == "copywriter" for r in org["agent_roles"])
+
+
+def test_lead_adds_a_digital_employee_and_work_routes_to_it() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+
+    # Hand asset work off the seeded writer, then hire a fresh AI copywriter for it.
+    asset_writer = next(
+        m for m in _org(app, lead)["members"] if m["display_name"] == "Asset writer"
+    )
+    _req(app, "POST", f"/api/v1/team/org/members/{asset_writer['id']}", lead,
+         json={"handles_kinds": []})
+    hired = _req(app, "POST", "/api/v1/team/org/members", lead, json={
+        "display_name": "Social copywriter",
+        "role": "copywriter",
+        "job_description": "Punchy social posts.",
+        "handles_kinds": ["asset"],
+        "reports_to": lead,
+    })
+    assert hired.status_code == 200
+    new_id = hired.json()["id"]
+    assert hired.json()["kind"] == "ai"
+
+    # A new campaign routes — and runs — its posts through the new employee.
+    cid, board = _run_campaign(app, lead)
+    assets = [t for t in board["tasks"] if t["kind"] == "asset"]
+    assert assets and all(a["assignee_id"] == new_id for a in assets)
+    assert all(a["status"] == "done" and a["output"] for a in assets)
+
+
+def test_update_org_member_reprovisions_and_reroutes() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    ideation_bot = next(
+        m for m in _org(app, lead)["members"] if m["display_name"] == "Ideation bot"
+    )
+    updated = _req(app, "POST", f"/api/v1/team/org/members/{ideation_bot['id']}", lead,
+                   json={"provider": "openai", "model": "gpt-x", "job_description": "New job."})
+    assert updated.status_code == 200
+    body = updated.json()
+    assert body["provider"] == "openai" and body["model"] == "gpt-x"
+    assert body["job_description"] == "New job."
+    # Untouched fields are preserved.
+    assert body["agent_role"] == "ideation"
+    assert body["handles_kinds"] == ["ideation"]
+
+
+def test_org_config_is_lead_only() -> None:
+    app, members = _build()
+    sam = members["Sam (Writer)"]
+    create = _req(app, "POST", "/api/v1/team/org/members", sam,
+                  json={"display_name": "X", "role": "copywriter"})
+    assert create.status_code == 403
+    update = _req(app, "POST", f"/api/v1/team/org/members/{sam}", sam,
+                  json={"job_description": "self-promotion"})
+    assert update.status_code == 403
+
+
+def test_org_create_rejects_bad_inputs() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    base = {"display_name": "Bot", "role": "copywriter"}
+
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "role": "nonexistent"}).status_code == 400
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "handles_kinds": ["asset", "bogus"]}).status_code == 400
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={**base, "reports_to": "no-such-member"}).status_code == 400
+    # An empty display name fails validation (422).
+    assert _req(app, "POST", "/api/v1/team/org/members", lead,
+                json={"display_name": "  ", "role": "copywriter"}).status_code == 422
+
+
+def test_update_rejects_agent_fields_on_a_human() -> None:
+    app, members = _build()
+    lead = members["Adam (Lead)"]
+    rejected = _req(app, "POST", f"/api/v1/team/org/members/{lead}", lead,
+                    json={"provider": "openai"})
+    assert rejected.status_code == 400

@@ -5,8 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from apps.api.routes.campaign import router as campaign_router
+from apps.api.routes.events import router as events_router
 from apps.api.routes.health import router as health_router
+from apps.api.routes.integrations import router as integrations_router
 from apps.api.routes.llm import router as llm_router
+from apps.api.routes.team import router as team_router
 from apps.api.services.campaign_generation import (
     CampaignGenerationService,
     ProviderSelectionError,
@@ -26,12 +29,15 @@ def create_app(settings: Optional[AppSettings] = None) -> FastAPI:
         allow_origins=[active_settings.web_origin.rstrip("/")],
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Content-Type", "X-LLM-Provider"],
+        allow_headers=["Content-Type", "X-LLM-Provider", "X-Member-Id"],
     )
     application.state.campaign_generation_service = campaign_generation_service
     application.include_router(health_router)
     application.include_router(llm_router)
     application.include_router(campaign_router)
+    application.include_router(team_router)
+    application.include_router(integrations_router)
+    application.include_router(events_router)
 
     @application.exception_handler(ProviderSelectionError)
     async def handle_provider_selection_error(

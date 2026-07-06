@@ -1,0 +1,15 @@
+{
+  "projectId": "c02a8edd-8926-4dd3-9f0b-f62b114563c8",
+  "type": "frontend",
+  "name": "Home desk and object-centric navigation",
+  "description": "After the IA overhaul, the app opens on Home with the four object tabs (Home, Campaigns, Brand, Team), a live-model badge, and a working desk.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Open the ReelMatrix web app." },
+    { "type": "assertion", "description": "Verify the app lands on the Home view without errors or a blank screen." },
+    { "type": "assertion", "description": "Verify the navigation shows exactly these views: Home, Campaigns, Brand, Team." },
+    { "type": "assertion", "description": "Verify a 'live on' model badge is visible in the top bar (for example 'live on mock (offline demo)' or a real model name)." },
+    { "type": "action", "description": "Click each navigation item in turn: Campaigns, Brand, Team, then back to Home." },
+    { "type": "assertion", "description": "Verify each view renders content without a console-visible crash, blank screen, or stuck loading state." }
+  ]
+}

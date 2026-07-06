@@ -1,0 +1,37 @@
+{
+  "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
+  "type": "frontend",
+  "name": "Task detail shows content quality controls",
+  "description": "With a seeded or previously created campaign that has at least one task, verify that opening a task exposes the draft content, quality checks, and review controls.",
+  "priority": "p1",
+  "planSteps": [
+    {
+      "type": "action",
+      "description": "Open the ReelMatrix web app and go to the Campaigns view."
+    },
+    {
+      "type": "action",
+      "description": "Open the first campaign in the list, or use the campaign that is already active."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the Board tab is visible with at least one task card."
+    },
+    {
+      "type": "action",
+      "description": "Open the first task card that has drafted content or is awaiting review."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that the task detail panel opens and shows the task title, status, assignee, and drafted output or a clear task context."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that quality indicators such as score, check badges, audit findings, or issue counts are visible when available."
+    },
+    {
+      "type": "assertion",
+      "description": "Verify that review or improvement controls are visible, such as Approve, Apply AI improvement, Sync visual, Lock, or feedback controls."
+    }
+  ]
+}

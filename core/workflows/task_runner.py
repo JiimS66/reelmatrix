@@ -1,0 +1,971 @@
+"""Async runner that advances a campaign's task graph.
+
+The runner executes the directly-runnable AI tasks (ideation, planning, and the
+per-channel posts) whose dependencies are satisfied, persisting their output, a
+UsageEvent, and audit TaskEvents. Completing a planning task fans its plan out
+into the downstream claim-check task (posts are rendered by the Copywriter from
+the shared content core, not carved from the plan).
+
+Because ``instantiate_campaign`` defaults ideation/planning/posts to ``ai_auto``
+(the Task model's own field default is the safer ``ai_draft_human_review``), a run
+typically advances through every AI-owned step in one pass; only human-only tasks
+(e.g. the claim check) stay in ``todo`` until a human submits them. ``complete_task``
+is shared with the review API so approvals re-trigger the same fan-out; both
+``complete_task`` and ``fan_out_from_plan`` are idempotent and never overwrite
+work a human has already touched.
+"""
+
+import asyncio
+from dataclasses import asdict
+from datetime import datetime, timezone
+from typing import Callable, Optional
+
+from sqlmodel import Session, select
+
+from configs.settings import get_settings
+from core.agents.employees import agent_for_role
+from core.db.models import (
+    BrandProfile,
+    BrandTerm,
+    Campaign,
+    ChannelProfile,
+    ContentAtom,
+    ContentVersion,
+    EpisodicNote,
+    ExecutionMode,
+    Member,
+    MemberKind,
+    MemberRole,
+    Post,
+    Task,
+    TaskEvent,
+    TaskEventType,
+    TaskKind,
+    TaskStatus,
+    UsageEvent,
+)
+from core.content.atoms import atoms_from_asset
+from core.content.brand import forbidden_word_issues
+from core.content.continuity import channel_exemplars, channel_history, continuity_issues
+from core.content.insight import predicted_performance
+from core.content.scoring import content_score
+from core.content.tracking import utm_url
+from core.content.consistency import approved_stat_text, unsourced_stat_issues
+from core.content.platform_specs import format_checks, spec_for_channel
+from core.content.geo import geo_issues
+from core.content.terminology import term_issues
+from core.growth.learner import learned_priors
+from core.notify import notify_review_needed
+from core.policy.gate import policy_issues
+from core.llm.base import BaseLLMClient
+from core.llm.factory import create_llm_client
+from core.media.base import VisionProvider
+from core.media.factory import create_vision_provider
+from core.schemas.campaign import IdeationResult
+
+ClientForProvider = Callable[[str], BaseLLMClient]
+VisionForName = Callable[[str], VisionProvider]
+
+_RUNNABLE_KINDS = (TaskKind.IDEATION, TaskKind.PLANNING, TaskKind.ASSET, TaskKind.VISUAL)
+# Fallback agent for each kind when the assigned member declares no explicit role.
+_ROLE_BY_KIND = {
+    TaskKind.IDEATION: "ideation",
+    TaskKind.PLANNING: "planning",
+    TaskKind.ASSET: "copywriter",
+    TaskKind.VISUAL: "designer",
+}
+
+
+def role_for(task: Task, member: Optional[Member]) -> str:
+    """The agent that runs this task: the member's configured role takes precedence,
+    so a tenant can point a kind at a custom agent without editing _ROLE_BY_KIND."""
+    configured = (member.agent_config or {}).get("role") if member else None
+    return configured or _ROLE_BY_KIND[task.kind]
+
+
+# How many times a failed asset may be re-rendered with its check failures fed back
+# before the runner keeps the cleanest draft and moves on (checks stay advisory).
+_MAX_ASSET_REVISIONS = 2
+
+
+# Advisory groups are judges/gates, not self-correction targets: the cross-model audit,
+# the visual critic, and the compliance gate don't drive automatic re-renders (a policy
+# violation needs a human call, not a retry loop).
+_ADVISORY_CHECKS = ("audit", "brand_fit", "policy", "geo")
+
+
+def _issue_count(checks: dict) -> int:
+    return sum(
+        len(issues)
+        for name, issues in checks.items()
+        if name not in _ADVISORY_CHECKS
+    )
+
+
+def _revision_notes(checks: dict) -> list[str]:
+    """The check failures, as plain sentences to feed back to the agent."""
+    return [issue.get("detail", "") for issues in checks.values() for issue in issues]
+
+
+def _segment_slice(task: Task, brand: Optional[BrandProfile]) -> dict:
+    """The targeting slice for a post: which audience segment it's for, the pain point
+    it leads with, and (from the brand's ICP) the segment's profile, pain points, value
+    props, objections, and reach tactics. Empty when the post carries no segment."""
+    name = (task.params or {}).get("segment", "")
+    pain = (task.params or {}).get("pain_point", "")
+    seg = (
+        next((s for s in (brand.segments or []) if s.get("name") == name), {})
+        if (name and brand is not None)
+        else {}
+    )
+    return {
+        "segment": name,
+        "pain_point": pain,
+        "segment_profile": seg.get("profile", ""),
+        "segment_description": seg.get("description", ""),
+        "pain_points": seg.get("pain_points", []),
+        "value_props": seg.get("value_props", []),
+        "objections": seg.get("objections", []),
+        "reach_tactics": seg.get("reach_tactics", []),
+    }
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def provider_for(member: Optional[Member]) -> str:
+    """The provider an AI employee runs on: their own configured one if the org pinned
+    it, else the deployment's default. A member must never silently fall back to mock
+    while the app is configured for a real model — the badge would lie."""
+    configured = (member.agent_config or {}).get("provider") if member else None
+    return configured or get_settings().llm_provider
+
+
+def default_client_for_provider(provider: str) -> BaseLLMClient:
+    settings = get_settings().model_copy(update={"llm_provider": provider})
+    return create_llm_client(settings)
+
+
+def _record_event(
+    session: Session,
+    task: Task,
+    event_type: TaskEventType,
+    *,
+    actor_id: Optional[str] = None,
+    payload: Optional[dict] = None,
+) -> None:
+    session.add(
+        TaskEvent(
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            actor_id=actor_id,
+            type=event_type,
+            payload=payload,
+        )
+    )
+
+
+def _record_usage(session: Session, task: Task, member: Optional[Member]) -> None:
+    """Meter one AI call for billing — one row per LLM call, so self-correction
+    retries and the auditor are counted too. Attributed to the member that did the
+    work (the copywriter for a render, the auditor for an audit)."""
+    config = (member.agent_config or {}) if member else {}
+    session.add(
+        UsageEvent(
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            member_id=member.id if member else task.assignee_id,
+            provider=provider_for(member),
+            model=config.get("model"),
+        )
+    )
+
+
+def _campaign_lead_id(session: Session, tenant_id: str) -> Optional[str]:
+    lead = session.exec(
+        select(Member)
+        .where(
+            Member.tenant_id == tenant_id,
+            Member.kind == MemberKind.HUMAN,
+            Member.role == MemberRole.LEAD,
+        )
+        .order_by(Member.created_at)
+    ).first()
+    return lead.id if lead is not None else None
+
+
+def asset_checks(
+    asset: dict,
+    channel: str,
+    forbidden: list[str],
+    approved_text: str,
+    terms: Optional[list[dict]] = None,
+) -> dict:
+    """The format/brand/consistency/terminology checks recorded on every asset task."""
+    return {
+        "format": format_checks(asset, channel),
+        "brand": forbidden_word_issues(asset, forbidden),
+        "consistency": unsourced_stat_issues(asset, approved_text),
+        "terminology": term_issues(asset, terms or []),
+        # The all-outbound compliance gate (Phase 9): ad-law superlatives, PII,
+        # brand-safety/tragedy, missing disclosure. block-severity ⇒ not publishable.
+        "policy": policy_issues(
+            " ".join(
+                str(asset.get(k, "")) for k in ("title", "content", "call_to_action")
+            ),
+            channel=channel,
+        ),
+        # GEO/AEO citability levers (Phase 16) — advisory, like policy.
+        "geo": geo_issues(
+            " ".join(str(asset.get(k, "")) for k in ("title", "content", "call_to_action"))
+        ),
+    }
+
+
+def checks_for_output(session: Session, task: Task, output: dict) -> dict:
+    """Compute an asset's format/brand/consistency checks for a candidate output.
+
+    Read-only on the session (brand + plan lookups only), so it is safe to call
+    inside a gathered render while other tasks' renders are in flight.
+    """
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+    ).first()
+    forbidden = brand.forbidden_words if brand is not None else []
+    planning = session.exec(
+        select(Task).where(
+            Task.campaign_id == task.campaign_id, Task.kind == TaskKind.PLANNING
+        )
+    ).first()
+    plan = (planning.output if planning is not None else None) or {}
+    approved_text = approved_stat_text(plan, brand.proof_points if brand is not None else [])
+    terms = [
+        {
+            "term": t.term,
+            "term_type": t.term_type,
+            "replacement": t.replacement,
+            "case_sensitive": t.case_sensitive,
+        }
+        for t in session.exec(
+            select(BrandTerm).where(BrandTerm.tenant_id == task.tenant_id)
+        ).all()
+    ]
+    checks = asset_checks(
+        output or {}, (task.params or {}).get("channel", ""), forbidden, approved_text, terms
+    )
+    # Channel continuity: flag a draft that rehashes a recent post on this platform.
+    history = channel_history(
+        session,
+        tenant_id=task.tenant_id,
+        platform=(task.params or {}).get("channel", ""),
+        exclude_task_id=task.id,
+    )
+    checks["continuity"] = continuity_issues(output or {}, history)
+    return checks
+
+
+def recompute_asset_checks(session: Session, task: Task) -> dict:
+    """Recompute an asset task's checks from its current output (e.g. after a human edit)."""
+    return checks_for_output(session, task, task.output or {})
+
+
+def _seed_claim_checks(session: Session, planning_task: Task, plan: dict) -> list[dict]:
+    """The claim-check starts from the brand's known proof points (source-backed) plus
+    the plan's claims — so the fact-checker reviews real claims, not an empty list."""
+    brand = session.exec(
+        select(BrandProfile).where(BrandProfile.tenant_id == planning_task.tenant_id)
+    ).first()
+    claims: list[dict] = []
+    seen: set[str] = set()
+    for point in (brand.proof_points if brand is not None else []):
+        text = str(point.get("claim") or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            claims.append(
+                {"claim": text, "status": "source_backed", "source": point.get("source")}
+            )
+    for check in plan.get("claim_checks") or []:
+        text = str(check.get("claim") or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            claims.append(check)
+    return claims
+
+
+def fan_out_from_plan(session: Session, planning_task: Task) -> None:
+    """Seed the downstream claim-check task from a finished plan.
+
+    Asset tasks are no longer carved from the plan here — the Copywriter agent
+    renders each one from the shared content core (run by the runner). Idempotent:
+    a claim-check that already has output is left untouched.
+    """
+    plan = planning_task.output or {}
+    downstream = session.exec(
+        select(Task).where(
+            Task.tenant_id == planning_task.tenant_id,
+            Task.campaign_id == planning_task.campaign_id,
+        )
+    ).all()
+
+    for task in downstream:
+        if planning_task.id not in (task.depends_on or []):
+            continue
+        if task.kind == TaskKind.CLAIM_CHECK and task.output is None:
+            task.output = {"claim_checks": _seed_claim_checks(session, planning_task, plan)}
+            task.updated_at = _now()
+            _record_event(
+                session, task, TaskEventType.SUBMITTED, payload={"source": "planning_fan_out"}
+            )
+            session.add(task)
+
+
+def snapshot_version(
+    session: Session, task: Task, *, source: str, member_id: Optional[str] = None
+) -> None:
+    """Append an immutable ContentVersion of the task's current output (content tasks
+    only). Never updates — the version stack behind proofing/compare."""
+    if task.kind not in (TaskKind.ASSET, TaskKind.VISUAL) or not task.output:
+        return
+    count = len(
+        session.exec(
+            select(ContentVersion).where(ContentVersion.task_id == task.id)
+        ).all()
+    )
+    session.add(
+        ContentVersion(
+            tenant_id=task.tenant_id,
+            task_id=task.id,
+            number=count + 1,
+            snapshot=task.output,
+            source=source,
+            created_by=member_id,
+        )
+    )
+
+
+def harvest_atoms(session: Session, task: Task) -> None:
+    """Harvest reusable atoms from an approved asset into the tenant library.
+
+    Idempotent: identical (kind, text) atoms in the tenant are not duplicated.
+    """
+    if task.kind != TaskKind.ASSET or not task.output:
+        return
+    existing = {
+        (atom.kind, atom.text)
+        for atom in session.exec(
+            select(ContentAtom).where(ContentAtom.tenant_id == task.tenant_id)
+        ).all()
+    }
+    channel = (task.params or {}).get("channel")
+    tags = [channel] if channel else []
+    for kind, text in atoms_from_asset(task.output):
+        if (kind, text) in existing:
+            continue
+        existing.add((kind, text))
+        session.add(
+            ContentAtom(
+                tenant_id=task.tenant_id,
+                kind=kind,
+                text=text,
+                tags=tags,
+                source_campaign_id=task.campaign_id,
+                source_task_id=task.id,
+            )
+        )
+
+
+def _publish_post(session: Session, task: Task) -> None:
+    """Record a published Post when an asset is approved (the metrics target)."""
+    campaign = session.get(Campaign, task.campaign_id)
+    if campaign is None:
+        return
+    channel = (task.params or {}).get("channel") or "web"
+    session.add(
+        Post(
+            tenant_id=task.tenant_id,
+            campaign_id=task.campaign_id,
+            asset_task_id=task.id,
+            platform=channel,
+            url=utm_url(campaign, task),
+            published_at=task.due_date or task.updated_at.date().isoformat(),
+        )
+    )
+
+
+def complete_task(session: Session, task: Task, *, actor_id: Optional[str] = None) -> None:
+    """Mark a task done, audit it, and run kind-specific follow-ups.
+
+    Idempotent and does not commit; the caller owns the transaction.
+    """
+    if task.status == TaskStatus.DONE:
+        return
+    task.status = TaskStatus.DONE
+    task.updated_at = _now()
+    _record_event(session, task, TaskEventType.APPROVED, actor_id=actor_id)
+    if task.kind == TaskKind.PLANNING:
+        fan_out_from_plan(session, task)
+    elif task.kind == TaskKind.ASSET:
+        harvest_atoms(session, task)
+        _publish_post(session, task)
+    session.add(task)
+
+
+class TaskRunner:
+    def __init__(
+        self,
+        session: Session,
+        client_for_provider: Optional[ClientForProvider] = None,
+        vision_for_name: Optional[VisionForName] = None,
+    ) -> None:
+        self._session = session
+        self._client_for_provider = client_for_provider or default_client_for_provider
+        self._vision_for_name = vision_for_name or create_vision_provider
+        # Extra check groups produced during a gathered render (the Auditor's "audit"
+        # for posts, the visual critic's "brand_fit" for visuals), handed to the serial
+        # _persist which merges them into task.checks. Keyed by task id.
+        self._pending_checks: dict[str, dict] = {}
+
+    async def run_ready_tasks(self, campaign_id: str) -> list[str]:
+        """Run every currently-ready AI task. Independent tasks (e.g. the per-channel
+        posts once the plan's core is locked) render concurrently; persistence stays
+        serial on the single session."""
+        ran: list[str] = []
+        while True:
+            ready = self._ready_ai_tasks(campaign_id)
+            if not ready:
+                break
+            rendered = await asyncio.gather(
+                *(self._render(task) for task in ready), return_exceptions=True
+            )
+            for task, result in zip(ready, rendered):
+                if isinstance(result, BaseException):
+                    self._revert_failed(task, result)
+                    self._session.commit()
+                    raise result
+                if result is not None:
+                    self._persist(task, result)
+                    ran.append(task.id)
+                self._session.commit()
+        return ran
+
+    def _campaign_tasks(self, campaign_id: str) -> list[Task]:
+        return list(
+            self._session.exec(select(Task).where(Task.campaign_id == campaign_id)).all()
+        )
+
+    def _ready_ai_tasks(self, campaign_id: str) -> list[Task]:
+        tasks = self._campaign_tasks(campaign_id)
+        done_ids = {t.id for t in tasks if t.status == TaskStatus.DONE}
+        ready: list[Task] = []
+        for task in sorted(tasks, key=lambda t: t.sequence):
+            if task.kind not in _RUNNABLE_KINDS:
+                continue
+            if task.status != TaskStatus.TODO:
+                continue
+            if task.execution_mode == ExecutionMode.HUMAN_ONLY or not task.assignee_id:
+                continue
+            member = self._session.get(Member, task.assignee_id)
+            if member is None or member.kind != MemberKind.AI:
+                continue
+            if all(dep in done_ids for dep in (task.depends_on or [])):
+                ready.append(task)
+        return ready
+
+    async def _render(self, task: Task) -> Optional[dict]:
+        """Produce a task's output — the only await is the agent's LLM call, so
+        gathered renders overlap only there. Returns None when the task is blocked
+        (handled in place); raises on agent failure (the caller reverts)."""
+        campaign = self._session.get(Campaign, task.campaign_id)
+        if campaign is None:
+            task.status = TaskStatus.BLOCKED
+            _record_event(
+                self._session, task, TaskEventType.STATUS_CHANGED,
+                payload={"reason": "missing_campaign"},
+            )
+            self._session.add(task)
+            return None
+
+        member = self._session.get(Member, task.assignee_id)
+        provider = provider_for(member)
+        client = self._client_for_provider(provider)
+        task.status = TaskStatus.IN_PROGRESS
+
+        role_key = role_for(task, member)
+        context = self._build_context(task, campaign)
+        if task.kind == TaskKind.PLANNING:
+            ideation_result = IdeationResult.model_validate(context["ideation_result"])
+            if not ideation_result.is_ready_for_planning:
+                task.status = TaskStatus.BLOCKED
+                _record_event(
+                    self._session, task, TaskEventType.STATUS_CHANGED,
+                    payload={"reason": "ideation_not_ready"},
+                )
+                self._session.add(task)
+                return None
+        fanout = get_settings().asset_draft_fanout if task.kind == TaskKind.ASSET else 1
+        if fanout > 1:
+            # Cheap open-weight inference makes parallel sampling nearly free:
+            # render N candidates and keep the best by the same score the human
+            # sees. Extra calls are metered; ties keep the first (mock-safe).
+            agent = agent_for_role(role_key, client)
+            candidates = list(
+                await asyncio.gather(*(agent.run(context) for _ in range(fanout)))
+            )
+            for _ in candidates[1:]:
+                _record_usage(self._session, task, member)
+            output, picked = self._pick_best_draft(task, candidates)
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                payload={"kind": "draft_fanout", "n": fanout, "picked": picked},
+            )
+        else:
+            output = await agent_for_role(role_key, client).run(context)
+        if task.kind == TaskKind.ASSET:
+            # Converge the COPY first (deterministic checks + Auditor), THEN attach the
+            # visual once — keeping image generation out of the copy correction loop so
+            # a copy fix never re-spends on imagery or clobbers an approved image.
+            output = await self._self_correct(task, member, client, role_key, context, output)
+            output = await self._attach_visual(task, campaign, output)
+        elif task.kind == TaskKind.VISUAL:
+            output = await self._critique_visual(task, member, client, role_key, context, output)
+        return output
+
+    def _pick_best_draft(self, task: Task, candidates: list[dict]) -> tuple[dict, int]:
+        """Rank parallel drafts by check-derived content score plus the
+        predicted-performance heuristic; return (best draft, its index)."""
+        channel = (task.params or {}).get("channel", "")
+        best_index, best_value = 0, float("-inf")
+        for index, candidate in enumerate(candidates):
+            score = content_score(checks_for_output(self._session, task, candidate)) or {}
+            predicted = predicted_performance(candidate, channel) or {}
+            value = score.get("overall", 0) + 0.5 * predicted.get("overall", 0)
+            if value > best_value:
+                best_index, best_value = index, value
+        return candidates[best_index], best_index
+
+    def _designer_member(self, tenant_id: str) -> Optional[Member]:
+        """The tenant's Designer (an AI member whose role is 'designer'), invoked to
+        attach a visual to a post; None when the tenant has none."""
+        members = self._session.exec(
+            select(Member).where(
+                Member.tenant_id == tenant_id, Member.kind == MemberKind.AI
+            )
+        ).all()
+        return next(
+            (m for m in members if (m.agent_config or {}).get("role") == "designer"), None
+        )
+
+    async def _attach_visual(self, task: Task, campaign: Campaign, output: dict) -> dict:
+        """Attach a visual to the post (one deliverable) via the Designer sub-step, then
+        critique it into checks["brand_fit"]. Skipped when the campaign has no visuals or
+        no Designer. The Designer sees the finalized copy so the image matches it."""
+        if not (campaign.brief or {}).get("with_visuals"):
+            return output
+        designer = self._designer_member(task.tenant_id)
+        if designer is None:
+            return output
+        provider = provider_for(designer)
+        client = self._client_for_provider(provider)
+        ctx = {**self._designer_context(task, campaign), "post_copy": output.get("content", "")}
+        visual = await agent_for_role("designer", client).run(ctx)
+        _record_usage(self._session, task, designer)
+        critique = await self._run_visual_critique(task, visual, ctx)
+        if critique is not None:
+            self._pending_checks.setdefault(task.id, {})["brand_fit"] = critique
+        return {**output, "visual": visual}
+
+    def _merged_asset_checks(self, task: Task, *, brand_fit: Optional[list], keep_audit: bool) -> dict:
+        """Recompute the deterministic post checks, optionally preserving the prior audit
+        verdict and adding a fresh brand_fit — so a sync/improve keeps checks coherent."""
+        checks = recompute_asset_checks(self._session, task)
+        if keep_audit and (task.checks or {}).get("audit") is not None:
+            checks["audit"] = task.checks["audit"]
+        if brand_fit is not None:
+            checks["brand_fit"] = brand_fit
+        return checks
+
+    async def sync_visual(self, task: Task) -> Task:
+        """Re-run the Designer on the post's CURRENT copy so the image matches it; snapshot
+        a new version (never silently clobber). Lead/assignee + lock are checked upstream."""
+        campaign = self._session.get(Campaign, task.campaign_id)
+        designer = self._designer_member(task.tenant_id)
+        if campaign is None or designer is None:
+            raise LookupError("No campaign or Designer to sync the visual.")
+        client = self._client_for_provider(provider_for(designer))
+        ctx = {**self._designer_context(task, campaign), "post_copy": (task.output or {}).get("content", "")}
+        visual = await agent_for_role("designer", client).run(ctx)
+        _record_usage(self._session, task, designer)
+        critique = await self._run_visual_critique(task, visual, ctx)
+        task.output = {**(task.output or {}), "visual": visual}
+        task.checks = self._merged_asset_checks(task, brand_fit=critique, keep_audit=True)
+        task.updated_at = _now()
+        snapshot_version(self._session, task, source="sync_visual")
+        _record_event(self._session, task, TaskEventType.EDITED, payload={"sync_visual": True})
+        self._session.add(task)
+        self._session.commit()
+        return task
+
+    async def improve(self, task: Task) -> Task:
+        """One-click "apply AI improvement": re-render the post once, feeding the current
+        check + audit issues back as revision notes, re-attach the visual, and snapshot a
+        new version the human reviews (it does not loop or re-bill the auditor)."""
+        campaign = self._session.get(Campaign, task.campaign_id)
+        member = self._session.get(Member, task.assignee_id)
+        if campaign is None:
+            raise LookupError("No campaign to improve against.")
+        client = self._client_for_provider(provider_for(member))
+        role_key = role_for(task, member)
+        context = self._build_context(task, campaign)
+        notes = _revision_notes(task.checks or {})
+        candidate = await agent_for_role(role_key, client).run({**context, "revision_notes": notes})
+        _record_usage(self._session, task, member)
+        candidate = await self._attach_visual(task, campaign, candidate)
+        task.output = candidate
+        task.checks = self._merged_asset_checks(
+            task, brand_fit=self._pending_checks.pop(task.id, {}).get("brand_fit"), keep_audit=False
+        )
+        task.updated_at = _now()
+        snapshot_version(self._session, task, source="improve")
+        _record_event(self._session, task, TaskEventType.SELF_CORRECTED, payload={"passes": 1, "manual": True})
+        self._session.add(task)
+        self._session.commit()
+        return task
+
+    async def _self_correct(
+        self,
+        task: Task,
+        member: Optional[Member],
+        client: BaseLLMClient,
+        role_key: str,
+        context: dict,
+        output: dict,
+    ) -> dict:
+        """Re-render an asset whose checks fail, feeding the failures back, and keep
+        the cleanest draft. The runner's execution-time half of self-improvement;
+        checks stay advisory, so a draft that can't be fixed still goes through.
+
+        Failures come from both the deterministic checks AND the LLM-as-judge Auditor
+        (a different model family, when configured); both feed the revision notes."""
+        checks = checks_for_output(self._session, task, output)
+        audit = await self._run_audit(task, output, context)  # None when no auditor
+        best, best_audit = output, audit
+        best_issues = _issue_count(checks) + len(audit or [])
+        passes = 0
+        while best_issues > 0 and passes < _MAX_ASSET_REVISIONS:
+            passes += 1
+            notes = _revision_notes(checks) + [issue["detail"] for issue in (audit or [])]
+            candidate = await agent_for_role(role_key, client).run(
+                {**context, "revision_notes": notes}
+            )
+            _record_usage(self._session, task, member)  # each retry is a metered call
+            checks = checks_for_output(self._session, task, candidate)
+            audit = await self._run_audit(task, candidate, context)
+            issues = _issue_count(checks) + len(audit or [])
+            if issues < best_issues:
+                best, best_audit, best_issues = candidate, audit, issues
+            if best_issues == 0:
+                break
+        if best_audit is not None:
+            self._pending_checks[task.id] = {"audit": best_audit}
+        if passes:
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                actor_id=task.assignee_id,
+                payload={"passes": passes, "remaining_issues": best_issues},
+            )
+        return best
+
+    async def _critique_visual(
+        self,
+        task: Task,
+        member: Optional[Member],
+        client: BaseLLMClient,
+        role_key: str,
+        context: dict,
+        output: dict,
+    ) -> dict:
+        """Re-render a visual the VisionProvider judges off-brand, feeding the critique
+        back, keeping the cleanest. The visual analogue of post self-correction; the
+        critique (a VLM-as-judge) is surfaced as the visual's brand_fit check."""
+        critique = await self._run_visual_critique(task, output, context)  # None if no ref
+        best, best_critique, best_issues = output, critique, len(critique or [])
+        passes = 0
+        while best_issues > 0 and passes < _MAX_ASSET_REVISIONS:
+            passes += 1
+            notes = [issue["detail"] for issue in (critique or [])]
+            candidate = await agent_for_role(role_key, client).run(
+                {**context, "revision_notes": notes}
+            )
+            _record_usage(self._session, task, member)
+            critique = await self._run_visual_critique(task, candidate, context)
+            issues = len(critique or [])
+            if issues < best_issues:
+                best, best_critique, best_issues = candidate, critique, issues
+            if best_issues == 0:
+                break
+        if best_critique is not None:
+            self._pending_checks[task.id] = {"brand_fit": best_critique}
+        if passes:
+            _record_event(
+                self._session, task, TaskEventType.SELF_CORRECTED,
+                actor_id=task.assignee_id,
+                payload={"passes": passes, "remaining_issues": best_issues, "kind": "visual"},
+            )
+        return best
+
+    async def _run_visual_critique(
+        self, task: Task, output: dict, context: dict
+    ) -> Optional[list[dict]]:
+        """VLM-as-judge on a rendered visual vs the campaign text + brand. Returns
+        issues as {code, detail} dicts, or None when there is no image to judge."""
+        image_ref = (output or {}).get("image_ref")
+        if not image_ref:
+            return None
+        # The deployment's configured eye (mock | dashscope/Qwen3-VL) — swapping
+        # the judge is a config change, same as every other provider.
+        provider = self._vision_for_name(get_settings().vision_provider)
+        verdict = await provider.critique(
+            media_ref=image_ref,
+            campaign_text=context.get("core_message", ""),
+            brand=context.get("brand", {}),
+        )
+        return [{"code": "brand_fit", "detail": issue} for issue in verdict.issues]
+
+    def _auditor_member(self, tenant_id: str) -> Optional[Member]:
+        """The tenant's configured Auditor (an AI member whose role is 'auditor'),
+        or None if the tenant hasn't hired one — in which case audit is skipped."""
+        members = self._session.exec(
+            select(Member).where(
+                Member.tenant_id == tenant_id, Member.kind == MemberKind.AI
+            )
+        ).all()
+        return next(
+            (m for m in members if (m.agent_config or {}).get("role") == "auditor"), None
+        )
+
+    async def _run_audit(self, task: Task, post: dict, context: dict) -> Optional[list[dict]]:
+        """Judge a rendered post with the tenant's Auditor (on its own — ideally
+        different-family — provider). Returns issues as {code, detail} dicts, or None
+        when no auditor is configured. Read-only on the session apart from metering."""
+        auditor = self._auditor_member(task.tenant_id)
+        if auditor is None:
+            return None
+        provider = provider_for(auditor)
+        client = self._client_for_provider(provider)
+        verdict = await agent_for_role("auditor", client).run(
+            {
+                "channel": context.get("channel", ""),
+                "core_message": context.get("core_message", ""),
+                "approved_claims": context.get("approved_claims", []),
+                "brand": context.get("brand", {}),
+                "post": post,
+            }
+        )
+        _record_usage(self._session, task, auditor)
+        return [
+            {"code": issue["dimension"], "detail": issue["detail"]}
+            for issue in verdict.get("issues", [])
+        ]
+
+    def _persist(self, task: Task, output: dict) -> None:
+        """Persist a rendered output (sync — keeps the single session serial)."""
+        member = self._session.get(Member, task.assignee_id)
+        provider = provider_for(member)
+        task.ai_draft = output
+        task.output = output
+        if task.kind == TaskKind.ASSET:
+            checks = recompute_asset_checks(self._session, task)
+            checks.update(self._pending_checks.pop(task.id, {}))  # + the Auditor's "audit"
+            task.checks = checks
+        elif task.kind == TaskKind.VISUAL:
+            task.checks = self._pending_checks.pop(task.id, {})  # the "brand_fit" critique
+        task.updated_at = _now()
+        snapshot_version(self._session, task, source="ai_render", member_id=task.assignee_id)
+        _record_usage(self._session, task, member)
+        _record_event(
+            self._session, task, TaskEventType.AI_RUN, actor_id=task.assignee_id,
+            payload={"provider": provider},
+        )
+        if task.execution_mode == ExecutionMode.AI_AUTO:
+            complete_task(self._session, task, actor_id=task.assignee_id)
+        else:
+            task.status = TaskStatus.NEEDS_REVIEW
+            task.assignee_id = _campaign_lead_id(self._session, task.tenant_id) or task.assignee_id
+            _record_event(
+                self._session, task, TaskEventType.SUBMITTED,
+                actor_id=member.id if member else None,
+            )
+            self._session.add(task)
+            # Ping the team's webhook so the queue doesn't silently pile up.
+            campaign = self._session.get(Campaign, task.campaign_id)
+            reviewer = self._session.get(Member, task.assignee_id)
+            notify_review_needed(
+                task_id=task.id,
+                task_title=task.title,
+                campaign_name=campaign.name if campaign else "",
+                assignee_name=reviewer.display_name if reviewer else None,
+            )
+
+    def _revert_failed(self, task: Task, exc: BaseException) -> None:
+        task.status = TaskStatus.TODO
+        _record_event(
+            self._session, task, TaskEventType.STATUS_CHANGED,
+            payload={"error": type(exc).__name__},
+        )
+        self._session.add(task)
+
+    # Orchestration/routing keys that ride on the brief but are NOT generation inputs,
+    # so they're stripped before the brief is validated as a CampaignGenerationRequest.
+    _BRIEF_ORCHESTRATION_KEYS = ("with_visuals", "target_segments", "tailored", "reference_media")
+
+    def _build_context(self, task: Task, campaign: Campaign) -> dict:
+        """The blackboard slice an agent reads — only its dependencies, nothing more."""
+        if task.kind == TaskKind.ASSET:
+            return self._copywriter_context(task, campaign)
+        if task.kind == TaskKind.VISUAL:
+            return self._designer_context(task, campaign)
+        payload = {
+            k: v
+            for k, v in (campaign.brief or {}).items()
+            if k not in self._BRIEF_ORCHESTRATION_KEYS
+        }
+        payload.setdefault("campaign_template", campaign.template)
+        context: dict = {"request": payload}
+        if task.kind == TaskKind.PLANNING:
+            context["ideation_result"] = self._ideation_output(task)
+        return context
+
+    def _copywriter_context(self, task: Task, campaign: Campaign) -> dict:
+        """The slice a copywriter reads: shared core + platform spec + brand."""
+        planning = (
+            self._session.get(Task, task.depends_on[0]) if task.depends_on else None
+        )
+        plan = (planning.output if planning is not None else None) or {}
+        channel = (task.params or {}).get("channel", "")
+        spec = spec_for_channel(channel)
+        brand = self._session.exec(
+            select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+        ).first()
+        all_notes = self._session.exec(
+            select(EpisodicNote)
+            .where(EpisodicNote.campaign_id == task.campaign_id)
+            .order_by(EpisodicNote.created_at.desc())  # type: ignore[attr-defined]
+        ).all()
+        # Scoped recall: this channel's notes first, campaign-wide notes as
+        # filler — not just "the last five of anything".
+        notes = sorted(
+            all_notes, key=lambda n: 0 if (n.channel and n.channel == channel) else 1
+        )
+        profile = self._session.exec(
+            select(ChannelProfile).where(
+                ChannelProfile.tenant_id == task.tenant_id,
+                ChannelProfile.platform == channel,
+            )
+        ).first()
+        return {
+            "recent_feedback": [note.text for note in notes[:5]],
+            "channel": channel,
+            # Which account this is, who follows it, and what already ran there —
+            # the continuity slice, so post N knows posts N-1…N-5.
+            "channel_profile": {
+                "handle": profile.handle,
+                "audience_note": profile.audience_note,
+                "cadence": profile.cadence,
+            }
+            if profile is not None
+            else {},
+            "channel_history": channel_history(
+                self._session,
+                tenant_id=task.tenant_id,
+                platform=channel,
+                exclude_task_id=task.id,
+            ),
+            # Few-shot beats instruction for open-weight models: the channel's
+            # proven winners ride along as exemplars.
+            "exemplars": channel_exemplars(
+                self._session,
+                tenant_id=task.tenant_id,
+                platform=channel,
+                exclude_task_id=task.id,
+            ),
+            # The platform format as an explicit CONTRACT, not just a hint.
+            "format_contract": (
+                f"{spec.channel}: {spec.format}"
+                + (f", max {spec.max_chars} chars" if spec.max_chars else "")
+                + f". Structure: {spec.structure}. Tone: {spec.tone_shift}."
+                " A clear call to action is required."
+            )
+            if spec is not None
+            else "",
+            "angle": (task.params or {}).get("angle", ""),  # hot-topic, for rapid posts
+            # 4th-layer derived memory: what's converting, fed back into generation.
+            "learned_priors": learned_priors(
+                self._session, task.tenant_id, channel,
+                (task.params or {}).get("segment", ""),
+            ),
+            "funnel_stage": (task.params or {}).get("funnel_stage", ""),
+            "desired_action": (task.params or {}).get("desired_action", ""),
+            "value_proposition": brand.value_proposition if brand is not None else "",
+            "messaging_pillars": (
+                [p.get("name", "") for p in (brand.messaging_pillars or [])]
+                if brand is not None
+                else []
+            ),
+            # A directive task has no planning step — its instruction IS the brief.
+            "core_message": plan.get("core_message")
+            or (task.params or {}).get("directive", ""),
+            "approved_claims": [
+                claim.get("claim", "")
+                for claim in (plan.get("claim_checks") or [])
+                if claim.get("status") == "source_backed"
+            ],
+            "product_name": (campaign.brief or {}).get("product_name", ""),
+            "platform": asdict(spec) if spec is not None else {},
+            **_segment_slice(task, brand),
+            "brand": {
+                "voice": brand.voice,
+                "tone_rules": brand.tone_rules,
+                "forbidden_words": brand.forbidden_words,
+            }
+            if brand is not None
+            else {},
+        }
+
+    def _designer_context(self, task: Task, campaign: Campaign) -> dict:
+        """The slice a Designer reads: shared core + channel + brand identity."""
+        planning = (
+            self._session.get(Task, task.depends_on[0]) if task.depends_on else None
+        )
+        plan = (planning.output if planning is not None else None) or {}
+        brand = self._session.exec(
+            select(BrandProfile).where(BrandProfile.tenant_id == task.tenant_id)
+        ).first()
+        return {
+            "channel": (task.params or {}).get("channel", ""),
+            "core_message": plan.get("core_message", ""),
+            "product_name": (campaign.brief or {}).get("product_name", ""),
+            "reference_media": (campaign.brief or {}).get("reference_media", []),
+            "learned_priors": learned_priors(
+                self._session, task.tenant_id,
+                (task.params or {}).get("channel", ""),
+                (task.params or {}).get("segment", ""),
+            ),
+            **_segment_slice(task, brand),
+            "brand": {
+                "voice": brand.voice,
+                "tone_rules": brand.tone_rules,
+            }
+            if brand is not None
+            else {},
+        }
+
+    def _ideation_output(self, planning_task: Task) -> dict:
+        for dep_id in planning_task.depends_on or []:
+            dep = self._session.get(Task, dep_id)
+            if dep is not None and dep.kind == TaskKind.IDEATION:
+                return dep.output or {}
+        for task in self._campaign_tasks(planning_task.campaign_id):
+            if task.kind == TaskKind.IDEATION:
+                return task.output or {}
+        return {}

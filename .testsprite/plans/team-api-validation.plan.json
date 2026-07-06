@@ -1,0 +1,15 @@
+{
+  "projectId": "8f1a9a08-31f1-4bab-91e3-8d51627bcf40",
+  "type": "backend",
+  "name": "Team API rejects bad input with 4xx, not 5xx",
+  "description": "Malformed payloads and unknown ids come back as clean client errors — strict schemas must not surface as 500s.",
+  "priority": "p1",
+  "planSteps": [
+    { "type": "action", "description": "Send a POST request to a team-OS strategy session endpoint with a payload containing an unexpected extra field and a missing required field." },
+    { "type": "assertion", "description": "Verify the response status is in the 4xx range (typically 422) with a JSON error detail — not a 5xx." },
+    { "type": "action", "description": "Send a GET request for a campaign board using a syntactically valid but non-existent campaign id." },
+    { "type": "assertion", "description": "Verify the response is a 404 with a JSON error body, not a 500." },
+    { "type": "action", "description": "Send a request to a valid team endpoint with a member id from a different tenant (or a made-up member id)." },
+    { "type": "assertion", "description": "Verify the API refuses it with a 4xx and does not leak another tenant's data." }
+  ]
+}

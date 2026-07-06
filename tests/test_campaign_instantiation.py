@@ -1,0 +1,174 @@
+from sqlmodel import Session, select
+
+from core.db.engine import create_db_engine, init_db
+from core.db.models import (
+    ExecutionMode,
+    Member,
+    MemberKind,
+    MemberRole,
+    Task,
+    TaskKind,
+)
+from core.db.seed import seed_testsprite
+from core.workflows.campaign_instantiation import instantiate_campaign
+
+
+def _seeded_session() -> Session:
+    engine = create_db_engine("sqlite://")
+    init_db(engine)
+    return Session(engine)
+
+
+def test_instantiate_creates_expected_task_graph() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        members = {
+            m.display_name: m
+            for m in session.exec(
+                select(Member).where(Member.tenant_id == tenant.id)
+            ).all()
+        }
+
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={"product_name": "TestSprite", "selected_channels": ["LinkedIn", "Blog"]},
+            template="developer_tool",
+        )
+
+        tasks = session.exec(
+            select(Task).where(Task.campaign_id == campaign.id)
+        ).all()
+        by_kind = {}
+        for task in tasks:
+            by_kind.setdefault(task.kind, []).append(task)
+
+        # 1 ideation + 1 planning + 2 assets + 1 claim check = 5 tasks.
+        assert len(tasks) == 5
+        assert len(by_kind[TaskKind.ASSET]) == 2
+        assert len(by_kind[TaskKind.IDEATION]) == 1
+
+        ideation = by_kind[TaskKind.IDEATION][0]
+        planning = by_kind[TaskKind.PLANNING][0]
+        assert ideation.depends_on == []
+        assert planning.depends_on == [ideation.id]
+
+        # Assets depend on planning and carry their channel.
+        channels = {t.params["channel"] for t in by_kind[TaskKind.ASSET]}
+        assert channels == {"LinkedIn", "Blog"}
+        for asset in by_kind[TaskKind.ASSET]:
+            assert asset.depends_on == [planning.id]
+
+        # Default assignees: AI agents on AI tasks, lead human on claim check.
+        assert ideation.assignee_id == members["Ideation bot"].id
+        assert planning.assignee_id == members["Planning bot"].id
+        for asset in by_kind[TaskKind.ASSET]:
+            assert asset.assignee_id == members["Asset writer"].id
+
+        claim_check = by_kind[TaskKind.CLAIM_CHECK][0]
+        assert claim_check.execution_mode == ExecutionMode.HUMAN_ONLY
+        lead = members["Adam (Lead)"]
+        assert lead.kind == MemberKind.HUMAN and lead.role == MemberRole.LEAD
+        assert claim_check.assignee_id == lead.id
+
+
+def test_org_config_reroutes_a_kind_to_a_different_member() -> None:
+    """Reconfiguring who handles a kind reroutes the work — no code change."""
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        by_name = {
+            m.display_name: m
+            for m in session.exec(
+                select(Member).where(Member.tenant_id == tenant.id)
+            ).all()
+        }
+        # Hand asset work to the human writer instead of the AI Asset writer.
+        by_name["Asset writer"].handles_kinds = []
+        by_name["Sam (Writer)"].handles_kinds = [TaskKind.ASSET.value]
+        session.add(by_name["Asset writer"])
+        session.add(by_name["Sam (Writer)"])
+        session.commit()
+
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={"product_name": "TestSprite", "selected_channels": ["LinkedIn"]},
+        )
+        asset = session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).first()
+        assert asset.assignee_id == by_name["Sam (Writer)"].id
+
+
+def test_assets_are_routed_to_targeted_segments() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={
+                "product_name": "TestSprite",
+                "selected_channels": ["LinkedIn", "Landing Page"],
+                "target_segments": ["Engineering leaders", "AI-native developers"],
+            },
+        )
+        by_channel = {
+            t.params["channel"]: t.params
+            for t in session.exec(
+                select(Task).where(
+                    Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+                )
+            ).all()
+        }
+        # Each post is routed to the targeted segment whose platforms include its channel.
+        assert by_channel["LinkedIn"]["segment"] == "Engineering leaders"
+        assert by_channel["LinkedIn"]["pain_point"]
+        assert by_channel["Landing Page"]["segment"] == "AI-native developers"
+
+
+def test_tailored_mode_fans_out_per_segment_and_channel() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="Launch",
+            brief={
+                "product_name": "TestSprite",
+                "selected_channels": ["LinkedIn", "Email"],
+                "target_segments": ["Engineering leaders", "AI-native developers"],
+                "tailored": True,
+            },
+        )
+        assets = session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).all()
+        # 2 channels × 2 segments = 4 tailored posts, each stamped with its segment.
+        assert len(assets) == 4
+        pairs = {(t.params["channel"], t.params["segment"]) for t in assets}
+        assert ("LinkedIn", "Engineering leaders") in pairs
+        assert ("LinkedIn", "AI-native developers") in pairs
+
+
+def test_instantiate_falls_back_to_default_channels() -> None:
+    with _seeded_session() as session:
+        tenant = seed_testsprite(session)
+        campaign = instantiate_campaign(
+            session,
+            tenant_id=tenant.id,
+            name="No channels",
+            brief={"product_name": "TestSprite"},
+        )
+        assets = session.exec(
+            select(Task).where(
+                Task.campaign_id == campaign.id, Task.kind == TaskKind.ASSET
+            )
+        ).all()
+        assert len(assets) == 3  # DEFAULT_CHANNELS
