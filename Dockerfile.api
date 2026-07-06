@@ -16,6 +16,8 @@ COPY apps/__init__.py ./apps/__init__.py
 COPY apps/api ./apps/api
 COPY core ./core
 COPY configs ./configs
+# Ops scripts (demo_prep etc.) so `docker compose exec api python scripts/...` works.
+COPY scripts ./scripts
 
 EXPOSE 8000
 # Seed the demo data once (only if the db file doesn't exist yet), then serve.
