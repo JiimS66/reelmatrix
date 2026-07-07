@@ -1,0 +1,18 @@
+{
+  "testId": "edea7789-29ea-4417-9a36-d1c86854cb6b",
+  "status": "blocked",
+  "startedAt": "2026-07-07T01:58:33.847Z",
+  "finishedAt": "2026-07-07T02:00:04.835Z",
+  "videoUrl": "https://testsprite-videos.s3.us-east-1.amazonaws.com/444854c8-7051-70a3-718a-5c15d29bfcec/1783389604439706//tmp/6a230222-5c53-43c5-8e8f-88b46d8d8a80/result.webm",
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_da1a7a99d811287e",
+  "runIdIfAvailable": "c109ae5a-6b74-4561-b60c-2a122b676f81",
+  "codeVersion": "v1",
+  "targetUrl": "http://121.43.99.199:3000",
+  "targetUrlSource": "run",
+  "failedStepIndex": 4,
+  "failureKind": null,
+  "verdict": "blocked",
+  "executionStatus": "completed",
+  "summary": "Blocked before a verdict could be produced: TEST BLOCKED: Result of verification against the USER REQUEST:\n\nSummary: The Results tab for the selected campaign rendered a clear empty-performance state and satisfies the requested assertions.\n\nVerification checklist (each item mapped to evidence visible on the page/screenshot):\n1) Results tab renders (not blank / not an error / not stuck loading): PASS — the Results view content is visible (metric tiles, banner, empty-state card, and explanatory s…"
+}

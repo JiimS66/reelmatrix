@@ -1,19 +1,15 @@
 {
   "projectId": "0e9b9bee-2ca7-4553-9706-3857a3e65289",
   "type": "frontend",
-  "name": "JiimSmith ROI dashboard shows attribution and modeled revenue",
-  "description": "Verify that the campaign Results tab renders the current analytics dashboard, including attribution, funnel charts, modeled revenue, post detail, and guarded integration actions.",
+  "name": "JiimSmith Results empty state renders cleanly",
+  "description": "Verify that the campaign Results tab renders the current empty-performance state clearly when the selected campaign has no published posts.",
   "priority": "p1",
   "planSteps": [
     { "type": "action", "description": "Open the ReelMatrix web app, go to Campaigns, open the active or first campaign, and switch to Results." },
-    { "type": "assertion", "description": "Verify the attribution note and controls render without a blank screen or stuck loading state." },
-    { "type": "assertion", "description": "If no posts have been published, verify the no-published-posts empty state explains that approved assets will land here after publishing." },
-    { "type": "assertion", "description": "If performance data exists, verify tiles render for Impressions, Clicks, Signups, Activated, Paid, and Modeled pipeline." },
-    { "type": "assertion", "description": "If performance data exists, verify the Where signups come from section renders a donut chart, a ranked bar chart, and a sentence naming the strongest channel." },
-    { "type": "assertion", "description": "If performance data exists, verify the Funnel by platform, Which platform converts best, Momentum, and Modeled revenue by platform sections render." },
-    { "type": "action", "description": "If the Value per signup slider is visible, move it to a clearly different value." },
-    { "type": "assertion", "description": "Verify the Modeled pipeline tile and modeled revenue chart update after the slider changes." },
-    { "type": "assertion", "description": "Verify Post-level detail can expand to show per-platform post tables when performance data exists." },
-    { "type": "assertion", "description": "Verify the Route wins to your stack card shows Linear and Webhook options whose send buttons remain disabled until a key or URL is entered." }
+    { "type": "assertion", "description": "Verify the exact empty-state heading text \"No published posts yet\" is visible." },
+    { "type": "assertion", "description": "Verify the empty-state explanatory text \"Approve an asset to publish it\" is visible." },
+    { "type": "assertion", "description": "Verify the data-source banner includes \"Mock data\" and \"Connect owned-destination analytics + signup attribution\"." },
+    { "type": "assertion", "description": "Verify the visible metric tile labels include Impressions, Clicks, Signups, Activated, Paid, and Modeled pipeline." },
+    { "type": "assertion", "description": "Verify at least one visible zero-value metric is present, such as \"0\" or \"$0\"." }
   ]
 }

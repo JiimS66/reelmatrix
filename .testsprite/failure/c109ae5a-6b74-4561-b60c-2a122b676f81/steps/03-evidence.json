@@ -1,0 +1,8 @@
+[
+  {
+    "kind": "snapshot",
+    "stepIndex": 3,
+    "summary": "Step 3 'Click the 'Results' tab in the campaign header to open the Results view' passed.",
+    "path": "steps/03-snapshot.html"
+  }
+]

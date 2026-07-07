@@ -1,0 +1,18 @@
+{
+  "testId": "edea7789-29ea-4417-9a36-d1c86854cb6b",
+  "status": "blocked",
+  "startedAt": "2026-07-07T02:05:56.157Z",
+  "finishedAt": "2026-07-07T02:07:36.698Z",
+  "videoUrl": "https://testsprite-videos.s3.us-east-1.amazonaws.com/444854c8-7051-70a3-718a-5c15d29bfcec/1783390056474988//tmp/f50f2ebb-8b2b-4d3f-a5bf-827968ab98c1/result.webm",
+  "failureAnalysisUrl": null,
+  "snapshotId": "snap_1ad18a80c82235af",
+  "runIdIfAvailable": "a9b4962e-c160-4eb2-9b9d-fa01dc55e2fd",
+  "codeVersion": "v2",
+  "targetUrl": "http://121.43.99.199:3000",
+  "targetUrlSource": "run",
+  "failedStepIndex": 4,
+  "failureKind": null,
+  "verdict": "blocked",
+  "executionStatus": "completed",
+  "summary": "Blocked before a verdict could be produced: TEST BLOCKED: PASS: The Results tab correctly renders a clear empty-performance state for a campaign with no published posts. Observations (all taken from the visible page/screenshot in this session):\n\n- The Results UI rendered successfully (no blank screen, no stuck loading spinner, no browser error).\n- A data-source / attribution banner is visible and states: \"Mock data. Connect owned-destination analytics + signup attribution (UTMs) for real conver…"
+}
