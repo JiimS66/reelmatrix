@@ -10,6 +10,7 @@ from configs.settings import AppSettings
 from core.db.engine import get_session, init_db
 from core.db.models import Member
 from core.db.seed import seed_testsprite
+from core.llm.base import BaseLLMClient, LLMProviderError
 
 BRIEF = {
     "product_name": "TestSprite",
@@ -370,6 +371,37 @@ def test_strategy_loop_iterates_and_folds_in_feedback() -> None:
         json={"done": True},
     )
     assert done.json()["status"] == "done"
+
+
+class _FailingStrategyClient(BaseLLMClient):
+    async def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        raise LLMProviderError("provider unavailable")
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        raise LLMProviderError("provider unavailable")
+
+
+def test_strategy_session_provider_failure_returns_502(monkeypatch) -> None:
+    app, members = _build()
+    adam = members["Adam (Lead)"]
+
+    from apps.api.services import team_service
+
+    monkeypatch.setattr(
+        team_service,
+        "default_client_for_provider",
+        lambda provider: _FailingStrategyClient(),
+    )
+    response = _req(
+        app,
+        "POST",
+        "/api/v1/team/strategy/sessions",
+        adam,
+        json={"inputs": [{"type": "idea", "value": "AI testing tool"}]},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "The configured LLM provider request failed."
 
 
 def test_strategy_handoff_drafts_first_content_and_is_idempotent() -> None:

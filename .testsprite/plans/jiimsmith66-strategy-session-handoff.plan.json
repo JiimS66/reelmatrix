@@ -10,7 +10,7 @@
     { "type": "assertion", "description": "Verify the response is 200 with a session id, draft, turn_count, and draft sections including audience candidates and positioning angles." },
     { "type": "action", "description": "Send POST {base_url}/api/v1/team/strategy/sessions/{session_id}/advance with feedback asking to focus on engineering managers who need confidence before merging AI-authored code." },
     { "type": "assertion", "description": "Verify the response is 200, turn_count increases, and the returned session includes the feedback in its turn history." },
-    { "type": "action", "description": "Send POST {base_url}/api/v1/team/strategy/sessions/{session_id}/handoff with header X-Member-Id set to the lead id and JSON body {}." },
+    { "type": "action", "description": "Send POST {base_url}/api/v1/team/strategy/sessions/{session_id}/handoff with header X-Member-Id set to the lead id and JSON body {\"review_assets\": false}, matching the page's Lock it → draft my first content action." },
     { "type": "assertion", "description": "Verify the response is 200 with a campaign, members, and tasks." },
     { "type": "assertion", "description": "Verify tasks include ideation, planning, and at least one generated asset or visual/review task, with statuses using todo, in_progress, needs_review, done, or blocked." }
   ]

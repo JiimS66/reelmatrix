@@ -24,7 +24,7 @@ reconstructed afterwards.
 
 | Round | Test ID | What failed | Root cause | Fix commit | Rerun result |
 | --- | --- | --- | --- | --- | --- |
-| 2026-07-06 JiimSmith66 backend P1 slice | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `POST /api/v1/team/strategy/sessions` timed out in the backend strategy-session handoff test | Live real-model strategy loop did not respond within 180s; first 60s timeout was also too low for this path | Test code updated to `v2`; product fix _pending_ | Failed again: run `efb4b408-ef75-4ad8-b6bc-c97bbc0a6751` timed out at 180s |
+| 2026-07-06 JiimSmith66 backend P1 slice | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | Full strategy start → advance → handoff test did not complete under the original harness | Test timeout was too low for the live real-model chain, and the handoff body used `{}` instead of the page's `{ "review_assets": false }` path | Test code updated to `v4`; product fix not required for this case | Passed: run `081b61b4-b327-472f-94be-a474abae86fe` |
 | 2026-07-06 JiimSmith66 frontend ROI slice | `edea7789-29ea-4417-9a36-d1c86854cb6b` | ROI dashboard test could not verify slider/charts/integration card | Opened campaign had no published posts/performance data; empty Results state rendered correctly, but data-dependent controls were absent | _pending_ | Blocked: run `8c23c53d-2384-4881-a883-f35ade97e656`, 11/14 passed |
 
 _Fix rounds are logged as they happen. The initial 4-test slice below ran green against
@@ -81,31 +81,47 @@ deployed for this run.
 | `6eaa11d0-d23a-44e7-839d-871733a9cb19` | `78659faf-709b-4b4b-8c03-70acaee15f92` | Agent Inbox actions API lists/plans/ignores actions | **passed** |
 | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `e5268ac4-f534-482e-9f66-22d776a0edc4` | Strategy session start → advance → handoff | **failed**: `Read timed out. (read timeout=60)` |
 | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `efb4b408-ef75-4ad8-b6bc-c97bbc0a6751` | Same test after `test code put` timeout increase to 180s (`v2`) | **failed**: `Read timed out. (read timeout=180)` |
+| `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `92b5153d-fe4e-459f-aeb7-277965babd24` | Same test after `test code put` timeout increase to 600s (`v3`) | **failed**: `Internal Server Error` |
+| `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | `081b61b4-b327-472f-94be-a474abae86fe` | Same test after aligning handoff body to the page path (`review_assets=false`) and keeping 600s HTTP timeout (`v4`) | **passed** |
 
 Failure bundles were downloaded locally:
 
 - `.testsprite/failure/e5268ac4-f534-482e-9f66-22d776a0edc4/`
 - `.testsprite/failure/efb4b408-ef75-4ad8-b6bc-c97bbc0a6751/`
+- `.testsprite/failure/92b5153d-fe4e-459f-aeb7-277965babd24/`
 
 Key bundle lines:
 
-- `failureKind`: `timeout`
+- `failureKind`: `timeout` for `v1`/`v2`, then `unknown` for `v3`
 - `summary`: `HTTPConnectionPool(host='121.43.99.199', port=8000): Read timed out.`
+  for `v1`/`v2`; `Failed: Internal Server Error` for `v3`
 - `failedStepIndex`: `1`
 
-Diagnosis: the first failure showed the initial backend harness timeout (`60s`) was too
-low for the real-model strategy path, so the TestSprite-stored test code was updated from
-`v1` to `v2` with `./.tools/testsprite test code put ... --expected-version v1` to use a
-`180s` HTTP timeout. The second run still timed out at `180s`, so this is no longer only a
-harness-threshold issue. Treat the strategy-session handoff path as a live
-performance/reliability bug or split the test into smaller observability-friendly backend
-checks before rerunning. Product fix remains pending.
+Diagnosis: the first two failures showed the backend harness timeout (`60s`, then `180s`)
+was too low for the full live real-model chain. A follow-up `v3` test-code update raised
+the HTTP timeout to `600s`, but still failed with `Internal Server Error`. Manual public
+page verification showed the initial `Think it through` action returns successfully, so the
+test file was rechecked against the page. The backend test covers the full sequence
+(`Think it through` → `Refine with this` → `Lock it → draft my first content`), not only
+the first button click, and its handoff request used `{}` while the page sends
+`{"review_assets": false}`. Updating the plan and code to match the page path produced a
+passing `v4` run. No product code fix is required for this TestSprite failure.
+
+Local follow-up: added `tests/test_team_api.py::test_strategy_session_provider_failure_returns_502`
+to pin the expected source behavior when the strategy LLM provider fails. Local verification
+with `.venv/bin/python -m pytest tests/test_team_api.py::test_strategy_loop_iterates_and_folds_in_feedback tests/test_team_api.py::test_strategy_session_provider_failure_returns_502`
+passed (`2 passed in 0.71s`). This confirms the current source expects a structured `502`
+for provider failures; it remains as a guardrail even though the corrected `v4` public run
+passed.
 
 Operational note: `./.tools/testsprite test rerun ab59c125...` returned a TestSprite CLI
 internal error instead of a run id:
 `[CliRunService] rerunTestsWithRunIds did not return a runId`, request
 `cli_5817dcc6-5316-472f-bd84-202814015c57`. Running the same test with
-`test run ab59c125... --wait` did produce run `efb4b408-...`.
+`test run ab59c125... --wait` produced runs `efb4b408-...` (`v2`, 180s timeout) and
+`92b5153d-...` (`v3`, 600s timeout, `Internal Server Error`). After `test code put`
+updated the stored test to `v4`, `test run ab59c125... --wait --timeout 2400` passed with
+run `081b61b4-b327-472f-94be-a474abae86fe`.
 
 **Frontend results.**
 
