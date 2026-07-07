@@ -24,7 +24,7 @@ reconstructed afterwards.
 
 | Round | Test ID | What failed | Root cause | Fix commit | Rerun result |
 | --- | --- | --- | --- | --- | --- |
-| 2026-07-06 JiimSmith66 backend P1 slice | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | Full strategy start → advance → handoff test did not complete under the original harness | Test timeout was too low for the live real-model chain, and the handoff body used `{}` instead of the page's `{ "review_assets": false }` path | Test code updated to `v4`; product fix not required for this case | Passed: run `081b61b4-b327-472f-94be-a474abae86fe` |
+| 2026-07-06 JiimSmith66 backend P1 slice | `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | Full strategy start → advance → handoff test did not complete under the original harness | Test timeout was too low for the live real-model chain, and the handoff body used `{}` instead of the page's `{ "review_assets": false }` path | `a89a60f` (`TestSprite` stored test code `v4`; no app deploy required) | Passed: run `081b61b4-b327-472f-94be-a474abae86fe` |
 | 2026-07-06 JiimSmith66 frontend ROI slice | `edea7789-29ea-4417-9a36-d1c86854cb6b` | ROI dashboard test could not verify slider/charts/integration card | Opened campaign had no published posts/performance data; empty Results state rendered correctly, but data-dependent controls were absent | _pending_ | Blocked: run `8c23c53d-2384-4881-a883-f35ade97e656`, 11/14 passed |
 
 _Fix rounds are logged as they happen. The initial 4-test slice below ran green against
@@ -106,6 +106,9 @@ test file was rechecked against the page. The backend test covers the full seque
 the first button click, and its handoff request used `{}` while the page sends
 `{"review_assets": false}`. Updating the plan and code to match the page path produced a
 passing `v4` run. No product code fix is required for this TestSprite failure.
+Because this was a TestSprite stored-test fix, not an app-code fix, `/health` stayed on
+live commit `c78da74`; the repo evidence and corrected plan/test script were committed in
+`a89a60f`.
 
 Local follow-up: added `tests/test_team_api.py::test_strategy_session_provider_failure_returns_502`
 to pin the expected source behavior when the strategy LLM provider fails. Local verification
@@ -166,7 +169,38 @@ not included in the results table above.
 
 ## Final suite
 
-_(full `testsprite test list` output + pass rate at submission time)_
+Snapshot from `./.tools/testsprite test list --project <id> --max-items 100 --output json`
+on 2026-07-07 after commit `a89a60f`.
+
+| Project | Project ID | Total | Passed | Blocked | Failed | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Backend `reelmatrix-api` | `364babc2-b2b6-43e8-a6b2-4edd5f535e07` | 5 | 5 | 0 | 0 | All JiimSmith66 backend P1 tests passed after strategy handoff `v4` |
+| Frontend `ReelMatrix` | `0e9b9bee-2ca7-4553-9706-3857a3e65289` | 9 | 8 | 1 | 0 | ROI dashboard remains blocked by fixture/data mismatch |
+| **Combined** | — | **14** | **13** | **1** | **0** | **92.9% passed; no failed tests remain** |
+
+**Backend tests.**
+
+| Test ID | Name | Status |
+| --- | --- | --- |
+| `f651cb95-9f89-4d6a-a317-3879bda92455` | JiimSmith66 health deploy marker and model catalog | passed |
+| `8277b662-96ce-4e8d-8b20-cfa030530bca` | JiimSmith66 Team API rejects invalid input with 4xx | passed |
+| `04c3f4f6-7bd8-4e83-abfa-c7dc9f0e5675` | JiimSmith66 integrations dispatch guards return clean 4xx | passed |
+| `6eaa11d0-d23a-44e7-839d-871733a9cb19` | JiimSmith66 Agent Inbox actions API proposes and updates next moves | passed |
+| `ab59c125-e7de-4ad6-9702-4f5a4bb0e806` | JiimSmith66 strategy session advances and hands off to a campaign board | passed |
+
+**Frontend tests.**
+
+| Test ID | Name | Status |
+| --- | --- | --- |
+| `4d942a1b-0d8d-4177-9c38-2893d78e274c` | Homepage smoke test | passed |
+| `689a49a2-dff9-475d-a659-78a8004f87b7` | Strategy handoff drafts first content | passed |
+| `71fb3885-5808-4e6f-a6cf-3b62d324195f` | Home workspace smoke test | passed |
+| `9f965700-bad2-46e7-9dcc-55002d48e2de` | JiimSmith Home desk and object-centric navigation | passed |
+| `bc481c1d-50a8-4cf7-bf0d-3f78bfe096c3` | JiimSmith campaign board shows the pipeline kanban | passed |
+| `4e7a733c-eccb-4551-b299-9be3bca1401b` | Team view shows org, fleet, and governance | passed |
+| `aac6a03d-1c97-4b74-a66d-2594c0e0c443` | JiimSmith Agent Inbox plans and manages next moves | passed |
+| `d1f84bd8-a76b-4747-965d-338f9471d685` | Results view shows analytics and guarded publishing controls | passed |
+| `edea7789-29ea-4417-9a36-d1c86854cb6b` | JiimSmith ROI dashboard shows attribution and modeled revenue | blocked |
 
 ## Artifacts
 
