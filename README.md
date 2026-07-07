@@ -19,6 +19,7 @@
 | --- | --- | --- |
 | Pengcheng Lu | [pengchenglu1997](https://github.com/pengchenglu1997) | `davidlu97` |
 | Taixin Zhang | [HarryZ66](https://github.com/HarryZ66) | `harryzhang2595` |
+| Ziyu Zhou | [JiimS66](https://github.com/JiimS66) | `ziy33_` |
 
 ---
 
