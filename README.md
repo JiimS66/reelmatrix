@@ -10,7 +10,7 @@
 
 **Built for TestSprite Hackathon Season 3 — "Build the Loop."**
 
-**Live demo:** http://121.43.99.199:3000 · API http://121.43.99.199:8000 ([`/health`](http://121.43.99.199:8000/health) reports the deployed commit)
+**Live demo:** https://reelmatrix.vercel.app (mirror of http://121.43.99.199:3000) · API http://121.43.99.199:8000 ([`/health`](https://reelmatrix.vercel.app/health) reports the deployed commit)
 **Demo script:** [DEMO.md](DEMO.md) · **TestSprite fail→fix→rerun log:** [LOOP.md](LOOP.md) · **Team handbook (中文):** [docs/team-handbook.md](docs/team-handbook.md)
 
 ### Team
