@@ -223,6 +223,52 @@ def test_posts_render_from_the_shared_core() -> None:
         assert core and core in asset.output["content"]
 
 
+class _EmailFlakyClient(BaseLLMClient):
+    """Healthy except when drafting the Email post — one flaky worker in the round
+    (a provider timeout / rate limit under load)."""
+
+    def __init__(self) -> None:
+        self._mock = MockLLMClient()
+
+    async def generate_text(self, *, system_prompt: str, user_prompt: str) -> str:
+        return await self._mock.generate_text(
+            system_prompt=system_prompt, user_prompt=user_prompt
+        )
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        if (
+            response_model.__name__ == "CampaignAsset"
+            and json.loads(user_prompt).get("channel") == "Email"
+        ):
+            raise LLMProviderError("email worker hiccup")
+        return await self._mock.generate_structured(
+            system_prompt=system_prompt, user_prompt=user_prompt, response_model=response_model
+        )
+
+
+def test_one_flaky_worker_does_not_void_the_round() -> None:
+    """A single failing render must not 500 the whole run: siblings keep their
+    work, the failed task reverts to TODO for a retry, nothing loops forever."""
+    session, campaign_id = _setup()
+    runner = TaskRunner(session, client_for_provider=lambda provider: _EmailFlakyClient())
+
+    ran = asyncio.run(runner.run_ready_tasks(campaign_id))  # must NOT raise
+
+    tasks = session.exec(select(Task).where(Task.campaign_id == campaign_id)).all()
+    by_title = {t.title: t for t in tasks}
+    linkedin = by_title["LinkedIn post"]
+    email = by_title["Email post"]
+    # The healthy sibling's work is kept…
+    assert linkedin.status == TaskStatus.DONE
+    assert linkedin.output is not None
+    assert linkedin.id in ran
+    # …the flaky one is reverted for a later retry, tried exactly once.
+    assert email.status == TaskStatus.TODO
+    assert email.output is None
+    events = session.exec(select(TaskEvent).where(TaskEvent.task_id == email.id)).all()
+    assert any(e.payload and "error" in e.payload for e in events)
+
+
 def test_run_task_error_reverts_to_todo_and_audits() -> None:
     session, campaign_id = _setup()
     runner = TaskRunner(session, client_for_provider=lambda provider: _FailingClient())

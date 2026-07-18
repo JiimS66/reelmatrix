@@ -429,10 +429,18 @@ class TaskRunner:
     async def run_ready_tasks(self, campaign_id: str) -> list[str]:
         """Run every currently-ready AI task. Independent tasks (e.g. the per-channel
         posts once the plan's core is locked) render concurrently; persistence stays
-        serial on the single session."""
+        serial on the single session.
+
+        Resilient by design: one flaky worker (a provider timeout, a rate limit) must
+        not void the round. The failed task is reverted to TODO for a later retry and
+        its SIBLINGS' work is kept; each task gets one attempt per call so a failure
+        can't spin the loop. Only a round with zero successes surfaces the error."""
         ran: list[str] = []
+        failed: dict[str, BaseException] = {}
         while True:
-            ready = self._ready_ai_tasks(campaign_id)
+            ready = [
+                t for t in self._ready_ai_tasks(campaign_id) if t.id not in failed
+            ]
             if not ready:
                 break
             rendered = await asyncio.gather(
@@ -440,13 +448,16 @@ class TaskRunner:
             )
             for task, result in zip(ready, rendered):
                 if isinstance(result, BaseException):
+                    failed[task.id] = result
                     self._revert_failed(task, result)
                     self._session.commit()
-                    raise result
+                    continue
                 if result is not None:
                     self._persist(task, result)
                     ran.append(task.id)
                 self._session.commit()
+        if failed and not ran:
+            raise next(iter(failed.values()))
         return ran
 
     def _campaign_tasks(self, campaign_id: str) -> list[Task]:
